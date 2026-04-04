@@ -8,69 +8,20 @@
 
 import json
 import re
-import ssl
 import time
 import random
-import urllib.request
-import urllib.error
 from pathlib import Path
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 
 from .config import CONFIG_DIR, OUTPUT_DIR, WORKSPACE_DIR, ensure_dirs
-
-
-TIMEOUT = 15
-MAX_RETRIES = 2
+from .http import fetch_url_with_retry
 
 
 # ============================================================
 # 小宇宙 URL 解析
 # ============================================================
-
-def _create_ssl_context(relaxed=False):
-    if relaxed:
-        ctx = ssl.create_default_context()
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-    return ssl.create_default_context()
-
-
-def _fetch_url(url, max_retries=MAX_RETRIES):
-    """获取 URL 内容（带 SSL 降级重试）"""
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-        'Accept': 'text/html, */*'
-    }
-    last_error = None
-    for attempt in range(max_retries + 1):
-        try:
-            use_relaxed = attempt > 0 and last_error and 'SSL' in str(last_error)
-            ctx = _create_ssl_context(relaxed=use_relaxed)
-            req = urllib.request.Request(url, headers=headers)
-            with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as response:
-                content = response.read()
-                for encoding in ['utf-8', 'gbk', 'gb2312']:
-                    try:
-                        return content.decode(encoding)
-                    except (UnicodeDecodeError, LookupError):
-                        continue
-                return content.decode('utf-8', errors='replace')
-        except urllib.error.HTTPError as e:
-            last_error = e
-            if e.code >= 500 and attempt < max_retries:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
-                continue
-            raise
-        except (urllib.error.URLError, OSError) as e:
-            last_error = e
-            if attempt < max_retries:
-                time.sleep((2 ** attempt) + random.uniform(0, 1))
-                continue
-            raise
-    raise last_error
 
 
 def _parse_xiaoyuzhou_episodes(html_content):
@@ -162,8 +113,14 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
         if not xyz_url:
             return 0, len(indices)
         try:
-            html = _fetch_url(xyz_url)
-            episodes = _parse_xiaoyuzhou_episodes(html)
+            body, status, _ = fetch_url_with_retry(
+                xyz_url,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36', 'Accept': 'text/html, */*'},
+                timeout=15,
+            )
+            if body is None:
+                return 0, len(indices)
+            episodes = _parse_xiaoyuzhou_episodes(body)
             if not episodes:
                 return 0, len(indices)
             res, fail = 0, 0
