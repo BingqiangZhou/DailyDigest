@@ -67,7 +67,7 @@
         },
         {
           "name": "新智元",
-          "url": "https://www.baai.ac.cn/rss/",
+          "url": "https://plink.anyfeeder.com/weixin/AI_era",
           "language": "zh",
           "priority": 1
         },
@@ -276,18 +276,6 @@
           "priority": 2
         },
         {
-          "name": "百川智能",
-          "url": "https://www.baichuan-ai.com/blog/feed.xml",
-          "language": "zh",
-          "priority": 2
-        },
-        {
-          "name": "零一万物",
-          "url": "https://www.01.ai/blog/feed.xml",
-          "language": "zh",
-          "priority": 2
-        },
-        {
           "name": "AI Ethics Lab",
           "url": "https://aiethicslab.com/feed/",
           "language": "en",
@@ -302,12 +290,6 @@
         {
           "name": "AI21 Labs Blog",
           "url": "https://www.ai21.com/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "Analytics Vidhya",
-          "url": "https://medium.com/feed/analytics-vidhya",
           "language": "en",
           "priority": 3
         },
@@ -330,12 +312,6 @@
           "priority": 3
         },
         {
-          "name": "Cohere Blog",
-          "url": "https://cohere.com/blog/rss.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
           "name": "Google Cloud AI",
           "url": "https://cloud.google.com/blog/products/ai-machine-learning/feed",
           "language": "en",
@@ -348,20 +324,8 @@
           "priority": 3
         },
         {
-          "name": "Inflection AI",
-          "url": "https://inflection.ai/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
           "name": "Intel AI Blog",
           "url": "https://www.intel.com/content/www/us/en/newsroom/feed/rss.html",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "Machine Learning Mastery",
-          "url": "https://machinelearningmastery.com/feed/",
           "language": "en",
           "priority": 3
         },
@@ -450,8 +414,32 @@
           "priority": 2
         },
         {
+          "name": "VentureBeat AI",
+          "url": "https://venturebeat.com/category/ai/feed/",
+          "language": "en",
+          "priority": 2
+        },
+        {
           "name": "Cohere Blog",
           "url": "https://cohere.com/blog/rss.xml",
+          "language": "en",
+          "priority": 3
+        },
+        {
+          "name": "Perplexity Blog",
+          "url": "https://www.perplexity.ai/blog/feed.xml",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "AI2 Blog",
+          "url": "https://allenai.org/blog/feed.xml",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "EleutherAI Blog",
+          "url": "https://blog.eleuther.ai/feed.xml",
           "language": "en",
           "priority": 2
         }
@@ -470,12 +458,6 @@
         {
           "name": "Benedict Evans",
           "url": "https://www.ben-evans.com/newsletter/feed",
-          "language": "en",
-          "priority": 1
-        },
-        {
-          "name": "Hacker News",
-          "url": "https://news.ycombinator.com/rss",
           "language": "en",
           "priority": 1
         },
@@ -548,12 +530,6 @@
         {
           "name": "BBC Tech",
           "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
-          "language": "en",
-          "priority": 2
-        },
-        {
-          "name": "Bloomberg Technology",
-          "url": "https://feeds.bloomberg.com/markets/technology.rss",
           "language": "en",
           "priority": 2
         },
@@ -768,18 +744,6 @@
           "priority": 3
         },
         {
-          "name": "CSDN AI",
-          "url": "https://blog.csdn.net/rss.html",
-          "language": "zh",
-          "priority": 3
-        },
-        {
-          "name": "Cloudflare Blog",
-          "url": "https://blog.cloudflare.com/rss/",
-          "language": "en",
-          "priority": 3
-        },
-        {
           "name": "Dev.to",
           "url": "https://dev.to/feed/",
           "language": "en",
@@ -794,12 +758,6 @@
         {
           "name": "GitLab Blog",
           "url": "https://about.gitlab.com/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "Hacker Noon",
-          "url": "https://hackernoon.com/feed",
           "language": "en",
           "priority": 3
         },
@@ -888,32 +846,8 @@
           "priority": 3
         },
         {
-          "name": "开源中国头条",
-          "url": "https://www.oschina.net/news/industry",
-          "language": "zh",
-          "priority": 3
-        },
-        {
-          "name": "思否 SegmentFault",
-          "url": "https://segmentfault.com/blogs",
-          "language": "zh",
-          "priority": 3
-        },
-        {
           "name": "掘金",
           "url": "https://rsshub.app/juejin/trending/weekly",
-          "language": "zh",
-          "priority": 3
-        },
-        {
-          "name": "极客时间",
-          "url": "https://time.geekbang.org/feed",
-          "language": "zh",
-          "priority": 3
-        },
-        {
-          "name": "科学松鼠会",
-          "url": "https://songshuhui.net/feed",
           "language": "zh",
           "priority": 3
         },
@@ -936,12 +870,6 @@
           "priority": 2
         },
         {
-          "name": "Bloomberg AI",
-          "url": "https://feeds.bloomberg.com/markets/technology.rss",
-          "language": "en",
-          "priority": 2
-        },
-        {
           "name": "Lobsters",
           "url": "https://lobste.rs/rss",
           "language": "en",
@@ -956,6 +884,24 @@
         {
           "name": "Indie Hackers",
           "url": "https://www.indiehackers.com/feed",
+          "language": "en",
+          "priority": 3
+        },
+        {
+          "name": "Stripe Blog",
+          "url": "https://stripe.com/blog/feed.rss",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Discord Engineering",
+          "url": "https://discord.com/blog/rss.xml",
+          "language": "en",
+          "priority": 3
+        },
+        {
+          "name": "Shopify Engineering",
+          "url": "https://shopify.engineering/feed.xml",
           "language": "en",
           "priority": 3
         }
@@ -1017,7 +963,7 @@
           "name": "Product Hunt",
           "url": "https://www.producthunt.com/feed",
           "language": "en",
-          "priority": 2
+          "priority": 3
         },
         {
           "name": "Product Hunt (AI)",
@@ -1044,48 +990,6 @@
           "priority": 2
         },
         {
-          "name": "There's An AI For That",
-          "url": "https://theresanaiforthat.com/feed/",
-          "language": "en",
-          "priority": 2
-        },
-        {
-          "name": "VentureBeat AI",
-          "url": "https://venturebeat.com/category/ai/feed/",
-          "language": "en",
-          "priority": 2
-        },
-        {
-          "name": "AI Tool Directory",
-          "url": "https://www.aitoolsdirectory.com/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "AI Tool Guide",
-          "url": "https://www.aitoolguide.com/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "AI Tool Hunt",
-          "url": "https://aitoolhunt.com/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "AI Valley",
-          "url": "https://aivalley.ai/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "AI Valley News",
-          "url": "https://aivalley.ai/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
           "name": "AI Weekly",
           "url": "https://www.aiweekly.org/feed",
           "language": "en",
@@ -1098,38 +1002,14 @@
           "priority": 3
         },
         {
-          "name": "AI写作工具",
-          "url": "https://www.aiwriting.net/feed",
-          "language": "zh",
-          "priority": 3
-        },
-        {
           "name": "Anyscale Blog",
           "url": "https://www.anyscale.com/blog/feed.xml",
           "language": "en",
           "priority": 3
         },
         {
-          "name": "ChatGPT工具导航",
-          "url": "https://www.chatgptzu.com/feed",
-          "language": "zh",
-          "priority": 3
-        },
-        {
           "name": "CrewAI Blog",
           "url": "https://www.crewai.com/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "Every AI",
-          "url": "https://every-ai.com/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "FutureTools",
-          "url": "https://www.futuretools.io/feed",
           "language": "en",
           "priority": 3
         },
@@ -1184,42 +1064,6 @@
         {
           "name": "Runway Blog",
           "url": "https://runwayml.com/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "SaaS AI Tools",
-          "url": "https://www.saashub.com/blog/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "SoraLand",
-          "url": "https://soraland.ai/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "Supabase Blog",
-          "url": "https://supabase.com/blog/feed.xml",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "ToolFinder",
-          "url": "https://www.toolfinder.co/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "TopAI.tools",
-          "url": "https://topai.tools/feed",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "Vercel Blog",
-          "url": "https://vercel.com/blog/feed.xml",
           "language": "en",
           "priority": 3
         },
@@ -1338,12 +1182,6 @@
           "priority": 2
         },
         {
-          "name": "Tom's Hardware",
-          "url": "https://www.tomshardware.com/feeds/all",
-          "language": "en",
-          "priority": 2
-        },
-        {
           "name": "Zealer",
           "url": "https://www.zealer.com/rss",
           "language": "zh",
@@ -1370,12 +1208,6 @@
         {
           "name": "9to5Mac",
           "url": "https://9to5mac.com/feed/",
-          "language": "en",
-          "priority": 3
-        },
-        {
-          "name": "AppleInsider Deals",
-          "url": "https://appleinsider.com/rss/deals",
           "language": "en",
           "priority": 3
         },
@@ -1468,12 +1300,6 @@
           "url": "https://www.imore.com/rss",
           "language": "en",
           "priority": 3
-        },
-        {
-          "name": "充电头网",
-          "url": "https://www.chongdiantou.com/feed",
-          "language": "zh",
-          "priority": 3
         }
       ]
     },
@@ -1482,19 +1308,13 @@
       "display": "🔧 芯片硬件",
       "feeds": [
         {
-          "name": "AnandTech",
-          "url": "https://www.anandtech.com/rss/",
-          "language": "en",
-          "priority": 2
-        },
-        {
           "name": "Tom's Hardware",
           "url": "https://www.tomshardware.com/feeds/all",
           "language": "en",
           "priority": 2
         },
         {
-          "name": "AnandTech (已关停，替代)",
+          "name": "ChipsAndCheese",
           "url": "https://www.chipsandcheese.com/feed/",
           "language": "en",
           "priority": 2
@@ -1558,6 +1378,12 @@
           "url": "https://fly.io/blog/feed.xml",
           "language": "en",
           "priority": 3
+        },
+        {
+          "name": "Scale AI Blog",
+          "url": "https://scale.com/blog/feed.xml",
+          "language": "en",
+          "priority": 2
         }
       ]
     },
@@ -1588,6 +1414,12 @@
           "url": "https://opensource.org/feed",
           "language": "en",
           "priority": 3
+        },
+        {
+          "name": "CNCF Blog",
+          "url": "https://www.cncf.io/feed/",
+          "language": "en",
+          "priority": 2
         }
       ]
     },
@@ -1610,6 +1442,18 @@
         {
           "name": "The Hacker News",
           "url": "https://feeds.feedburner.com/TheHackersNews",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "BleepingComputer",
+          "url": "https://www.bleepingcomputer.com/feed/",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "The Record",
+          "url": "https://therecord.media/feed",
           "language": "en",
           "priority": 2
         }
@@ -1707,12 +1551,6 @@
           "name": "The Intercept",
           "url": "https://theintercept.com/feed/?lang=en",
           "language": "en",
-          "priority": 2
-        },
-        {
-          "name": "华尔街见闻",
-          "url": "https://wallstreetcn.com/news/global",
-          "language": "zh",
           "priority": 2
         },
         {

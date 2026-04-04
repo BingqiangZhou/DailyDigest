@@ -179,15 +179,19 @@ def generate_podcast_report(updates, ai_summaries=None, metadata=None):
     time_str = now.strftime('%H:%M')
 
     lines = [
-        f'# 播客更新汇总 - {date_str} {time_str}',
+        f'# 播客更新汇总 — {date_str} {time_str}',
         '',
-        f'> 共检查 {metadata.get("checked_count", 0)} 个播客，'
-        f'时间范围 {metadata.get("hours", 24)} 小时，'
-        f'发现 {metadata.get("update_count", len(updates))} 个更新',
+        f'> 🎙️ 共检查 {metadata.get("checked_count", 0)} 个播客'
+        f' · {metadata.get("hours", 24)}h 窗口'
+        f' · 发现 {metadata.get("update_count", len(updates))} 个更新',
         '',
         '---',
         ''
     ]
+
+    # 表格格式
+    lines.append('| # | 节目 | 播客 | 排名 | 摘要 |')
+    lines.append('|---:|------|------|------|------|')
 
     for i, update in enumerate(updates, 1):
         podcast_name = update.source
@@ -208,11 +212,12 @@ def generate_podcast_report(updates, ai_summaries=None, metadata=None):
         if '?utm_source=' in podcast_url:
             podcast_url = podcast_url.split('?utm_source=')[0]
 
-        rank_tag = f" · 排名 #{rank}" if rank > 0 else ""
-        lines.append(f'{i}. **[{title}]({display_url})**')
-        lines.append(f'   🎙️ [{podcast_name}]({podcast_url}){rank_tag}')
-        if summary:
-            lines.append(f'   > {summary}')
+        rank_str = f"#{rank}" if rank > 0 else "-"
+        title_cell = f"[**{title}**]({display_url})".replace("|", "\\|")
+        podcast_cell = f"[{podcast_name}]({podcast_url})".replace("|", "\\|")
+        summary_cell = summary.replace("|", "\\|").replace("\n", " ")
+
+        lines.append(f"| {i} | {title_cell} | {podcast_cell} | {rank_str} | {summary_cell} |")
 
     lines.append('')
 

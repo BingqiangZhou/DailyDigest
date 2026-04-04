@@ -269,11 +269,11 @@ def generate_wechat_report(updates, ai_summaries=None, metadata=None):
     report_time = now.strftime('%Y-%m-%d %H:%M')
 
     lines = [
-        f'# 微信公众号更新汇总 - {report_time}',
+        f'# 微信公众号更新汇总 — {report_time}',
         '',
-        f'> 共检查 {metadata.get("checked_count", 0)} 个公众号，'
-        f'时间范围 {metadata.get("hours", 24)} 小时，'
-        f'发现 {metadata.get("update_count", len(updates))} 条更新',
+        f'> 📱 共检查 {metadata.get("checked_count", 0)} 个公众号'
+        f' · {metadata.get("hours", 24)}h 窗口'
+        f' · 发现 {metadata.get("update_count", len(updates))} 条更新',
         '',
         '---',
         ''
@@ -298,22 +298,31 @@ def generate_wechat_report(updates, ai_summaries=None, metadata=None):
         lines.append(f'## {cat_display} ({len(cat_updates)} 条)')
         lines.append('')
 
+        # 表格格式
+        lines.append('| # | 文章 | 公众号 | 摘要 |')
+        lines.append('|---:|------|--------|------|')
+
         for update in cat_updates:
             article_index += 1
             account_name = update.source
             article_title = update.title
             article_url = update.url
-            pub_date = update.published
             summary_text = update.description
 
             ai_summary = ai_summaries.get(article_url, '')
 
-            lines.append(f'- **[{article_title}]({article_url})** · *{account_name}*')
+            title_cell = f"[**{article_title}**]({article_url})".replace("|", "\\|")
+            account_cell = f"*{account_name}*".replace("|", "\\|")
+
             if ai_summary:
-                lines.append(f'  > {ai_summary}')
+                summary_cell = ai_summary.replace("|", "\\|").replace("\n", " ")
             elif summary_text:
                 fallback = summary_text[:150] + ('...' if len(summary_text) > 150 else '')
-                lines.append(f'  > {fallback}')
+                summary_cell = fallback.replace("|", "\\|").replace("\n", " ")
+            else:
+                summary_cell = ""
+
+            lines.append(f"| {article_index} | {title_cell} | {account_cell} | {summary_cell} |")
 
         lines.append('')
 

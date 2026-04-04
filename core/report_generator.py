@@ -17,6 +17,21 @@ from .config import (
 )
 
 
+def _escape_pipe(text):
+    """Escape pipe characters for use in Markdown tables."""
+    return text.replace("|", "\\|").replace("\n", " ")
+
+
+def _article_table_row(index, title, url, source, summary=""):
+    """Build a single article row for a Markdown table."""
+    title_cell = f"[**{_escape_pipe(title)}**]({_escape_pipe(url)})"
+    source_cell = f"*{_escape_pipe(source)}*"
+    if summary:
+        summary_cell = _escape_pipe(summary)
+        return f"| {index} | {title_cell} | {source_cell} | {summary_cell} |"
+    return f"| {index} | {title_cell} | {source_cell} |"
+
+
 def generate_tech_report(updates, summary_map=None, trend_insight=None,
                          executive_summary=None, category_results=None,
                          stats=None, report_language="zh"):
@@ -46,19 +61,17 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
 
     if category_results:
         # ---- API 模式：基于 AI 分类摘要渲染 ----
-        # 头部
+        total_articles = (stats or {}).get("total_articles", 0)
+        total_categories = len(category_results)
+
         if report_language == "zh":
-            lines.append(f"# AI 科技日报 - {report_date}")
+            lines.append(f"# AI 科技日报 — {report_date}")
             lines.append("")
-            total_articles = (stats or {}).get("total_articles", 0)
-            total_categories = len(category_results)
-            lines.append(f"> 📰 {total_articles} 篇文章 | 📁 {total_categories} 个分类 | 🤖 AI 智能摘要")
+            lines.append(f"> 📰 {total_articles} 篇文章 · {total_categories} 个分类 · 🤖 AI 智能摘要")
         else:
-            lines.append(f"# AI Tech Daily - {report_date}")
+            lines.append(f"# AI Tech Daily — {report_date}")
             lines.append("")
-            total_articles = (stats or {}).get("total_articles", 0)
-            total_categories = len(category_results)
-            lines.append(f"> 📰 {total_articles} articles | 📁 {total_categories} categories | 🤖 AI-powered")
+            lines.append(f"> 📰 {total_articles} articles · {total_categories} categories · 🤖 AI-powered")
 
         lines.append("")
         lines.append("---")
@@ -79,21 +92,41 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
             name = data.get("name", get_category_display(category))
             summary = data.get("summary", "")
             articles = data.get("articles", [])
+            count = data.get("article_count", 0)
+            count_unit = "篇" if report_language == "zh" else "articles"
 
-            lines.append(f"## {name} ({data.get('article_count', 0)} " + ("篇" if report_language == "zh" else "articles") + ")")
+            lines.append(f"## {name} ({count} {count_unit})")
             lines.append("")
-            lines.append(summary)
-            lines.append("")
+
+            # AI 洞察一行摘要
+            first_para = summary.strip().split("\n\n")[0].strip() if summary else ""
+            if first_para:
+                insight_label = "**AI 洞察**" if report_language == "zh" else "**AI Insight**"
+                lines.append(f"> {insight_label}: {first_para}")
+                lines.append("")
+
+            # Full AI analysis in collapsible details block
+            if summary and len(summary.strip()) > len(first_para):
+                analysis_label = "📊 详细分析 — 点击展开" if report_language == "zh" else "📊 Detailed Analysis — Click to expand"
+                lines.append("<details>")
+                lines.append(f"<summary><strong>{analysis_label}</strong></summary>")
+                lines.append("")
+                lines.append(summary)
+                lines.append("")
+                lines.append("</details>")
+                lines.append("")
+
             lines.append("---")
             lines.append("")
 
-            # 文章列表
-            for article in articles:
-                title = article.title
-                link = article.url
-                source = article.source
-
-                lines.append(f"- [{title}]({link}) · *{source}*")
+            # 文章列表 — 表格格式
+            articles_label = "文章列表" if report_language == "zh" else "Articles"
+            lines.append(f"### {articles_label}")
+            lines.append("")
+            lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} |")
+            lines.append("|---:|------|------|")
+            for i, article in enumerate(articles, 1):
+                lines.append(_article_table_row(i, article.title, article.url, article.source))
 
             lines.append("")
 
@@ -104,22 +137,18 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
     else:
         # ---- Skill 模式：按 article 列表渲染 ----
         summary_map = summary_map or {}
+        checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
+        hours = (stats or {}).get("hours", 24)
+        update_count = len(updates)
 
-        # 头部
         if report_language == "zh":
-            lines.append(f"# AI 科技日报 - {report_date}")
+            lines.append(f"# AI 科技日报 — {report_date}")
             lines.append("")
-            checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
-            hours = (stats or {}).get("hours", 24)
-            update_count = len(updates)
-            lines.append(f"> 共检查 {checked} 个信息源，时间范围 {hours} 小时，发现 {update_count} 条更新")
+            lines.append(f"> 共检查 {checked} 个信息源 · {hours}h 窗口 · 发现 {update_count} 条更新")
         else:
-            lines.append(f"# AI Tech Daily - {report_date}")
+            lines.append(f"# AI Tech Daily — {report_date}")
             lines.append("")
-            checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
-            hours = (stats or {}).get("hours", 24)
-            update_count = len(updates)
-            lines.append(f"> Checked {checked} sources, {hours}h window, found {update_count} updates")
+            lines.append(f"> Checked {checked} sources · {hours}h window · found {update_count} updates")
 
         lines.append("")
         lines.append("---")
@@ -159,59 +188,63 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
             groups[final_cat].append(update)
 
         # 输出各分类
+        count_unit = "条" if report_language == "zh" else "items"
         for cat, cat_updates in groups.items():
             if not cat_updates:
                 continue
 
             cat_display = get_category_display(cat)
-            lines.append(f"## {cat_display} ({len(cat_updates)} " + ("条" if report_language == "zh" else "items") + ")")
+            lines.append(f"## {cat_display} ({len(cat_updates)} {count_unit})")
             lines.append("")
 
-            for update in cat_updates:
-                title = update.title
-                url = update.url
-                source_name = update.source
-                description = update.description
+            # 表格格式
+            has_summary = any(summary_map.get(u.url, {}).get("ai_summary", "") or u.description for u in cat_updates)
+            if has_summary:
+                summary_header = "摘要" if report_language == "zh" else "Summary"
+                lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} | {summary_header} |")
+                lines.append("|---:|------|------|------|")
+            else:
+                lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} |")
+                lines.append("|---:|------|------|")
 
-                ai_info = summary_map.get(url, {})
+            for i, update in enumerate(cat_updates, 1):
+                ai_info = summary_map.get(update.url, {})
                 ai_summary = ai_info.get("ai_summary", "")
-
-                lines.append(f"- **[{title}]({url})** · *{source_name}*")
+                summary_text = ""
                 if ai_summary:
-                    lines.append(f"  > {ai_summary}")
-                elif description:
-                    clean_desc = re.sub(r'<[^>]+>', '', description.strip())
+                    summary_text = ai_summary
+                elif update.description:
+                    clean_desc = re.sub(r'<[^>]+>', '', update.description.strip())
                     if len(clean_desc) > 150:
                         clean_desc = clean_desc[:150] + "..."
-                    lines.append(f"  > {clean_desc}")
+                    summary_text = clean_desc
+                lines.append(_article_table_row(i, update.title, update.url, update.source, summary_text))
 
             lines.append("")
 
         # Hacker News
         if hn_items:
             hn_label = "Hacker News 热门" if report_language == "zh" else "Hacker News Trending"
-            lines.append(f"## {hn_label} ({len(hn_items)} " + ("条" if report_language == "zh" else "items") + ")")
+            lines.append(f"## {hn_label} ({len(hn_items)} {count_unit})")
             lines.append("")
 
-            for item in hn_items:
-                title = item.title
-                url = item.url
-                points = item.hn_points
-                comments = item.hn_comments
+            lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'热度' if report_language == 'zh' else 'Stats'} | {'摘要' if report_language == 'zh' else 'Summary'} |")
+            lines.append("|---:|------|------|------|")
 
-                ai_info = summary_map.get(url, {})
-                ai_summary = ai_info.get("ai_summary", "")
-
+            for i, item in enumerate(hn_items, 1):
                 stats_parts = []
-                if points is not None:
-                    stats_parts.append(f"🔥 {points}")
-                if comments is not None:
-                    stats_parts.append(f"💬 {comments}")
+                if item.hn_points is not None:
+                    stats_parts.append(f"🔥 {item.hn_points}")
+                if item.hn_comments is not None:
+                    stats_parts.append(f"💬 {item.hn_comments}")
                 stats_str = " · ".join(stats_parts)
 
-                lines.append(f"- **[{title}]({url})**" + (f" · {stats_str}" if stats_str else ""))
-                if ai_summary:
-                    lines.append(f"  > {ai_summary}")
+                ai_info = summary_map.get(item.url, {})
+                ai_summary = ai_info.get("ai_summary", "")
+
+                title_cell = f"[**{_escape_pipe(item.title)}**]({_escape_pipe(item.url)})"
+                summary_cell = _escape_pipe(ai_summary) if ai_summary else ""
+                lines.append(f"| {i} | {title_cell} | {_escape_pipe(stats_str)} | {summary_cell} |")
 
             lines.append("")
 
@@ -273,9 +306,15 @@ def _insert_tldr(content, tldr, language):
             break
         if stripped.startswith("> "):
             insert_idx = i + 1
+    # Safety: never insert before the # title line
+    if insert_idx == 0:
+        insert_idx = 1
 
-    tldr_label = "## 📌 TL;DR（太长不看）" if language == "zh" else "## 📌 TL;DR (Too Long; Didn't Read)"
-    tldr_block = [tldr_label, "", tldr, "", "---", ""]
+    tldr_label = "## 📌 TL;DR"
+    # Wrap TL;DR bullets as blockquote callout
+    tldr_lines = tldr.strip().split("\n")
+    tldr_blockquote = "\n".join(f"> {line}" for line in tldr_lines)
+    tldr_block = [tldr_label, "", tldr_blockquote, "", "---", ""]
 
     new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
     return "\n".join(new_lines)

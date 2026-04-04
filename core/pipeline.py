@@ -49,7 +49,11 @@ def save_http_cache(cache_path, cache):
 # ---------------------------------------------------------------------------
 
 def _demote_headings(lines, levels):
-    """Add # prefix to heading lines to demote them by the given number of levels."""
+    """Add # prefix to heading lines to demote them by the given number of levels.
+
+    Also normalizes # heading (h1) to h3 within demoted content, since AI-generated
+    text may contain raw h1 headings that should not appear at the top level.
+    """
     result = []
     for line in lines:
         match = re.match(r'^(#{1,6})\s', line)
@@ -124,7 +128,8 @@ def build_merged_report(sections, now, language="zh"):
     """Merge multiple sections into a single report with header and TOC.
 
     Each source section is cleaned (header/footer stripped, headings demoted
-    by 2 levels) and placed under a ## section title.  The TOC links to
+    by 3 levels so AI-generated ## becomes #### and ### becomes #####)
+    and placed under a ## section title.  The TOC links to
     those top-level ## headings only.
     """
     date_str = now.strftime("%Y-%m-%d")
@@ -140,13 +145,13 @@ def build_merged_report(sections, now, language="zh"):
                 break
 
     if language == "zh":
-        header = f"# \U0001F4F0 Daily Digest - {date_str}\n\n"
-        header += f"> {', '.join(section_names)}\n\n"
-        header += f"> \u23f0 \u751f\u6210\u65f6\u95f4: {time_str} UTC\n"
+        header = f"# \U0001F4F0 Daily Digest — {date_str}\n\n"
+        header += f"> \U0001F4E1 {' · '.join(section_names)}\n\n"
+        header += f"> \U0001F550 生成时间 {time_str} UTC\n"
     else:
-        header = f"# \U0001F4F0 Daily Digest - {date_str}\n\n"
-        header += f"> {', '.join(section_names)}\n\n"
-        header += f"> \u23f0 Generated at: {time_str} UTC\n"
+        header = f"# \U0001F4F0 Daily Digest — {date_str}\n\n"
+        header += f"> \U0001F4E1 {' · '.join(section_names)}\n\n"
+        header += f"> \U0001F550 Generated at {time_str} UTC\n"
 
     header += "\n---\n\n"
 
@@ -155,7 +160,7 @@ def build_merged_report(sections, now, language="zh"):
     all_headings = []
     for i, section in enumerate(sections):
         name = section_names[i] if i < len(section_names) else f"Section {i+1}"
-        cleaned = strip_section_header_footer(section, demote_headings=2)
+        cleaned = strip_section_header_footer(section, demote_headings=3)
         if not cleaned:
             continue
 
@@ -167,15 +172,15 @@ def build_merged_report(sections, now, language="zh"):
         cleaned_sections.append(f"{section_heading}\n\n{cleaned}")
 
     # Build TOC from top-level ## section headings only
-    toc_label = "## \U0001F4D1 \u76ee\u5f55" if language == "zh" else "## \U0001F4D1 Table of Contents"
+    toc_label = "## \U0001F4D1 目录" if language == "zh" else "## \U0001F4D1 Table of Contents"
     toc_lines = [toc_label, ""]
     for heading_text, anchor in all_headings:
         toc_lines.append(f"- [{heading_text}](#{anchor})")
     toc = "\n".join(toc_lines) + "\n"
 
     merged = header + toc + "\n---\n\n" + "\n\n---\n\n".join(cleaned_sections)
-    # Collapse consecutive --- separators into a single one
-    merged = re.sub(r'\n---\n\s*\n---\n', '\n---\n', merged)
+    # Collapse consecutive --- separators (with optional whitespace between)
+    merged = re.sub(r'(\n---\n\s*){2,}', '\n---\n', merged)
     return merged
 
 
