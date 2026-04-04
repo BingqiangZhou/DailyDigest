@@ -18,219 +18,209 @@ from .config import (
 
 
 def generate_tech_report(updates, summary_map=None, trend_insight=None,
+                         executive_summary=None, category_results=None,
                          stats=None, report_language="zh"):
     """生成科技日报 Markdown 报告
 
+    支持两种模式:
+    - Skill 模式 (category_results=None): 按 article 列表渲染分类报告
+    - API 模式 (category_results provided): 按 AI 摘要结果渲染分类报告
+
     Args:
         updates: list of Article objects（来自 rss_fetcher）
-        summary_map: dict, url -> {ai_summary, category}（来自 AI 摘要）
-        trend_insight: dict with "trend_insight" key
+        summary_map: dict, url -> {ai_summary, category}（来自 AI 摘要，Skill 模式）
+        trend_insight: dict with "trend_insight" key（Skill 模式）
+        executive_summary: str, 执行摘要（API 模式）
+        category_results: dict, category -> {name, summary, article_count, articles}（API 模式）
         stats: dict with metadata
         report_language: "zh" or "en"
 
     Returns:
         str: Markdown 报告内容
     """
-    summary_map = summary_map or {}
     now = datetime.now(timezone.utc)
     report_date = now.strftime("%Y-%m-%d")
     report_time = now.strftime("%Y-%m-%d %H:%M")
 
     lines = []
 
-    # 头部
-    if report_language == "zh":
-        lines.append(f"# AI 科技日报 - {report_date}")
-        lines.append("")
-        checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
-        hours = (stats or {}).get("hours", 24)
-        update_count = len(updates)
-        lines.append(f"> 共检查 {checked} 个信息源，时间范围 {hours} 小时，发现 {update_count} 条更新")
-    else:
-        lines.append(f"# AI Tech Daily - {report_date}")
-        lines.append("")
-        checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
-        hours = (stats or {}).get("hours", 24)
-        update_count = len(updates)
-        lines.append(f"> Checked {checked} sources, {hours}h window, found {update_count} updates")
-
-    lines.append("")
-    lines.append("---")
-    lines.append("")
-
-    # 趋势洞察
-    if trend_insight:
-        insight_text = trend_insight.get("trend_insight", "")
-        if insight_text:
-            lines.append("## " + ("今日趋势洞察" if report_language == "zh" else "Today's Trend Insights"))
+    if category_results:
+        # ---- API 模式：基于 AI 分类摘要渲染 ----
+        # 头部
+        if report_language == "zh":
+            lines.append(f"# AI 科技日报 - {report_date}")
             lines.append("")
-            lines.append(insight_text)
+            total_articles = (stats or {}).get("total_articles", 0)
+            total_categories = len(category_results)
+            lines.append(f"> 📰 {total_articles} 篇文章 | 📁 {total_categories} 个分类 | 🤖 AI 智能摘要")
+        else:
+            lines.append(f"# AI Tech Daily - {report_date}")
+            lines.append("")
+            total_articles = (stats or {}).get("total_articles", 0)
+            total_categories = len(category_results)
+            lines.append(f"> 📰 {total_articles} articles | 📁 {total_categories} categories | 🤖 AI-powered")
+
+        lines.append("")
+        lines.append("---")
+        lines.append("")
+
+        # 执行摘要
+        if executive_summary:
+            exec_label = "📋 今日要闻" if report_language == "zh" else "📋 Today's Highlights"
+            lines.append(f"## {exec_label}")
+            lines.append("")
+            lines.append(executive_summary)
             lines.append("")
             lines.append("---")
             lines.append("")
 
-    # 按分类分组
-    groups = OrderedDict()
-    for cat in CATEGORY_ORDER:
-        groups[cat] = []
-    groups["其他"] = []
+        # 各分类
+        for category, data in category_results.items():
+            name = data.get("name", get_category_display(category))
+            summary = data.get("summary", "")
+            articles = data.get("articles", [])
 
-    hn_items = []
-    for update in updates:
-        source_cat = normalize_category(update.category)
-        if source_cat == "hacker_news":
-            hn_items.append(update)
-            continue
+            lines.append(f"## {name} ({data.get('article_count', 0)} " + ("篇" if report_language == "zh" else "articles") + ")")
+            lines.append("")
+            lines.append(summary)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
 
-        # 检查 AI 是否重新分类
-        url = update.url
-        ai_info = summary_map.get(url, {})
-        ai_cat = ai_info.get("category", "")
-        final_cat = normalize_category(ai_cat) if ai_cat else source_cat
-        if final_cat not in groups:
-            final_cat = "其他"
-        groups[final_cat].append(update)
+            # 文章列表
+            for article in articles:
+                title = article.title
+                link = article.url
+                source = article.source
+                lang = article.language
+                lang_tag = "🇨🇳" if lang == "zh" else "🇺🇸"
 
-    # 输出各分类
-    for cat, cat_updates in groups.items():
-        if not cat_updates:
-            continue
+                lines.append(f"- [{lang_tag}] [{title}]({link}) — *{source}*")
 
-        cat_display = get_category_display(cat)
-        lines.append(f"## {cat_display} ({len(cat_updates)} " + ("条" if report_language == "zh" else "items") + ")")
-        lines.append("")
+            lines.append("")
 
-        for update in cat_updates:
-            title = update.title
-            url = update.url
-            source_name = update.source
-            description = update.description
+        # 页脚
+        footer = "报告生成时间" if report_language == "zh" else "Generated at"
+        lines.append(f"*{footer}: {report_time} UTC*")
 
-            ai_info = summary_map.get(url, {})
-            ai_summary = ai_info.get("ai_summary", "")
-
-            # 紧凑两行格式
-            lines.append(f"- [{title}]({url}) — *{source_name}*")
-            if ai_summary:
-                lines.append(f"  > {ai_summary}")
-            elif description:
-                clean_desc = re.sub(r'<[^>]+>', '', description.strip())
-                if len(clean_desc) > 150:
-                    clean_desc = clean_desc[:150] + "..."
-                lines.append(f"  > {clean_desc}")
-
-        lines.append("")
-
-    # Hacker News
-    if hn_items:
-        hn_label = "Hacker News 热门" if report_language == "zh" else "Hacker News Trending"
-        lines.append(f"## {hn_label} ({len(hn_items)} " + ("条" if report_language == "zh" else "items") + ")")
-        lines.append("")
-
-        for item in hn_items:
-            title = item.title
-            url = item.url
-            points = item.hn_points
-            comments = item.hn_comments
-
-            ai_info = summary_map.get(url, {})
-            ai_summary = ai_info.get("ai_summary", "")
-
-            stats_parts = []
-            if points is not None:
-                stats_parts.append(f"🔥 {points}")
-            if comments is not None:
-                stats_parts.append(f"💬 {comments}")
-            stats_str = " | ".join(stats_parts)
-
-            lines.append(f"- [{title}]({url})" + (f" — *{stats_str}*" if stats_str else ""))
-            if ai_summary:
-                lines.append(f"  > {ai_summary}")
-
-        lines.append("")
-
-    # 页脚
-    footer_prefix = "报告生成时间" if report_language == "zh" else "Report generated at"
-    lines.append(f"*{footer_prefix}: {report_time} UTC*")
-
-    return "\n".join(lines)
-
-
-def generate_category_report(category_results, executive_summary, stats,
-                             report_language="zh"):
-    """从 AI 摘要结果生成 Markdown 报告（GitHub Actions 模式）
-
-    Args:
-        category_results: dict, category -> {name, summary, article_count, articles}
-        executive_summary: str, 执行摘要
-        stats: dict, 统计信息
-        report_language: "zh" or "en"
-
-    Returns:
-        str: Markdown 报告内容
-    """
-    now = datetime.now(timezone.utc)
-    report_date = now.strftime("%Y-%m-%d")
-    report_time = now.strftime("%Y-%m-%d %H:%M")
-
-    lines = []
-
-    # 头部
-    if report_language == "zh":
-        lines.append(f"# AI 科技日报 - {report_date}")
-        lines.append("")
-        total_articles = stats.get("total_articles", 0)
-        total_categories = len(category_results)
-        lines.append(f"> 📰 {total_articles} 篇文章 | 📁 {total_categories} 个分类 | 🤖 AI 智能摘要")
     else:
-        lines.append(f"# AI Tech Daily - {report_date}")
-        lines.append("")
-        total_articles = stats.get("total_articles", 0)
-        total_categories = len(category_results)
-        lines.append(f"> 📰 {total_articles} articles | 📁 {total_categories} categories | 🤖 AI-powered")
+        # ---- Skill 模式：按 article 列表渲染 ----
+        summary_map = summary_map or {}
 
-    lines.append("")
-    lines.append("---")
-    lines.append("")
+        # 头部
+        if report_language == "zh":
+            lines.append(f"# AI 科技日报 - {report_date}")
+            lines.append("")
+            checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
+            hours = (stats or {}).get("hours", 24)
+            update_count = len(updates)
+            lines.append(f"> 共检查 {checked} 个信息源，时间范围 {hours} 小时，发现 {update_count} 条更新")
+        else:
+            lines.append(f"# AI Tech Daily - {report_date}")
+            lines.append("")
+            checked = (stats or {}).get("checked_count", (stats or {}).get("total_feeds", 0))
+            hours = (stats or {}).get("hours", 24)
+            update_count = len(updates)
+            lines.append(f"> Checked {checked} sources, {hours}h window, found {update_count} updates")
 
-    # 执行摘要
-    if executive_summary:
-        exec_label = "📋 今日要闻" if report_language == "zh" else "📋 Today's Highlights"
-        lines.append(f"## {exec_label}")
-        lines.append("")
-        lines.append(executive_summary)
         lines.append("")
         lines.append("---")
         lines.append("")
 
-    # 各分类
-    for category, data in category_results.items():
-        name = data.get("name", get_category_display(category))
-        summary = data.get("summary", "")
-        articles = data.get("articles", [])
+        # 趋势洞察
+        if trend_insight:
+            insight_text = trend_insight.get("trend_insight", "")
+            if insight_text:
+                lines.append("## " + ("今日趋势洞察" if report_language == "zh" else "Today's Trend Insights"))
+                lines.append("")
+                lines.append(insight_text)
+                lines.append("")
+                lines.append("---")
+                lines.append("")
 
-        lines.append(f"## {name} ({data.get('article_count', 0)} " + ("篇" if report_language == "zh" else "articles") + ")")
-        lines.append("")
-        lines.append(summary)
-        lines.append("")
-        lines.append("---")
-        lines.append("")
+        # 按分类分组
+        groups = OrderedDict()
+        for cat in CATEGORY_ORDER:
+            groups[cat] = []
+        groups["其他"] = []
 
-        # 文章列表
-        for article in articles:
-            title = article.title
-            link = article.url
-            source = article.source
-            lang = article.language
-            lang_tag = "🇨🇳" if lang == "zh" else "🇺🇸"
+        hn_items = []
+        for update in updates:
+            source_cat = normalize_category(update.category)
+            if source_cat == "hacker_news":
+                hn_items.append(update)
+                continue
 
-            lines.append(f"- [{lang_tag}] [{title}]({link}) — *{source}*")
+            # 检查 AI 是否重新分类
+            url = update.url
+            ai_info = summary_map.get(url, {})
+            ai_cat = ai_info.get("category", "")
+            final_cat = normalize_category(ai_cat) if ai_cat else source_cat
+            if final_cat not in groups:
+                final_cat = "其他"
+            groups[final_cat].append(update)
 
-        lines.append("")
+        # 输出各分类
+        for cat, cat_updates in groups.items():
+            if not cat_updates:
+                continue
 
-    # 页脚
-    footer = "报告生成时间" if report_language == "zh" else "Generated at"
-    lines.append(f"*{footer}: {report_time} UTC*")
+            cat_display = get_category_display(cat)
+            lines.append(f"## {cat_display} ({len(cat_updates)} " + ("条" if report_language == "zh" else "items") + ")")
+            lines.append("")
+
+            for update in cat_updates:
+                title = update.title
+                url = update.url
+                source_name = update.source
+                description = update.description
+
+                ai_info = summary_map.get(url, {})
+                ai_summary = ai_info.get("ai_summary", "")
+
+                # 紧凑两行格式
+                lines.append(f"- [{title}]({url}) — *{source_name}*")
+                if ai_summary:
+                    lines.append(f"  > {ai_summary}")
+                elif description:
+                    clean_desc = re.sub(r'<[^>]+>', '', description.strip())
+                    if len(clean_desc) > 150:
+                        clean_desc = clean_desc[:150] + "..."
+                    lines.append(f"  > {clean_desc}")
+
+            lines.append("")
+
+        # Hacker News
+        if hn_items:
+            hn_label = "Hacker News 热门" if report_language == "zh" else "Hacker News Trending"
+            lines.append(f"## {hn_label} ({len(hn_items)} " + ("条" if report_language == "zh" else "items") + ")")
+            lines.append("")
+
+            for item in hn_items:
+                title = item.title
+                url = item.url
+                points = item.hn_points
+                comments = item.hn_comments
+
+                ai_info = summary_map.get(url, {})
+                ai_summary = ai_info.get("ai_summary", "")
+
+                stats_parts = []
+                if points is not None:
+                    stats_parts.append(f"🔥 {points}")
+                if comments is not None:
+                    stats_parts.append(f"💬 {comments}")
+                stats_str = " | ".join(stats_parts)
+
+                lines.append(f"- [{title}]({url})" + (f" — *{stats_str}*" if stats_str else ""))
+                if ai_summary:
+                    lines.append(f"  > {ai_summary}")
+
+            lines.append("")
+
+        # 页脚
+        footer_prefix = "报告生成时间" if report_language == "zh" else "Report generated at"
+        lines.append(f"*{footer_prefix}: {report_time} UTC*")
 
     return "\n".join(lines)
 

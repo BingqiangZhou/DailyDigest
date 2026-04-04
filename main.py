@@ -349,9 +349,15 @@ def run_tech(hours=48, language="zh", limit=None):
             print("⚠️ AI 摘要生成失败。")
             return None
 
-        from core.report_generator import generate_category_report, save_report
+        from core.report_generator import generate_tech_report, save_report
         report_stats = {"total_articles": len(new_articles), "categories": len(category_results)}
-        report = generate_category_report(category_results, executive_summary, report_stats, language)
+        report = generate_tech_report(
+            new_articles,
+            category_results=category_results,
+            executive_summary=executive_summary,
+            stats=report_stats,
+            report_language=language,
+        )
     else:
         # Skill 模式：无 API_KEY，生成不含 AI 摘要的报告
         # Claude sub-agent 会在 SKILL.md 流程中单独处理摘要
