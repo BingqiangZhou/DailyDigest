@@ -1,5 +1,5 @@
 """
-OpenClaw Digest - 统一入口
+Daily Digest - 统一入口
 支持 GitHub Actions 和 Claude Code Skill 两种运行模式。
 
 用法:
@@ -425,7 +425,7 @@ def run_wechat(hours=24, limit=None):
 
 def main():
     parser = argparse.ArgumentParser(
-        description="OpenClaw Digest - 统一日报生成工具",
+        description="Daily Digest - 统一日报生成工具",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 示例:
@@ -454,14 +454,14 @@ def main():
     # --finalize 模式：从 workspace/ 读取 sub-agent 摘要并生成最终报告
     if args.finalize:
         print("\n" + "=" * 60)
-        print("📋 OpenClaw Digest — Finalize 模式")
+        print("📋 Daily Digest — Finalize 模式")
         print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | 源: {args.source}")
         print("=" * 60)
         finalize_reports(args.source, language)
         return
 
     print("\n" + "=" * 60)
-    print("📡 OpenClaw Digest")
+    print("📡 Daily Digest")
     print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | 源: {args.source} | 语言: {language}")
     print("=" * 60)
 
@@ -483,7 +483,7 @@ def main():
     end_time = datetime.now(timezone.utc)
     duration = (end_time - start_time).total_seconds()
     print("\n" + "=" * 60)
-    print("✅ OpenClaw Digest 完成!")
+    print("✅ Daily Digest 完成!")
     for source, result in results.items():
         status = result if result else "无更新"
         print(f"  {source}: {status}")

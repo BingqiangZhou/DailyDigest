@@ -242,7 +242,7 @@ def create_ssl_context():
 
 def fetch_url(url, cache=None, timeout=12):
     """抓取 URL，支持 ETag/If-Modified-Since 缓存"""
-    headers = {"User-Agent": "OpenClawDigest/1.0"}
+    headers = {"User-Agent": "DailyDigest/1.0"}
     cached = cache.get(url, {}) if cache else {}
 
     if cached.get("etag"):
@@ -555,7 +555,7 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
 
         try:
             d = feedparser.parse(url, request_headers={
-                "User-Agent": "OpenClawDigest/1.0"
+                "User-Agent": "DailyDigest/1.0"
             })
             if not d.entries:
                 return name, category, language, priority, [], None
