@@ -122,6 +122,11 @@ LEGACY_CATEGORY_MAP = {
     "ai_tools": "ai_tools",
     "tech_product": "tech_product",
     "general_news": "general_news",
+    # 微信分类中文 -> 英文 ID
+    "安全": "wechat_security",
+    "开发": "wechat_dev",
+    "其他": "wechat_other",
+    "用户提交": "wechat_user",
 }
 
 # Skills 项目分类到新分类的映射

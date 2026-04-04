@@ -336,7 +336,7 @@ def parse_rss_items(xml_text):
             if tag.endswith("}encoded") or tag == "content:encoded":
                 if child.text:
                     entry["content_encoded"] = child.text.strip()
-                break
+                    break
         # HN 特殊字段
         desc_text = entry.get("description", "")
         if desc_text:
@@ -358,6 +358,12 @@ def parse_rss_items(xml_text):
         link_el = entry_elem.find("atom:link", ns)
         if link_el is not None:
             item["link"] = link_el.get("href", "").strip()
+        # 优先选择 rel="alternate" 的链接
+        for link_el in entry_elem.findall("atom:link", ns):
+            rel = link_el.get("rel", "")
+            href = link_el.get("href", "").strip()
+            if href and (rel == "alternate" or (not rel and not item.get("link"))):
+                item["link"] = href
         published_el = entry_elem.find("atom:published", ns)
         if published_el is not None and published_el.text:
             item["pub_date_raw"] = published_el.text.strip()

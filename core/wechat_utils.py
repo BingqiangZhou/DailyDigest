@@ -46,12 +46,18 @@ def _create_ssl_context():
 
 def _fetch_url(url, timeout=30):
     """获取 URL 内容（带 SSL 降级）"""
+    import urllib.error
     ctx = _create_ssl_context()
     req = urllib.request.Request(url, headers={"User-Agent": "WechatRSSMonitor/1.0"})
     try:
         with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
             return resp.read().decode("utf-8")
     except Exception as first_err:
+        # 只在 SSL 相关错误时才降级
+        err_str = str(first_err).lower()
+        is_ssl_error = any(kw in err_str for kw in ["ssl", "certificate", "cert", "hostname"])
+        if not is_ssl_error:
+            raise first_err
         try:
             relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
             relaxed.check_hostname = False

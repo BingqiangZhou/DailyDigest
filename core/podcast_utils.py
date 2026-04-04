@@ -52,7 +52,7 @@ def _fetch_url(url, max_retries=MAX_RETRIES):
             req = urllib.request.Request(url, headers=headers)
             with urllib.request.urlopen(req, timeout=TIMEOUT, context=ctx) as response:
                 content = response.read()
-                for encoding in ['utf-8', 'gbk', 'gb2312', 'latin-1']:
+                for encoding in ['utf-8', 'gbk', 'gb2312']:
                     try:
                         return content.decode(encoding)
                     except (UnicodeDecodeError, LookupError):
@@ -175,7 +175,8 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
                 else:
                     failed += 1
             time.sleep(random.uniform(0.2, 0.5))
-        except Exception:
+        except Exception as e:
+            print(f"[Podcast] ⚠️ 解析 {podcast_name} 失败: {e}")
             failed += len(indices)
 
     # 清理 utm 后缀

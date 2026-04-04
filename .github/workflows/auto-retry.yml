@@ -5,9 +5,20 @@ on:
     workflows: ["Daily Digest"]
     types: [completed]
 
+permissions:
+  actions: write
+  contents: read
+
+concurrency:
+  group: digest-retry
+  cancel-in-progress: true
+
 jobs:
   retry:
-    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    # 只重试第一次失败，避免无限循环
+    if: >-
+      ${{ github.event.workflow_run.conclusion == 'failure' &&
+          github.event.workflow_run.run_attempt < 2 }}
     runs-on: ubuntu-latest
     steps:
       - name: Re-run failed workflow
@@ -15,9 +26,10 @@ jobs:
         with:
           script: |
             const runId = context.payload.workflow_run.id;
+            const attempt = context.payload.workflow_run.run_attempt;
             await github.rest.actions.reRunWorkflowFailedJobs({
               owner: context.repo.owner,
               repo: context.repo.repo,
               run_id: runId
             });
-            console.log(`✅ 已自动重新运行 workflow run #${runId}`);
+            console.log(`✅ 已自动重新运行 workflow run #${runId} (attempt ${attempt})`);

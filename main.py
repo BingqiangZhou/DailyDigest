@@ -78,15 +78,24 @@ def _load_http_cache(cache_name):
     from core.config import WORKSPACE_DIR
     cache_path = WORKSPACE_DIR / cache_name
     if cache_path.exists():
-        with open(cache_path, "r") as f:
-            return json.load(f), cache_path
+        try:
+            with open(cache_path, "r") as f:
+                return json.load(f), cache_path
+        except (json.JSONDecodeError, ValueError):
+            print(f"[Cache] ⚠️ 缓存文件损坏，忽略: {cache_path}")
     return {}, cache_path
 
 
 def _save_http_cache(cache_path, cache):
-    """保存 HTTP 缓存"""
-    with open(cache_path, "w") as f:
-        json.dump(cache, f)
+    """保存 HTTP 缓存（原子写入）"""
+    import tempfile
+    try:
+        tmp_path = cache_path.with_suffix(".tmp")
+        with open(tmp_path, "w") as f:
+            json.dump(cache, f)
+        tmp_path.replace(cache_path)
+    except Exception as e:
+        print(f"[Cache] ⚠️ 缓存保存失败: {e}")
 
 
 def _strip_section_header_footer(content):
@@ -264,7 +273,7 @@ def _finalize_wechat(date_dir, now):
 def run_tech(hours=48, language="zh", limit=None):
     """科技新闻 pipeline"""
     from core.config import load_feed_config, ensure_dirs, OUTPUT_DIR, WORKSPACE_DIR
-    from core.dedup import filter_new_articles, cleanup_old_entries, mark_articles_processed
+    from core.dedup import filter_and_mark, cleanup_old_entries
 
     ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
 
@@ -310,7 +319,7 @@ def run_tech(hours=48, language="zh", limit=None):
     # Step 2: 去重
     print("🔍 Step 2/4: 去重过滤...")
     cleanup_old_entries(days=30)
-    new_articles = filter_new_articles(all_articles)
+    new_articles = filter_and_mark(all_articles)
     if not new_articles:
         print("⚠️ 所有文章均已处理过。")
         return None
@@ -344,12 +353,10 @@ def run_tech(hours=48, language="zh", limit=None):
         print(f"💡 无 API_KEY，已保存原始数据到 {updates_path}")
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source tech --finalize")
-        mark_articles_processed(new_articles)
         return None
 
     # Step 4: 生成报告
     print("📄 Step 4/4: 生成报告...")
-    mark_articles_processed(new_articles)
     return report, {"total_articles": len(new_articles), "categories": len(new_by_category)}
 
 
@@ -359,6 +366,7 @@ def run_podcast(hours=24, limit=None):
     from core.rss_fetcher import fetch_feeds_stdlib
     from core.podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report
     from core.report_generator import save_report
+    from core.dedup import filter_and_mark
 
     ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
     api_key = os.environ.get("API_KEY")
@@ -393,6 +401,9 @@ def run_podcast(hours=24, limit=None):
             "shownotes": u.get("full_text", u.get("description", "")),
             "xiaoyuzhou_url": meta.get("xiaoyuzhou_url", ""),
         })
+
+    # 去重
+    updates = filter_and_mark(updates)
 
     if not updates:
         print("⚠️ 无播客更新。")
@@ -430,9 +441,10 @@ def run_podcast(hours=24, limit=None):
 def run_wechat(hours=24, limit=None):
     """微信公众号 pipeline"""
     from core.config import ensure_dirs, OUTPUT_DIR, WORKSPACE_DIR
-    from core.wechat_utils import fetch_wechat_feed_list, generate_wechat_report
+    from core.wechat_utils import fetch_wechat_feed_list, generate_wechat_report, enrich_wechat_articles
     from core.rss_fetcher import fetch_feeds_stdlib
     from core.report_generator import save_report
+    from core.dedup import filter_and_mark
 
     ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
     api_key = os.environ.get("API_KEY")
@@ -468,11 +480,19 @@ def run_wechat(hours=24, limit=None):
             "full_text": u.get("full_text", ""),
         })
 
+    # 去重
+    updates = filter_and_mark(updates)
+
     if not updates:
         print("⚠️ 无公众号更新。")
         return None
 
     print(f"✅ {len(updates)} 条公众号更新")
+
+    # 补充获取微信文章全文（提升 AI 摘要质量）
+    if api_key:
+        print("📖 补充获取微信文章全文...")
+        updates = enrich_wechat_articles(updates)
 
     # 保存原始数据供 sub-agent 使用
     updates_path = WORKSPACE_DIR / "wechat_updates.json"
