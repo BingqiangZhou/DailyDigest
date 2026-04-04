@@ -1,0 +1,46 @@
+{
+  "version": 1,
+  "description": "YouTube 频道 RSS 源配置",
+  "channels": [
+    {
+      "name": "Two Minute Papers",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCbfYPyITQgLk1alx9FgOxdQ",
+      "category": "ai_ml",
+      "language": "en",
+      "priority": 2
+    },
+    {
+      "name": "Fireship",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCsBjURrPoezykLs9EqgamOA",
+      "category": "tech_general",
+      "language": "en",
+      "priority": 2
+    },
+    {
+      "name": "3Blue1Brown",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCYO_jab_esuFRV4b17AJtAw",
+      "category": "tech_general",
+      "language": "en",
+      "priority": 3
+    },
+    {
+      "name": "Linus Tech Tips",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCXuqSBlHAE6Xw-yeJA0Tunw",
+      "category": "tech_product",
+      "language": "en",
+      "priority": 2
+    },
+    {
+      "name": "MKBHD",
+      "url": "https://www.youtube.com/feeds/videos.xml?channel_id=UCBJycsmduvYEL83R_U4JriQ",
+      "category": "tech_product",
+      "language": "en",
+      "priority": 2
+    }
+  ],
+  "settings": {
+    "max_videos_per_channel": 10,
+    "hours_back": 48,
+    "timeout_seconds": 15
+  }
+}
