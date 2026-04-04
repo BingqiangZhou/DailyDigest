@@ -18,7 +18,7 @@ from pathlib import Path
 from datetime import datetime, timezone
 from collections import OrderedDict
 
-from .config import CONFIG_DIR, WORKSPACE_DIR
+from .config import CONFIG_DIR, WORKSPACE_DIR, get_category_display
 
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 天
@@ -27,7 +27,7 @@ SOURCE_URL = "https://raw.githubusercontent.com/ttttmr/Wechat2RSS/master/list/al
 FEED_LINK_PATTERN = re.compile(r'^(~~)?\[([^\]]+)\]\(([^)]+)\)(~~)?$')
 HEADING_PATTERN = re.compile(r'^##\s+(.+)$')
 
-WECHAT_CATEGORY_ORDER = ["安全", "开发", "其他", "用户提交"]
+WECHAT_CATEGORY_ORDER = ["wechat_security", "wechat_dev", "wechat_other", "wechat_user"]
 
 
 # ============================================================
@@ -334,7 +334,8 @@ def generate_wechat_report(updates_data, ai_summaries=None):
         if not cat_updates:
             continue
 
-        lines.append(f'## {cat} ({len(cat_updates)} 条)')
+        cat_display = get_category_display(cat)
+        lines.append(f'## {cat_display} ({len(cat_updates)} 条)')
         lines.append('')
 
         for update in cat_updates:

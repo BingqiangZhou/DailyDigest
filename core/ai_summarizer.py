@@ -46,14 +46,13 @@ def _chat_completion(client, prompt, max_tokens=4000, max_retries=3):
                 max_tokens=max_tokens,
                 temperature=0.7,
                 top_p=0.9,
-                timeout=60,
             )
             return response.choices[0].message.content
         except Exception as e:
             last_error = e
             print(f"[AI] ⚠️ API 调用失败 (attempt {attempt + 1}/{max_retries}, model={model}): {e}")
             if attempt < max_retries - 1:
-                wait = (attempt + 1) * 5
+                wait = min(2 ** attempt * 2, 30)
                 print(f"[AI]   等待 {wait} 秒后重试...")
                 time.sleep(wait)
     print(f"[AI] ❌ API 调用最终失败 (model={model}): {last_error}")
@@ -279,6 +278,7 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
         for j, ep in enumerate(batch, 1):
             lines.append(f"{j}. 播客: {ep.get('podcast_name', '未知')}")
             lines.append(f"   单集: {ep.get('episode_title', '未知')}")
+            lines.append(f"   链接: {ep.get('episode_url', '')}")
             shownotes = ep.get("shownotes", "")[:300]
             if shownotes:
                 lines.append(f"   节目简介: {shownotes}")
@@ -294,9 +294,9 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
 ## 输出格式
 
 请严格按以下 JSON 格式输出，不要输出其他内容：
-{{"url1": "摘要1", "url2": "摘要2", ...}}
+{{"链接1": "摘要1", "链接2": "摘要2", ...}}
 
-其中 url 为每个单集的 episode_url。"""
+其中 key 为每个单集的"链接"字段的值（即 episode_url），value 为对应的中文摘要。"""
 
         response = _chat_completion(client, prompt, max_tokens=2000)
         batch_summaries = {}
@@ -311,6 +311,7 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
                     print(f"[AI] ✅ batch {batch_num + 1}: {len(parsed)} 条摘要")
             except (json.JSONDecodeError, ValueError):
                 print(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
+                print(f"[AI] 📄 原始响应: {response[:300]}")
         return batch_summaries
 
     ai_summaries = {}
@@ -356,6 +357,7 @@ def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
         for j, art in enumerate(batch, 1):
             lines.append(f"{j}. 公众号: {art.get('account_name', '未知')}")
             lines.append(f"   文章: {art.get('article_title', '未知')}")
+            lines.append(f"   链接: {art.get('article_url', '')}")
             summary = art.get("summary_text", "")[:200]
             if summary:
                 lines.append(f"   摘要: {summary}")
@@ -372,7 +374,7 @@ def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
 请严格按以下 JSON 格式输出，不要输出其他内容：
 {{"summaries": [{{"article_url": "url1", "ai_summary": "摘要1"}}, ...]}}
 
-其中 article_url 为每篇文章的 article_url。"""
+其中 article_url 为每篇文章的"链接"字段的值。"""
 
         response = _chat_completion(client, prompt, max_tokens=2000)
         batch_summaries = {}
@@ -391,6 +393,7 @@ def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
                 print(f"[AI] ✅ batch {batch_num + 1}: {len(summaries_list)} 条摘要")
             except (json.JSONDecodeError, ValueError):
                 print(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
+                print(f"[AI] 📄 原始响应: {response[:300]}")
         return batch_summaries
 
     ai_summaries = {}
@@ -429,6 +432,7 @@ def generate_tldr(report_content, report_type="tech", language="zh"):
         "tech": "科技日报" if language == "zh" else "Tech Daily",
         "podcast": "播客日报" if language == "zh" else "Podcast Daily",
         "wechat": "微信日报" if language == "zh" else "WeChat Daily",
+        "digest": "每日摘要" if language == "zh" else "Daily Digest",
     }
     type_name = type_names.get(report_type, report_type)
 

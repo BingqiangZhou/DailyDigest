@@ -66,7 +66,7 @@ def finalize_reports(source, language="zh"):
 
     merged = _build_merged_report(sections, now, language)
     filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
-                           report_type="tech", language=language)
+                           report_type="digest", language=language)
 
     print("\n" + "=" * 60)
     print(f"✅ Finalize 完成! 报告: {filepath}")
@@ -345,7 +345,7 @@ def run_tech(hours=48, language="zh", limit=None):
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source tech --finalize")
         mark_articles_processed(new_articles)
-        return updates_path
+        return None
 
     # Step 4: 生成报告
     print("📄 Step 4/4: 生成报告...")
@@ -576,7 +576,7 @@ def main():
     now = datetime.now(timezone.utc)
     merged = _build_merged_report(sections, now, language)
     filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
-                           report_type="tech", language=language)
+                           report_type="digest", language=language)
 
     # 完成
     end_time = datetime.now(timezone.utc)

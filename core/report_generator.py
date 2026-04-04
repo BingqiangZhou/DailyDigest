@@ -6,6 +6,7 @@ Markdown 报告生成模块
 
 import json
 import os
+import re
 from collections import OrderedDict
 from datetime import datetime, timezone
 from pathlib import Path
