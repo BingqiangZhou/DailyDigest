@@ -217,6 +217,7 @@ def _finalize_tech(language, date_dir, now):
 def _finalize_podcast(date_dir, now):
     """Finalize 播客报告"""
     from core.config import WORKSPACE_DIR
+    from core.article import Article
     from core.podcast_utils import generate_podcast_report
     from core.report_generator import save_report
 
@@ -228,6 +229,9 @@ def _finalize_podcast(date_dir, now):
     with open(updates_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
+    metadata = data.get("metadata", {})
+    updates = [Article(**u) for u in data.get("updates", [])]
+
     # 合并所有 batch 的 sub-agent 摘要
     ai_summaries = {}
     summary_dir = WORKSPACE_DIR
@@ -237,7 +241,7 @@ def _finalize_podcast(date_dir, now):
         for url, summary in batch.items():
             ai_summaries[url] = summary
 
-    report = generate_podcast_report(data, ai_summaries)
+    report = generate_podcast_report(updates, ai_summaries, metadata=metadata)
     print(f"✅ 播客报告生成完成 ({len(ai_summaries)} 条摘要)")
     return report
 
@@ -245,6 +249,7 @@ def _finalize_podcast(date_dir, now):
 def _finalize_wechat(date_dir, now):
     """Finalize 微信公众号报告"""
     from core.config import WORKSPACE_DIR
+    from core.article import Article
     from core.wechat_utils import generate_wechat_report
     from core.report_generator import save_report
 
@@ -255,6 +260,9 @@ def _finalize_wechat(date_dir, now):
 
     with open(updates_path, "r", encoding="utf-8") as f:
         data = json.load(f)
+
+    updates = [Article(**u) for u in data.get("updates", [])]
+    metadata = data.get("metadata", {})
 
     # 合并所有 batch 的 sub-agent 摘要
     ai_summaries = {}
@@ -267,7 +275,7 @@ def _finalize_wechat(date_dir, now):
             if url:
                 ai_summaries[url] = item.get("ai_summary", "")
 
-    report = generate_wechat_report(data, ai_summaries)
+    report = generate_wechat_report(updates, ai_summaries, metadata=metadata)
     print(f"✅ 微信公众号报告生成完成 ({len(ai_summaries)} 条摘要)")
     return report
 
@@ -398,33 +406,22 @@ def run_podcast(hours=24, limit=None):
         print("⚠️ 无播客更新。")
         return None
 
-    updates = []
+    # Enrich Articles with podcast-specific extra data
     for u in raw_updates:
         meta = u.extra.get("_feed_meta", {}).get("_podcast_meta", {})
-        updates.append({
-            "podcast_name": u.source,
-            "rank": meta.get("rank", 0),
-            "episode_title": u.title,
-            "episode_url": u.url,
-            "pub_date": u.published,
-            "shownotes": u.full_text or u.description,
-            "xiaoyuzhou_url": meta.get("xiaoyuzhou_url", ""),
-        })
+        u.extra["rank"] = meta.get("rank", 0)
+        u.extra["xiaoyuzhou_url"] = meta.get("xiaoyuzhou_url", "")
 
-    if not updates:
-        print("⚠️ 无播客更新。")
-        return None
-
-    print(f"✅ {len(updates)} 个播客更新")
+    print(f"✅ {len(raw_updates)} 个播客更新")
 
     # Step 2: 解析小宇宙链接
     print("🔗 Step 2/3: 解析小宇宙链接...")
-    updates = resolve_xiaoyuzhou_urls(updates)
+    updates = resolve_xiaoyuzhou_urls(raw_updates)
 
     # 保存原始数据供 sub-agent 使用
     updates_path = WORKSPACE_DIR / "podcast_updates.json"
     with open(updates_path, "w", encoding="utf-8") as f:
-        json.dump({"metadata": stats, "updates": updates}, f, ensure_ascii=False, indent=2)
+        json.dump({"metadata": stats, "updates": [asdict(u) for u in updates]}, f, ensure_ascii=False, indent=2)
 
     # Step 3: 生成报告
     if api_key:
@@ -432,11 +429,11 @@ def run_podcast(hours=24, limit=None):
         print("📄 Step 3/3: AI 摘要 + 生成报告...")
         from core.ai_summarizer import summarize_podcast_batch
         ai_summaries = summarize_podcast_batch(updates)
-        report = generate_podcast_report({"metadata": stats, "updates": updates}, ai_summaries)
+        report = generate_podcast_report(updates, ai_summaries, metadata=stats)
     else:
         # Skill 模式：生成不含 AI 摘要的报告，等待 sub-agent 处理
         print("📄 Step 3/3: 生成初步报告（无 AI 摘要）...")
-        report = generate_podcast_report({"metadata": stats, "updates": updates})
+        report = generate_podcast_report(updates, metadata=stats)
         print(f"💡 无 API_KEY，已保存原始数据到 {updates_path}")
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source podcast --finalize")
@@ -481,22 +478,7 @@ def run_wechat(hours=24, limit=None):
         print("⚠️ 无公众号更新。")
         return None
 
-    updates = []
-    for u in raw_updates:
-        updates.append({
-            "account_name": u.source,
-            "article_title": u.title,
-            "article_url": u.url,
-            "pub_date": u.published,
-            "category": u.category,
-            "summary_text": u.description,
-            "full_text": u.full_text,
-        })
-
-    if not updates:
-        print("⚠️ 无公众号更新。")
-        return None
-
+    updates = raw_updates  # Already Article objects
     print(f"✅ {len(updates)} 条公众号更新")
 
     # 补充获取微信文章全文（提升 AI 摘要质量）
@@ -507,7 +489,7 @@ def run_wechat(hours=24, limit=None):
     # 保存原始数据供 sub-agent 使用
     updates_path = WORKSPACE_DIR / "wechat_updates.json"
     with open(updates_path, "w", encoding="utf-8") as f:
-        json.dump({"metadata": stats, "updates": updates}, f, ensure_ascii=False, indent=2)
+        json.dump({"metadata": stats, "updates": [asdict(a) for a in updates]}, f, ensure_ascii=False, indent=2)
 
     # Step 3: 生成报告
     if api_key:
@@ -515,11 +497,11 @@ def run_wechat(hours=24, limit=None):
         print("📄 Step 3/3: AI 摘要 + 生成报告...")
         from core.ai_summarizer import summarize_wechat_batch
         ai_summaries = summarize_wechat_batch(updates)
-        report = generate_wechat_report({"metadata": stats, "updates": updates}, ai_summaries)
+        report = generate_wechat_report(updates, ai_summaries, metadata=stats)
     else:
         # Skill 模式：生成不含 AI 摘要的报告，等待 sub-agent 处理
         print("📄 Step 3/3: 生成初步报告（无 AI 摘要）...")
-        report = generate_wechat_report({"metadata": stats, "updates": updates})
+        report = generate_wechat_report(updates, metadata=stats)
         print(f"💡 无 API_KEY，已保存原始数据到 {updates_path}")
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source wechat --finalize")

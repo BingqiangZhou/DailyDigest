@@ -252,7 +252,7 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
     """对播客更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
-        updates: list of update dicts（来自 run_podcast）
+        updates: list of Article objects
         batch_size: 每批处理数量
         max_workers: 最大并发 API 调用数
 
@@ -276,10 +276,10 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
 
         lines = []
         for j, ep in enumerate(batch, 1):
-            lines.append(f"{j}. 播客: {ep.get('podcast_name', '未知')}")
-            lines.append(f"   单集: {ep.get('episode_title', '未知')}")
-            lines.append(f"   链接: {ep.get('episode_url', '')}")
-            shownotes = ep.get("shownotes", "")[:300]
+            lines.append(f"{j}. 播客: {ep.source}")
+            lines.append(f"   单集: {ep.title}")
+            lines.append(f"   链接: {ep.url}")
+            shownotes = (ep.full_text or ep.description)[:300]
             if shownotes:
                 lines.append(f"   节目简介: {shownotes}")
             lines.append("")
@@ -331,7 +331,7 @@ def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
     """对微信公众号更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
-        updates: list of update dicts（来自 run_wechat）
+        updates: list of Article objects（来自 run_wechat）
         batch_size: 每批处理数量
         max_workers: 最大并发 API 调用数
 
@@ -355,10 +355,10 @@ def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
 
         lines = []
         for j, art in enumerate(batch, 1):
-            lines.append(f"{j}. 公众号: {art.get('account_name', '未知')}")
-            lines.append(f"   文章: {art.get('article_title', '未知')}")
-            lines.append(f"   链接: {art.get('article_url', '')}")
-            summary = art.get("summary_text", "")[:200]
+            lines.append(f"{j}. 公众号: {art.source}")
+            lines.append(f"   文章: {art.title}")
+            lines.append(f"   链接: {art.url}")
+            summary = (art.description or "")[:200]
             if summary:
                 lines.append(f"   摘要: {summary}")
             lines.append("")

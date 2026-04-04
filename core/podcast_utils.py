@@ -68,7 +68,7 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
     """解析非小宇宙的单集链接为小宇宙单集链接
 
     Args:
-        updates: list of update dicts（来自 check_updates）
+        updates: list of Article objects
         podcasts_data: dict, 播客配置数据（包含 podcasts 数组）
             如果为 None，从 config/podcast_feeds.json 读取
 
@@ -88,8 +88,8 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
 
     # 找出需要解析的更新
     needs_resolve = []
-    for i, update in enumerate(updates):
-        url = update.get('episode_url', '')
+    for i, article in enumerate(updates):
+        url = article.url
         if 'xiaoyuzhoufm.com/episode/' not in url:
             needs_resolve.append(i)
 
@@ -102,7 +102,7 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
     # 按播客名分组
     podcast_indices = defaultdict(list)
     for idx in needs_resolve:
-        name = updates[idx]['podcast_name']
+        name = updates[idx].source
         podcast_indices[name].append(idx)
 
     resolved = 0
@@ -125,9 +125,9 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
                 return 0, len(indices)
             res, fail = 0, 0
             for idx in indices:
-                eid = _match_episode(updates[idx]['episode_title'], episodes)
+                eid = _match_episode(updates[idx].title, episodes)
                 if eid:
-                    updates[idx]['episode_url'] = f'https://www.xiaoyuzhoufm.com/episode/{eid}'
+                    updates[idx].url = f'https://www.xiaoyuzhoufm.com/episode/{eid}'
                     res += 1
                 else:
                     fail += 1
@@ -147,10 +147,10 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
             time.sleep(random.uniform(0.05, 0.15))
 
     # 清理 utm 后缀
-    for update in updates:
-        url = update.get('episode_url', '')
+    for article in updates:
+        url = article.url
         if 'xiaoyuzhoufm.com/episode/' in url and '?utm_source=' in url:
-            update['episode_url'] = url.split('?utm_source=')[0]
+            article.url = url.split('?utm_source=')[0]
 
     print(f'[Podcast] URL 解析完成: 成功 {resolved}, 失败 {failed}')
     return updates
@@ -160,18 +160,18 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
 # 播客报告生成
 # ============================================================
 
-def generate_podcast_report(updates_data, ai_summaries=None):
+def generate_podcast_report(updates, ai_summaries=None, metadata=None):
     """生成播客日报 Markdown 报告
 
     Args:
-        updates_data: dict with 'metadata' and 'updates'
+        updates: list of Article objects
         ai_summaries: dict, {episode_url: summary} 或 None
+        metadata: dict, 抓取统计信息 或 None
 
     Returns:
         str: Markdown 报告
     """
-    metadata = updates_data.get('metadata', {})
-    updates = updates_data.get('updates', [])
+    metadata = metadata or {}
     ai_summaries = ai_summaries or {}
 
     now = datetime.now(timezone.utc)
@@ -190,12 +190,11 @@ def generate_podcast_report(updates_data, ai_summaries=None):
     ]
 
     for i, update in enumerate(updates, 1):
-        podcast_name = update.get('podcast_name', '未知')
-        rank = update.get('rank', 0)
-        title = update.get('episode_title', '未知标题')
-        url = update.get('episode_url', '')
-        pub_date = update.get('pub_date', '')
-        shownotes = update.get('shownotes', '')
+        podcast_name = update.source
+        rank = update.rank
+        title = update.title
+        url = update.url
+        shownotes = update.full_text or update.description
 
         # AI 摘要优先，fallback 到截断
         summary = ai_summaries.get(url) or ai_summaries.get(title)
@@ -205,7 +204,7 @@ def generate_podcast_report(updates_data, ai_summaries=None):
 
         # 清理 URL
         display_url = url.split('?utm_source=')[0] if url else ''
-        podcast_url = update.get('podcast_url', display_url)
+        podcast_url = update.extra.get('xiaoyuzhou_url', '') or display_url
         if '?utm_source=' in podcast_url:
             podcast_url = podcast_url.split('?utm_source=')[0]
 
