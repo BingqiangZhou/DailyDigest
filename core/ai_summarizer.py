@@ -64,15 +64,15 @@ def _format_articles_for_prompt(articles, max_per_category=15):
     if not articles:
         return "无新文章"
 
-    sorted_articles = sorted(articles, key=lambda a: a.get("priority", 3))
+    sorted_articles = sorted(articles, key=lambda a: a.priority)
     lines = []
     for i, article in enumerate(sorted_articles[:max_per_category], 1):
-        title = article.get("title", "无标题")
-        source = article.get("source_name", article.get("source", "未知来源"))
-        summary = article.get("description", article.get("summary", ""))[:200]
-        link = article.get("url", article.get("link", ""))
-        lang_tag = "🇨🇳" if article.get("language") == "zh" else "🇺🇸"
-        transcript = article.get("transcript", "")
+        title = article.title
+        source = article.source
+        summary = article.description[:200]
+        link = article.url
+        lang_tag = "🇨🇳" if article.language == "zh" else "🇺🇸"
+        transcript = article.extra.get("transcript", "")
 
         lines.append(f"{i}. [{lang_tag}] {title}")
         lines.append(f"   来源: {source}")

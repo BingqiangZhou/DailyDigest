@@ -22,7 +22,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
     """生成科技日报 Markdown 报告
 
     Args:
-        updates: list of article dicts（来自 rss_fetcher）
+        updates: list of Article objects（来自 rss_fetcher）
         summary_map: dict, url -> {ai_summary, category}（来自 AI 摘要）
         trend_insight: dict with "trend_insight" key
         stats: dict with metadata
@@ -77,13 +77,13 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
 
     hn_items = []
     for update in updates:
-        source_cat = normalize_category(update.get("source_category", ""))
+        source_cat = normalize_category(update.category)
         if source_cat == "hacker_news":
             hn_items.append(update)
             continue
 
         # 检查 AI 是否重新分类
-        url = update.get("url", "")
+        url = update.url
         ai_info = summary_map.get(url, {})
         ai_cat = ai_info.get("category", "")
         final_cat = normalize_category(ai_cat) if ai_cat else source_cat
@@ -101,10 +101,10 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         lines.append("")
 
         for update in cat_updates:
-            title = update.get("title", "(no title)")
-            url = update.get("url", "")
-            source_name = update.get("source_name", "Unknown")
-            description = update.get("description", "")
+            title = update.title
+            url = update.url
+            source_name = update.source
+            description = update.description
 
             ai_info = summary_map.get(url, {})
             ai_summary = ai_info.get("ai_summary", "")
@@ -128,10 +128,10 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         lines.append("")
 
         for item in hn_items:
-            title = item.get("title", "(no title)")
-            url = item.get("url", "")
-            points = item.get("hn_points")
-            comments = item.get("hn_comments")
+            title = item.title
+            url = item.url
+            points = item.hn_points
+            comments = item.hn_comments
 
             ai_info = summary_map.get(url, {})
             ai_summary = ai_info.get("ai_summary", "")
@@ -218,10 +218,10 @@ def generate_category_report(category_results, executive_summary, stats,
 
         # 文章列表
         for article in articles:
-            title = article.get("title", "")
-            link = article.get("url", article.get("link", ""))
-            source = article.get("source_name", article.get("source", ""))
-            lang = article.get("language", "en")
+            title = article.title
+            link = article.url
+            source = article.source
+            lang = article.language
             lang_tag = "🇨🇳" if lang == "zh" else "🇺🇸"
 
             lines.append(f"- [{lang_tag}] [{title}]({link}) — *{source}*")

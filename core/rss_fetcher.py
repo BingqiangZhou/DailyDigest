@@ -16,6 +16,7 @@ from datetime import datetime, timezone, timedelta
 from collections import defaultdict, OrderedDict
 from urllib.parse import urlparse, parse_qs, urlunparse
 
+from .article import Article
 from .config import (
     normalize_category, get_category_display,
     CATEGORIES, CATEGORY_ORDER, LEGACY_CATEGORY_MAP,
@@ -241,7 +242,7 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
 
     Returns:
         (updates, stats, new_cache)
-        - updates: list of article dicts
+        - updates: list of Article objects
         - stats: dict with metadata
         - new_cache: updated HTTP cache
     """
@@ -275,24 +276,26 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
                 desc_html = item.get("content_encoded") or item.get("description") or ""
                 full_text = strip_html(desc_html)
                 summary_text = full_text[:2000] + ("..." if len(full_text) > 2000 else "")
-                articles.append({
-                    "title": item.get("title", "(no title)"),
-                    "url": item.get("link", ""),
-                    "published": pub_date.strftime("%Y-%m-%d %H:%M"),
-                    "published_raw": pub_date_raw,
-                    "description": summary_text,
-                    "full_text": full_text,
-                    "source_name": feed_info.get("name", "Unknown"),
-                    "source_category": normalize_category(feed_info.get("category", "")),
-                    "language": feed_info.get("language", "en"),
-                    "hn_points": item.get("hn_points"),
-                    "hn_comments": item.get("hn_comments"),
-                    # 传递 feed_info 中的自定义元数据
-                    "_feed_meta": {
-                        k: v for k, v in feed_info.items()
-                        if k.startswith("_") and k != "_feed_meta"
+                articles.append(Article(
+                    title=item.get("title", "(no title)"),
+                    url=item.get("link", ""),
+                    published=pub_date.strftime("%Y-%m-%d %H:%M"),
+                    source=feed_info.get("name", "Unknown"),
+                    category=normalize_category(feed_info.get("category", "")),
+                    description=summary_text,
+                    full_text=full_text,
+                    language=feed_info.get("language", "en"),
+                    extra={
+                        "published_raw": pub_date_raw,
+                        "hn_points": item.get("hn_points"),
+                        "hn_comments": item.get("hn_comments"),
+                        "priority": feed_info.get("priority", 3),
+                        "_feed_meta": {
+                            k: v for k, v in feed_info.items()
+                            if k.startswith("_") and k != "_feed_meta"
+                        },
                     },
-                })
+                ))
         return feed_info, articles, None, feed_cache
 
     with ThreadPoolExecutor(max_workers=workers) as executor:
@@ -326,7 +329,7 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
     _WORD_SPLIT = re.compile(r'[\s\-_:,;|/\\]+')
 
     for article in all_articles:
-        raw_url = article.get("url", "")
+        raw_url = article.url
         if not raw_url:
             # 空 URL 的文章跳过 URL 去重，直接保留
             deduped.append(article)
@@ -335,7 +338,7 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
         if norm_url in seen_urls:
             continue
         # 标题相似度检查（通过倒排索引快速定位候选）
-        title = article.get("title", "")
+        title = article.title
         is_dup = False
         if title:
             words = set(_WORD_SPLIT.split(title.lower().strip()))
@@ -348,7 +351,7 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
                         candidate_indices.update(word_index[w])
                 # 只对候选文章计算 Jaccard 相似度
                 for idx in candidate_indices:
-                    if title_similarity(title, deduped[idx].get("title", "")) > 0.85:
+                    if title_similarity(title, deduped[idx].title) > 0.85:
                         is_dup = True
                         break
                 if not is_dup:
@@ -382,7 +385,7 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
         # 转换为 articles_by_category 格式
         articles_by_category = defaultdict(list)
         for article in updates:
-            cat = article.get("source_category", "tech_general")
+            cat = article.category
             articles_by_category[cat].append(article)
         return dict(articles_by_category), stats
 
@@ -435,17 +438,19 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
                 author = entry.get("author", "") or entry.get("dc_creator", "")
                 pub_str = entry.get("published", "") or entry.get("updated", "")
 
-                article = {
-                    "title": title,
-                    "url": link,
-                    "description": summary,
-                    "author": author,
-                    "published": pub_str,
-                    "source_name": name,
-                    "source_category": category,
-                    "language": language,
-                    "priority": priority,
-                }
+                article = Article(
+                    title=title,
+                    url=link,
+                    source=name,
+                    category=category,
+                    description=summary,
+                    published=pub_str,
+                    language=language,
+                    extra={
+                        "author": author,
+                        "priority": priority,
+                    },
+                )
                 articles.append(article)
                 count += 1
 

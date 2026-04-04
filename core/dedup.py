@@ -37,7 +37,7 @@ def _save_tracker(tracker):
 
 def article_id(article):
     """生成文章唯一 ID（基于标准化 URL 的 SHA-256 哈希）"""
-    raw_url = article.get("link", "") or article.get("url", "")
+    raw_url = article.url
     # 标准化 URL：去除追踪参数、统一大小写等
     url = _normalize_url_for_dedup(raw_url)
     return hashlib.sha256(url.encode("utf-8")).hexdigest()[:16]
@@ -72,8 +72,8 @@ def filter_and_mark(articles):
         if aid not in processed:
             new_articles.append(article)
             processed[aid] = {
-                "title": (article.get("title", "") or "")[:100],
-                "source": article.get("source_name", article.get("source", "")),
+                "title": article.title[:100],
+                "source": article.source,
                 "processed_at": now,
             }
 

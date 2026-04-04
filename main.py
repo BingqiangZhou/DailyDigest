@@ -20,6 +20,7 @@ import re
 import json
 import os
 import sys
+from dataclasses import asdict
 from datetime import datetime, timezone
 
 # 解决 stdout 缓冲问题：确保并发抓取时进度实时输出
@@ -176,6 +177,7 @@ def _build_merged_report(sections, now, language="zh"):
 def _finalize_tech(language, date_dir, now):
     """Finalize 科技新闻报告"""
     from core.config import WORKSPACE_DIR
+    from core.article import Article
     from core.report_generator import generate_tech_report, save_report
 
     updates_path = WORKSPACE_DIR / "tech_updates.json"
@@ -186,7 +188,7 @@ def _finalize_tech(language, date_dir, now):
     with open(updates_path, "r", encoding="utf-8") as f:
         data = json.load(f)
 
-    updates = data.get("updates", [])
+    updates = [Article(**u) for u in data.get("updates", [])]
     stats = data.get("metadata", {})
 
     # 合并所有 batch 的 sub-agent 摘要
@@ -307,7 +309,7 @@ def run_tech(hours=48, language="zh", limit=None):
         # 统一为 articles_by_category 格式
         articles_by_category = {}
         for u in updates:
-            cat = u.get("source_category", "tech_general")
+            cat = u.category
             articles_by_category.setdefault(cat, []).append(u)
         fetch_stats = stats
 
@@ -326,7 +328,7 @@ def run_tech(hours=48, language="zh", limit=None):
 
     new_by_category = {}
     for a in new_articles:
-        cat = a.get("source_category", "tech_general")
+        cat = a.category
         new_by_category.setdefault(cat, []).append(a)
     print(f"✅ {len(new_articles)} 篇新文章")
 
@@ -349,7 +351,7 @@ def run_tech(hours=48, language="zh", limit=None):
         # 保存原始数据供 sub-agent 使用
         updates_path = WORKSPACE_DIR / "tech_updates.json"
         with open(updates_path, "w", encoding="utf-8") as f:
-            json.dump({"metadata": fetch_stats, "updates": new_articles}, f, ensure_ascii=False, indent=2)
+            json.dump({"metadata": fetch_stats, "updates": [asdict(a) for a in new_articles]}, f, ensure_ascii=False, indent=2)
         print(f"💡 无 API_KEY，已保存原始数据到 {updates_path}")
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source tech --finalize")
@@ -389,21 +391,25 @@ def run_podcast(hours=24, limit=None):
     raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=30, cache=cache)
     _save_http_cache(cache_path, new_cache)
 
+    # 去重（在 Article 对象上）
+    raw_updates = filter_and_mark(raw_updates)
+
+    if not raw_updates:
+        print("⚠️ 无播客更新。")
+        return None
+
     updates = []
     for u in raw_updates:
-        meta = u.get("_feed_meta", {}).get("_podcast_meta", {})
+        meta = u.extra.get("_feed_meta", {}).get("_podcast_meta", {})
         updates.append({
-            "podcast_name": u.get("source_name", ""),
+            "podcast_name": u.source,
             "rank": meta.get("rank", 0),
-            "episode_title": u.get("title", ""),
-            "episode_url": u.get("url", ""),
-            "pub_date": u.get("published", ""),
-            "shownotes": u.get("full_text", u.get("description", "")),
+            "episode_title": u.title,
+            "episode_url": u.url,
+            "pub_date": u.published,
+            "shownotes": u.full_text or u.description,
             "xiaoyuzhou_url": meta.get("xiaoyuzhou_url", ""),
         })
-
-    # 去重
-    updates = filter_and_mark(updates)
 
     if not updates:
         print("⚠️ 无播客更新。")
@@ -468,20 +474,24 @@ def run_wechat(hours=24, limit=None):
     raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=10, cache=cache)
     _save_http_cache(cache_path, new_cache)
 
+    # 去重（在 Article 对象上）
+    raw_updates = filter_and_mark(raw_updates)
+
+    if not raw_updates:
+        print("⚠️ 无公众号更新。")
+        return None
+
     updates = []
     for u in raw_updates:
         updates.append({
-            "account_name": u.get("source_name", ""),
-            "article_title": u.get("title", ""),
-            "article_url": u.get("url", ""),
-            "pub_date": u.get("published", ""),
-            "category": u.get("source_category", "其他"),
-            "summary_text": u.get("description", ""),
-            "full_text": u.get("full_text", ""),
+            "account_name": u.source,
+            "article_title": u.title,
+            "article_url": u.url,
+            "pub_date": u.published,
+            "category": u.category,
+            "summary_text": u.description,
+            "full_text": u.full_text,
         })
-
-    # 去重
-    updates = filter_and_mark(updates)
 
     if not updates:
         print("⚠️ 无公众号更新。")
