@@ -15,7 +15,7 @@
     }
   },
   "settings": {
-    "hours": 24,
+    "hours": 25,
     "workers": 10
   },
   "feeds": [

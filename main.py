@@ -524,7 +524,7 @@ def main():
     all_stats = {}
 
     if args.source in ("tech", "all"):
-        hours = args.hours or 48
+        hours = args.hours or 25
         result = run_tech(hours=hours, language=language, limit=args.limit)
         if result:
             report, stats = result
@@ -532,7 +532,7 @@ def main():
             all_stats["tech"] = stats
 
     if args.source in ("podcast", "all"):
-        hours = args.hours or 24
+        hours = args.hours or 25
         result = run_podcast(hours=hours, limit=args.limit)
         if result:
             report, stats = result
@@ -540,7 +540,7 @@ def main():
             all_stats["podcast"] = stats
 
     if args.source in ("wechat", "all"):
-        hours = args.hours or 24
+        hours = args.hours or 25
         result = run_wechat(hours=hours, limit=args.limit)
         if result:
             report, stats = result

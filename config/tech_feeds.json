@@ -424,6 +424,36 @@
           "url": "http://export.arxiv.org/rss/cs.AI",
           "language": "en",
           "priority": 3
+        },
+        {
+          "name": "Google Gemini Blog",
+          "url": "https://blog.google/technology/google-deepmind/gemini/rss/",
+          "language": "en",
+          "priority": 1
+        },
+        {
+          "name": "AI Explorations (Andrej Karpathy)",
+          "url": "https://karpathy.github.io/feed.xml",
+          "language": "en",
+          "priority": 1
+        },
+        {
+          "name": "Llama Blog (Meta)",
+          "url": "https://llama.meta.com/blog/feed.xml",
+          "language": "en",
+          "priority": 1
+        },
+        {
+          "name": "Sebastian Raschka Blog",
+          "url": "https://sebastianraschka.com/blog/feed.xml",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Cohere Blog",
+          "url": "https://cohere.com/blog/rss.xml",
+          "language": "en",
+          "priority": 2
         }
       ]
     },
@@ -892,6 +922,42 @@
           "url": "https://www.ruanyifeng.com/blog/atom.xml",
           "language": "zh",
           "priority": 3
+        },
+        {
+          "name": "The Register",
+          "url": "https://www.theregister.com/headlines.atom",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Ars Technica AI",
+          "url": "https://feeds.arstechnica.com/arstechnica/technology-lab/artificial-intelligence",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Bloomberg AI",
+          "url": "https://feeds.bloomberg.com/markets/technology.rss",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Lobsters",
+          "url": "https://lobste.rs/rss",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Hacker News (Best)",
+          "url": "https://hnrss.org/best",
+          "language": "en",
+          "priority": 1
+        },
+        {
+          "name": "Indie Hackers",
+          "url": "https://www.indiehackers.com/feed",
+          "language": "en",
+          "priority": 3
         }
       ]
     },
@@ -1296,12 +1362,6 @@
           "priority": 2
         },
         {
-          "name": "汽车之家",
-          "url": "https://www.autohome.com.cn/rss/",
-          "language": "zh",
-          "priority": 2
-        },
-        {
           "name": "9to5Google",
           "url": "https://9to5google.com/feed/",
           "language": "en",
@@ -1426,6 +1486,30 @@
           "url": "https://www.anandtech.com/rss/",
           "language": "en",
           "priority": 2
+        },
+        {
+          "name": "Tom's Hardware",
+          "url": "https://www.tomshardware.com/feeds/all",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "AnandTech (已关停，替代)",
+          "url": "https://www.chipsandcheese.com/feed/",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "ServeTheHome",
+          "url": "https://www.servethehome.com/feed/",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Semianalysis",
+          "url": "https://www.semianalysis.com/feed/",
+          "language": "en",
+          "priority": 1
         }
       ]
     },
@@ -1450,6 +1534,30 @@
           "url": "https://cloud.google.com/blog/feed/",
           "language": "en",
           "priority": 2
+        },
+        {
+          "name": "Cloudflare Blog",
+          "url": "https://blog.cloudflare.com/rss/",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Vercel Blog",
+          "url": "https://vercel.com/blog/feed.xml",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Supabase Blog",
+          "url": "https://supabase.com/blog/feed.xml",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Fly.io Blog",
+          "url": "https://fly.io/blog/feed.xml",
+          "language": "en",
+          "priority": 3
         }
       ]
     },
@@ -1462,6 +1570,24 @@
           "url": "https://thenewstack.io/feed/",
           "language": "en",
           "priority": 2
+        },
+        {
+          "name": "GitHub Changelog",
+          "url": "https://github.blog/changelog/feed/",
+          "language": "en",
+          "priority": 1
+        },
+        {
+          "name": "Linux Foundation",
+          "url": "https://www.linuxfoundation.org/feed",
+          "language": "en",
+          "priority": 2
+        },
+        {
+          "name": "Open Source Initiative",
+          "url": "https://opensource.org/feed",
+          "language": "en",
+          "priority": 3
         }
       ]
     },
@@ -1666,7 +1792,7 @@
   ],
   "settings": {
     "max_articles_per_feed": 10,
-    "hours_back": 48,
+    "hours_back": 25,
     "timeout_seconds": 15
   }
 }

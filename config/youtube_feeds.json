@@ -40,7 +40,7 @@
   ],
   "settings": {
     "max_videos_per_channel": 10,
-    "hours_back": 48,
+    "hours_back": 25,
     "timeout_seconds": 15
   }
 }
