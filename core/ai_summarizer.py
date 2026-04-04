@@ -7,6 +7,7 @@ import os
 import json
 import time
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import get_category_display, CATEGORY_ORDER
 
@@ -176,76 +177,103 @@ def generate_executive_summary(client, category_summaries, total_stats, report_l
     return summary
 
 
-def summarize_all_categories(articles_by_category, report_language="zh"):
-    """对所有分类生成 AI 摘要（OpenAI API 模式）"""
+def summarize_all_categories(articles_by_category, report_language="zh", max_workers=5):
+    """对所有分类生成 AI 摘要（OpenAI API 模式，并发控制）
+
+    Args:
+        articles_by_category: {category: [articles]}
+        report_language: 报告语言
+        max_workers: 最大并发 API 调用数（默认 3，避免 rate limit）
+    """
     client = _get_client()
     model = _get_model()
-    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model}")
+    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
     results = {}
     category_summaries_for_exec = {}
 
-    sorted_categories = sorted(
-        articles_by_category.keys(),
-        key=lambda c: CATEGORY_ORDER.index(c) if c in CATEGORY_ORDER else 99,
-    )
+    # 筛选有文章的分类，按 CATEGORY_ORDER 排序
+    categories_to_process = [
+        cat for cat in sorted(
+            articles_by_category.keys(),
+            key=lambda c: CATEGORY_ORDER.index(c) if c in CATEGORY_ORDER else 99,
+        )
+        if articles_by_category[cat]
+    ]
 
-    for category in sorted_categories:
+    total = len(categories_to_process)
+    print(f"[AI] 📋 共 {total} 个分类需要生成摘要")
+
+    # 并发生成分类摘要
+    def _summarize_one(category):
         articles = articles_by_category[category]
-        if not articles:
-            continue
-
         category_name = get_category_display(category)
-        print(f"[AI] 🤖 正在生成「{category_name}」摘要 ({len(articles)} 篇文章)...")
-
+        print(f"[AI] 🤖 开始「{category_name}」({len(articles)} 篇)...")
         summary = summarize_category(client, category, articles, report_language)
+        return category, category_name, articles, summary
 
-        if summary:
-            results[category] = {
-                "name": category_name,
-                "summary": summary,
-                "article_count": len(articles),
-                "articles": articles[:15],
-            }
-            category_summaries_for_exec[category_name] = summary[:200]
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_summarize_one, cat): cat for cat in categories_to_process}
+        for future in as_completed(futures):
+            category, category_name, articles, summary = future.result()
+            completed += 1
+            if summary:
+                results[category] = {
+                    "name": category_name,
+                    "summary": summary,
+                    "article_count": len(articles),
+                    "articles": articles[:15],
+                }
+                category_summaries_for_exec[category_name] = summary[:200]
+                print(f"[AI] ✅ [{completed}/{total}] 「{category_name}」完成")
+            else:
+                print(f"[AI] ❌ [{completed}/{total}] 「{category_name}」失败")
 
-    # 生成执行摘要
+    # 生成执行摘要（必须在所有分类完成后）
     total_stats = {
         "total_articles": sum(len(a) for a in articles_by_category.values()),
         "categories": len(results),
     }
 
-    print(f"[AI] 🤖 正在生成执行摘要...")
-    executive_summary = generate_executive_summary(
-        client, category_summaries_for_exec, total_stats, report_language
-    )
+    if results:
+        print(f"[AI] 🤖 正在生成执行摘要...")
+        executive_summary = generate_executive_summary(
+            client, category_summaries_for_exec, total_stats, report_language
+        )
+    else:
+        print(f"[AI] ⚠️ 所有分类摘要均失败，跳过执行摘要")
+        executive_summary = ""
 
-    print(f"[AI] ✅ 完成! 共生成 {len(results)} 个分类摘要\n")
+    print(f"[AI] ✅ 完成! 共生成 {len(results)}/{total} 个分类摘要\n")
     return results, executive_summary
 
 
-def summarize_podcast_batch(updates, batch_size=10):
-    """对播客更新批量生成 AI 摘要（OpenAI API 模式）
+def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
+    """对播客更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
         updates: list of update dicts（来自 run_podcast）
         batch_size: 每批处理数量
+        max_workers: 最大并发 API 调用数
 
     Returns:
         dict: {episode_url: summary}
     """
     client = _get_client()
     model = _get_model()
-    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model}")
+    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
-    ai_summaries = {}
-    total = len(updates)
+    # 分批
+    batches = []
+    for i in range(0, len(updates), batch_size):
+        batches.append((i // batch_size, updates[i:i + batch_size]))
+    total_batches = len(batches)
+    print(f"[AI] 📋 共 {len(updates)} 集，分 {total_batches} 批")
 
-    for i in range(0, total, batch_size):
-        batch = updates[i:i + batch_size]
-        batch_num = i // batch_size + 1
-        total_batches = (total + batch_size - 1) // batch_size
-        print(f"[AI] 🤖 播客摘要 batch {batch_num}/{total_batches} ({len(batch)} 集)...")
+    def _summarize_batch(batch_info):
+        batch_num, batch = batch_info
+        print(f"[AI] 🤖 播客 batch {batch_num + 1}/{total_batches} ({len(batch)} 集)...")
 
         lines = []
         for j, ep in enumerate(batch, 1):
@@ -271,45 +299,58 @@ def summarize_podcast_batch(updates, batch_size=10):
 其中 url 为每个单集的 episode_url。"""
 
         response = _chat_completion(client, prompt, max_tokens=2000)
+        batch_summaries = {}
         if response:
             try:
-                # 提取 JSON（可能被 markdown 代码块包裹）
                 json_str = response.strip()
                 if json_str.startswith("```"):
                     json_str = json_str.split("\n", 1)[1].rsplit("```", 1)[0].strip()
                 parsed = json.loads(json_str)
                 if isinstance(parsed, dict):
-                    ai_summaries.update(parsed)
-                    print(f"[AI] ✅ batch {batch_num}: {len(parsed)} 条摘要")
+                    batch_summaries.update(parsed)
+                    print(f"[AI] ✅ batch {batch_num + 1}: {len(parsed)} 条摘要")
             except (json.JSONDecodeError, ValueError):
-                print(f"[AI] ⚠️ batch {batch_num}: JSON 解析失败")
+                print(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
+        return batch_summaries
+
+    ai_summaries = {}
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_summarize_batch, b): b[0] for b in batches}
+        for future in as_completed(futures):
+            batch_summaries = future.result()
+            completed += 1
+            ai_summaries.update(batch_summaries)
 
     print(f"[AI] ✅ 播客摘要完成! 共 {len(ai_summaries)} 条\n")
     return ai_summaries
 
 
-def summarize_wechat_batch(updates, batch_size=10):
-    """对微信公众号更新批量生成 AI 摘要（OpenAI API 模式）
+def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
+    """对微信公众号更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
         updates: list of update dicts（来自 run_wechat）
         batch_size: 每批处理数量
+        max_workers: 最大并发 API 调用数
 
     Returns:
         dict: {article_url: ai_summary}
     """
     client = _get_client()
     model = _get_model()
-    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model}")
+    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
-    ai_summaries = {}
-    total = len(updates)
+    # 分批
+    batches = []
+    for i in range(0, len(updates), batch_size):
+        batches.append((i // batch_size, updates[i:i + batch_size]))
+    total_batches = len(batches)
+    print(f"[AI] 📋 共 {len(updates)} 篇，分 {total_batches} 批")
 
-    for i in range(0, total, batch_size):
-        batch = updates[i:i + batch_size]
-        batch_num = i // batch_size + 1
-        total_batches = (total + batch_size - 1) // batch_size
-        print(f"[AI] 🤖 微信摘要 batch {batch_num}/{total_batches} ({len(batch)} 篇)...")
+    def _summarize_batch(batch_info):
+        batch_num, batch = batch_info
+        print(f"[AI] 🤖 微信 batch {batch_num + 1}/{total_batches} ({len(batch)} 篇)...")
 
         lines = []
         for j, art in enumerate(batch, 1):
@@ -334,6 +375,7 @@ def summarize_wechat_batch(updates, batch_size=10):
 其中 article_url 为每篇文章的 article_url。"""
 
         response = _chat_completion(client, prompt, max_tokens=2000)
+        batch_summaries = {}
         if response:
             try:
                 json_str = response.strip()
@@ -345,10 +387,98 @@ def summarize_wechat_batch(updates, batch_size=10):
                     url = item.get("article_url", "")
                     summary = item.get("ai_summary", "")
                     if url and summary:
-                        ai_summaries[url] = summary
-                print(f"[AI] ✅ batch {batch_num}: {len(summaries_list)} 条摘要")
+                        batch_summaries[url] = summary
+                print(f"[AI] ✅ batch {batch_num + 1}: {len(summaries_list)} 条摘要")
             except (json.JSONDecodeError, ValueError):
-                print(f"[AI] ⚠️ batch {batch_num}: JSON 解析失败")
+                print(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
+        return batch_summaries
+
+    ai_summaries = {}
+    completed = 0
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_summarize_batch, b): b[0] for b in batches}
+        for future in as_completed(futures):
+            batch_summaries = future.result()
+            completed += 1
+            ai_summaries.update(batch_summaries)
 
     print(f"[AI] ✅ 微信摘要完成! 共 {len(ai_summaries)} 条\n")
     return ai_summaries
+
+
+def generate_tldr(report_content, report_type="tech", language="zh"):
+    """根据完整报告生成 TL;DR（太长不看版）
+
+    Args:
+        report_content: str, 完整的 Markdown 报告
+        report_type: str, 报告类型（tech/podcast/wechat）
+        language: str, 语言（zh/en）
+
+    Returns:
+        str: TL;DR 文本，失败返回空字符串
+    """
+    if not os.environ.get("API_KEY"):
+        return ""
+
+    try:
+        client = _get_client()
+    except ValueError:
+        return ""
+
+    type_names = {
+        "tech": "科技日报" if language == "zh" else "Tech Daily",
+        "podcast": "播客日报" if language == "zh" else "Podcast Daily",
+        "wechat": "微信日报" if language == "zh" else "WeChat Daily",
+    }
+    type_name = type_names.get(report_type, report_type)
+
+    # 截取报告内容（避免 token 超限）
+    content = report_content[:8000]
+
+    if language == "zh":
+        prompt = f"""你是一位资深编辑。请为以下{type_name}写一个"太长不看"(TL;DR)版本。
+
+要求：
+1. 用 3-5 个要点概括最重要的内容
+2. 每个要点一行，以 "- " 开头
+3. 总字数不超过 200 字
+4. 语言简洁有力，适合快速浏览
+5. 不要编造报告中没有的信息
+
+## 原始报告
+
+{content}
+
+## 输出格式
+
+直接输出要点列表，不要输出其他内容。"""
+    else:
+        prompt = f"""You are a senior editor. Write a "Too Long; Didn't Read" (TL;DR) version of the following {type_name}.
+
+Requirements:
+1. 3-5 bullet points covering the most important content
+2. Each point starts with "- "
+3. Total under 200 words
+4. Concise and punchy, suitable for quick scanning
+5. Do not fabricate information not in the report
+
+## Original Report
+
+{content}
+
+## Output Format
+
+Output only the bullet points, nothing else."""
+
+    print(f"[AI] 🤖 正在生成 TL;DR ({type_name})...")
+    response = _chat_completion(client, prompt, max_tokens=500)
+    if response:
+        # 清理可能的 markdown 包裹
+        tldr = response.strip()
+        if tldr.startswith("```"):
+            tldr = tldr.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        print(f"[AI] ✅ TL;DR 生成完成")
+        return tldr
+    else:
+        print(f"[AI] ⚠️ TL;DR 生成失败")
+        return ""

@@ -37,25 +37,39 @@ except ImportError:
 def finalize_reports(source, language="zh"):
     """--finalize 模式：从 workspace/ 读取 sub-agent 摘要并生成最终报告"""
     from core.config import OUTPUT_DIR, WORKSPACE_DIR
+    from core.report_generator import save_report
 
     now = datetime.now(timezone.utc)
     date_dir = OUTPUT_DIR / now.strftime("%Y-%m-%d")
-    results = {}
+
+    sections = []
 
     if source in ("tech", "all"):
-        results["tech"] = _finalize_tech(language, date_dir, now)
+        report = _finalize_tech(language, date_dir, now)
+        if report:
+            sections.append(report)
 
     if source in ("podcast", "all"):
-        results["podcast"] = _finalize_podcast(date_dir, now)
+        report = _finalize_podcast(date_dir, now)
+        if report:
+            sections.append(report)
 
     if source in ("wechat", "all"):
-        results["wechat"] = _finalize_wechat(date_dir, now)
+        report = _finalize_wechat(date_dir, now)
+        if report:
+            sections.append(report)
+
+    if not sections:
+        print("⚠️ 无报告可生成。")
+        return
+
+    # 合并为一份报告
+    merged = "\n\n---\n\n".join(sections)
+    filepath = save_report(merged, f"daily-digest_{now.strftime('%H-%M')}.md", date_dir,
+                           report_type="tech", language=language)
 
     print("\n" + "=" * 60)
-    print("✅ Finalize 完成!")
-    for src, result in results.items():
-        status = result if result else "无数据"
-        print(f"  {src}: {status}")
+    print(f"✅ Finalize 完成! 报告: {filepath}")
     print("=" * 60 + "\n")
 
 
@@ -110,9 +124,8 @@ def _finalize_tech(language, date_dir, now):
             trend_insight = json.load(f)
 
     report = generate_tech_report(updates, summary_map, trend_insight, stats, language)
-    filepath = save_report(report, f"tech-daily_{now.strftime('%H-%M')}.md", date_dir)
-    print(f"✅ 科技新闻报告: {filepath}")
-    return filepath
+    print(f"✅ 科技新闻报告生成完成 ({len(updates)} 篇)")
+    return report
 
 
 def _finalize_podcast(date_dir, now):
@@ -139,9 +152,8 @@ def _finalize_podcast(date_dir, now):
             ai_summaries[url] = summary
 
     report = generate_podcast_report(data, ai_summaries)
-    filepath = save_report(report, f"podcast_{now.strftime('%H-%M')}.md", date_dir)
-    print(f"✅ 播客报告: {filepath}")
-    return filepath
+    print(f"✅ 播客报告生成完成 ({len(ai_summaries)} 条摘要)")
+    return report
 
 
 def _finalize_wechat(date_dir, now):
@@ -170,9 +182,8 @@ def _finalize_wechat(date_dir, now):
                 ai_summaries[url] = item.get("ai_summary", "")
 
     report = generate_wechat_report(data, ai_summaries)
-    filepath = save_report(report, f"wechat_{now.strftime('%H-%M')}.md", date_dir)
-    print(f"✅ 微信公众号报告: {filepath}")
-    return filepath
+    print(f"✅ 微信公众号报告生成完成 ({len(ai_summaries)} 条摘要)")
+    return report
 
 
 def run_tech(hours=48, language="zh", limit=None):
@@ -263,12 +274,8 @@ def run_tech(hours=48, language="zh", limit=None):
 
     # Step 4: 生成报告
     print("📄 Step 4/4: 生成报告...")
-    now = datetime.now(timezone.utc)
-    filepath = save_report(report, f"tech-daily_{now.strftime('%H-%M')}.md",
-                           OUTPUT_DIR / now.strftime("%Y-%m-%d"))
     mark_articles_processed(new_articles)
-    print(f"✅ 报告: {filepath}")
-    return filepath
+    return report, {"total_articles": len(new_articles), "categories": len(new_by_category)}
 
 
 def run_podcast(hours=24, limit=None):
@@ -342,11 +349,7 @@ def run_podcast(hours=24, limit=None):
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source podcast --finalize")
 
-    now = datetime.now(timezone.utc)
-    filepath = save_report(report, f"podcast_{now.strftime('%H-%M')}.md",
-                           OUTPUT_DIR / now.strftime("%Y-%m-%d"))
-    print(f"✅ 报告: {filepath}")
-    return filepath
+    return report, {"total_episodes": len(updates)}
 
 
 def run_wechat(hours=24, limit=None):
@@ -416,11 +419,7 @@ def run_wechat(hours=24, limit=None):
         print("   请使用 Claude sub-agent 生成摘要后，再运行:")
         print(f"   python main.py --source wechat --finalize")
 
-    now = datetime.now(timezone.utc)
-    filepath = save_report(report, f"wechat_{now.strftime('%H-%M')}.md",
-                           OUTPUT_DIR / now.strftime("%Y-%m-%d"))
-    print(f"✅ 报告: {filepath}")
-    return filepath
+    return report, {"total_articles": len(updates)}
 
 
 def main():
@@ -465,28 +464,53 @@ def main():
     print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | 源: {args.source} | 语言: {language}")
     print("=" * 60)
 
-    results = {}
+    sections = []
+    all_stats = {}
 
     if args.source in ("tech", "all"):
         hours = args.hours or 48
-        results["tech"] = run_tech(hours=hours, language=language, limit=args.limit)
+        result = run_tech(hours=hours, language=language, limit=args.limit)
+        if result:
+            report, stats = result
+            sections.append(report)
+            all_stats["tech"] = stats
 
     if args.source in ("podcast", "all"):
         hours = args.hours or 24
-        results["podcast"] = run_podcast(hours=hours, limit=args.limit)
+        result = run_podcast(hours=hours, limit=args.limit)
+        if result:
+            report, stats = result
+            sections.append(report)
+            all_stats["podcast"] = stats
 
     if args.source in ("wechat", "all"):
         hours = args.hours or 24
-        results["wechat"] = run_wechat(hours=hours, limit=args.limit)
+        result = run_wechat(hours=hours, limit=args.limit)
+        if result:
+            report, stats = result
+            sections.append(report)
+            all_stats["wechat"] = stats
+
+    # 合并为一份报告
+    if not sections:
+        print("\n⚠️ 无任何更新，不生成报告。")
+        return
+
+    from core.config import OUTPUT_DIR
+    from core.report_generator import save_report
+    merged = "\n\n---\n\n".join(sections)
+    now = datetime.now(timezone.utc)
+    date_dir = OUTPUT_DIR / now.strftime("%Y-%m-%d")
+    filepath = save_report(merged, f"daily-digest_{now.strftime('%H-%M')}.md", date_dir,
+                           report_type="tech", language=language)
 
     # 完成
     end_time = datetime.now(timezone.utc)
     duration = (end_time - start_time).total_seconds()
     print("\n" + "=" * 60)
-    print("✅ Daily Digest 完成!")
-    for source, result in results.items():
-        status = result if result else "无更新"
-        print(f"  {source}: {status}")
+    print(f"✅ Daily Digest 完成! 报告: {filepath}")
+    for src, st in all_stats.items():
+        print(f"  {src}: {st}")
     print(f"⏱️ 总耗时: {duration:.1f} 秒")
     print("=" * 60 + "\n")
 

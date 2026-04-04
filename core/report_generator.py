@@ -251,17 +251,24 @@ def generate_category_report(category_results, executive_summary, stats,
     return "\n".join(lines)
 
 
-def save_report(content, filename, output_dir=None):
-    """保存报告到文件
+def save_report(content, filename, output_dir=None, report_type="tech", language="zh"):
+    """保存报告到文件（自动生成 TL;DR 并插入头部）
 
     Args:
         content: str, Markdown 内容
         filename: str, 文件名（如 tech-daily_14-30.md）
         output_dir: Path, 输出目录
+        report_type: str, 报告类型（tech/podcast/wechat），用于 TL;DR 生成
+        language: str, 语言（zh/en）
 
     Returns:
         Path: 保存的文件路径
     """
+    # 尝试生成 TL;DR
+    tldr = _generate_tldr_if_needed(content, report_type, language)
+    if tldr:
+        content = _insert_tldr(content, tldr, language)
+
     output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     filepath = output_dir / filename
@@ -269,3 +276,35 @@ def save_report(content, filename, output_dir=None):
         f.write(content)
     print(f"[Report] ✅ 报告已保存: {filepath}")
     return filepath
+
+
+def _generate_tldr_if_needed(content, report_type, language):
+    """如果环境允许，调用 AI 生成 TL;DR"""
+    if not os.environ.get("API_KEY"):
+        return ""
+    try:
+        from .ai_summarizer import generate_tldr
+        return generate_tldr(content, report_type, language)
+    except Exception as e:
+        print(f"[Report] ⚠️ TL;DR 生成失败: {e}")
+        return ""
+
+
+def _insert_tldr(content, tldr, language):
+    """将 TL;DR 插入报告头部（标题之后、正文之前）"""
+    lines = content.split("\n")
+    # 找到第一个 ## 或 --- 的位置，在它之前插入 TL;DR
+    insert_idx = 0
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        if stripped.startswith("## ") or stripped == "---":
+            insert_idx = i
+            break
+        if stripped.startswith("> "):
+            insert_idx = i + 1
+
+    tldr_label = "## 📌 TL;DR（太长不看）" if language == "zh" else "## 📌 TL;DR (Too Long; Didn't Read)"
+    tldr_block = [tldr_label, "", tldr, "", "---", ""]
+
+    new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
+    return "\n".join(new_lines)
