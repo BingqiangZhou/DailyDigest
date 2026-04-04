@@ -57,24 +57,6 @@ def _normalize_url_for_dedup(url):
     return f"{parsed.scheme}://{parsed.netloc}{path}?{query}" if query else f"{parsed.scheme}://{parsed.netloc}{path}"
 
 
-def filter_new_articles(articles):
-    """过滤出未处理过的文章（基于 URL 哈希持久化去重）"""
-    if not articles:
-        return []
-
-    tracker = _load_tracker()
-    processed = tracker.get("articles", {})
-    new_articles = []
-
-    for article in articles:
-        aid = article_id(article)
-        if aid not in processed:
-            new_articles.append(article)
-
-    print(f"[Dedup] 总文章: {len(articles)}, 新文章: {len(new_articles)}")
-    return new_articles
-
-
 def filter_and_mark(articles):
     """过滤新文章并一次性标记为已处理（合并 filter + mark，减少 IO）"""
     if not articles:
@@ -99,26 +81,6 @@ def filter_and_mark(articles):
     _save_tracker(tracker)
     print(f"[Dedup] 总文章: {len(articles)}, 新文章: {len(new_articles)}, 已标记")
     return new_articles
-
-
-def mark_articles_processed(articles):
-    """标记文章为已处理"""
-    if not articles:
-        return
-
-    tracker = _load_tracker()
-    now = datetime.now(timezone.utc).isoformat()
-
-    for article in articles:
-        aid = article_id(article)
-        tracker["articles"][aid] = {
-            "title": (article.get("title", "") or "")[:100],
-            "source": article.get("source_name", article.get("source", "")),
-            "processed_at": now,
-        }
-
-    _save_tracker(tracker)
-    print(f"[Dedup] 已标记 {len(articles)} 篇文章为已处理")
 
 
 def cleanup_old_entries(days=30):
