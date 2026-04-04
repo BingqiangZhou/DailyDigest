@@ -63,9 +63,8 @@ def finalize_reports(source, language="zh"):
         print("⚠️ 无报告可生成。")
         return
 
-    # 合并为一份报告
-    merged = "\n\n---\n\n".join(sections)
-    filepath = save_report(merged, f"daily-digest_{now.strftime('%H-%M')}.md", date_dir,
+    merged = _build_merged_report(sections, now, language)
+    filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
                            report_type="tech", language=language)
 
     print("\n" + "=" * 60)
@@ -87,6 +86,63 @@ def _save_http_cache(cache_path, cache):
     """保存 HTTP 缓存"""
     with open(cache_path, "w") as f:
         json.dump(cache, f)
+
+
+def _strip_section_header_footer(content):
+    """去掉 section 中的 # 标题行和页脚行，只保留正文"""
+    lines = content.split("\n")
+    while lines and lines[0].startswith("#"):
+        lines.pop(0)
+    while lines and lines[0].strip() == "":
+        lines.pop(0)
+    while lines and lines[0].startswith(">"):
+        lines.pop(0)
+    while lines and lines[0].strip() == "":
+        lines.pop(0)
+    while lines and lines[0].strip() == "---":
+        lines.pop(0)
+    while lines and lines[0].strip() == "":
+        lines.pop(0)
+    while lines and lines[-1].strip() == "":
+        lines.pop()
+    while lines and lines[-1].strip().startswith("*") and ("生成时间" in lines[-1] or "Generated" in lines[-1]):
+        lines.pop()
+    while lines and lines[-1].strip() == "":
+        lines.pop()
+    while lines and lines[-1].strip() == "---":
+        lines.pop()
+    return "\n".join(lines).strip()
+
+
+def _build_merged_report(sections, now, language="zh"):
+    """将多个 section 合并为一份完整报告，添加统一头部"""
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M")
+
+    section_names = []
+    for section in sections:
+        first_line = section.split("\n")[0].strip()
+        name = first_line.lstrip("#").strip()
+        section_names.append(name)
+
+    if language == "zh":
+        header = f"# 📰 Daily Digest - {date_str}\n\n"
+        header += f"> {', '.join(section_names)}\n\n"
+        header += f"> ⏰ 生成时间: {time_str} UTC\n"
+    else:
+        header = f"# 📰 Daily Digest - {date_str}\n\n"
+        header += f"> {', '.join(section_names)}\n\n"
+        header += f"> ⏰ Generated at: {time_str} UTC\n"
+
+    header += "\n---\n\n"
+
+    cleaned_sections = []
+    for section in sections:
+        cleaned = _strip_section_header_footer(section)
+        if cleaned:
+            cleaned_sections.append(cleaned)
+
+    return header + "\n\n---\n\n".join(cleaned_sections)
 
 
 def _finalize_tech(language, date_dir, now):
@@ -498,10 +554,9 @@ def main():
 
     from core.config import OUTPUT_DIR
     from core.report_generator import save_report
-    merged = "\n\n---\n\n".join(sections)
     now = datetime.now(timezone.utc)
-    date_dir = OUTPUT_DIR / now.strftime("%Y-%m-%d")
-    filepath = save_report(merged, f"daily-digest_{now.strftime('%H-%M')}.md", date_dir,
+    merged = _build_merged_report(sections, now, language)
+    filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
                            report_type="tech", language=language)
 
     # 完成

@@ -83,9 +83,16 @@ jobs:
           if [ -d "daily-digests" ] && [ "$(ls -A daily-digests)" ]; then
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
-            git add -f daily-digests/
-            git diff --cached --quiet || git commit -m "📄 Add digest report $(date +%Y-%m-%d)"
+            # 先拉取远端最新（避免冲突）
             git pull --rebase --autostash || true
+            # 判断是新增还是更新
+            if git ls-files --error-unmatch daily-digests/*.md 2>/dev/null; then
+              COMMIT_MSG="📝 Update digest report $(date +%Y-%m-%d)"
+            else
+              COMMIT_MSG="📄 Add digest report $(date +%Y-%m-%d)"
+            fi
+            git add -f daily-digests/
+            git diff --cached --quiet || git commit -m "$COMMIT_MSG"
             git push
           else
             echo "No reports to commit"

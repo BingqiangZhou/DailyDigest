@@ -1,0 +1,23 @@
+name: Auto Retry on Failure
+
+on:
+  workflow_run:
+    workflows: ["Daily Digest"]
+    types: [completed]
+
+jobs:
+  retry:
+    if: ${{ github.event.workflow_run.conclusion == 'failure' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Re-run failed workflow
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runId = context.payload.workflow_run.id;
+            await github.rest.actions.reRunWorkflowFailedJobs({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: runId
+            });
+            console.log(`✅ 已自动重新运行 workflow run #${runId}`);
