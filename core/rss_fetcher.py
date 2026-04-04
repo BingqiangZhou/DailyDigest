@@ -8,12 +8,8 @@ RSS 抓取模块
 import json
 import os
 import re
-import ssl
 import time
-import random
 import hashlib
-import urllib.request as urllib_request
-import urllib.error as urllib_error
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
@@ -25,6 +21,7 @@ from .config import (
     normalize_category, get_category_display,
     CATEGORIES, CATEGORY_ORDER, LEGACY_CATEGORY_MAP,
 )
+from .http import create_ssl_context, fetch_url, fetch_url_with_retry
 
 
 # ============================================================
@@ -223,89 +220,6 @@ def title_similarity(t1, t2):
     intersection = words1 & words2
     union = words1 | words2
     return len(intersection) / len(union)
-
-
-# ============================================================
-# HTTP 抓取（支持 ETag 缓存）
-# ============================================================
-
-def create_ssl_context():
-    """创建 SSL 上下文，支持降级"""
-    try:
-        return ssl.create_default_context()
-    except Exception:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-
-
-def fetch_url(url, cache=None, timeout=12):
-    """抓取 URL，支持 ETag/If-Modified-Since 缓存"""
-    headers = {"User-Agent": "DailyDigest/1.0"}
-    cached = cache.get(url, {}) if cache else {}
-
-    if cached.get("etag"):
-        headers["If-None-Match"] = cached["etag"]
-    if cached.get("last_modified"):
-        headers["If-Modified-Since"] = cached["last_modified"]
-
-    req = urllib_request.Request(url, headers=headers)
-    new_cache = {}
-
-    try:
-        ctx = create_ssl_context()
-        with urllib_request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
-            etag = resp.headers.get("ETag")
-            last_mod = resp.headers.get("Last-Modified")
-            if etag:
-                new_cache["etag"] = etag
-            if last_mod:
-                new_cache["last_modified"] = last_mod
-            return body, resp.status, new_cache
-    except urllib_error.HTTPError as e:
-        if e.code == 304:
-            return None, 304, cached
-        return None, e.code, {}
-    except Exception as e:
-        # 只在 SSL 相关错误时才降级
-        err_str = str(e).lower()
-        is_ssl_error = any(kw in err_str for kw in ["ssl", "certificate", "cert", "hostname"])
-        if not is_ssl_error:
-            return None, -1, {}
-        # SSL 降级重试
-        try:
-            relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            relaxed.check_hostname = False
-            relaxed.verify_mode = ssl.CERT_NONE
-            with urllib_request.urlopen(req, context=relaxed, timeout=timeout) as resp:
-                body = resp.read().decode("utf-8", errors="replace")
-                etag = resp.headers.get("ETag")
-                last_mod = resp.headers.get("Last-Modified")
-                if etag:
-                    new_cache["etag"] = etag
-                if last_mod:
-                    new_cache["last_modified"] = last_mod
-                return body, resp.status, new_cache
-        except urllib_error.HTTPError as e:
-            if e.code == 304:
-                return None, 304, cached
-            return None, e.code, {}
-        except Exception:
-            return None, -1, {}
-
-
-def fetch_url_with_retry(url, cache=None, timeout=12, max_retries=2):
-    """带重试的 URL 抓取"""
-    for attempt in range(max_retries + 1):
-        body, status, new_cache = fetch_url(url, cache=cache, timeout=timeout)
-        if body is not None or status == 304:
-            return body, status, new_cache
-        if attempt < max_retries:
-            delay = min(2 ** attempt * 2, 30) + random.uniform(0, 1)
-            time.sleep(delay)
-    return None, -1, {}
 
 
 # ============================================================
