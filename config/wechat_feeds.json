@@ -1,9 +1,7 @@
 {
-  "version": 2,
-  "description": "微信公众号 RSS 源配置（从 Wechat2RSS 获取 + 本地设置）",
   "metadata": {
     "source": "https://raw.githubusercontent.com/ttttmr/Wechat2RSS/master/list/all.md",
-    "fetch_time": "2026-04-04T08:20:21.754133+00:00",
+    "fetch_time": "2026-04-04T17:14:28.082815+00:00",
     "total_count": 395,
     "active_count": 393,
     "discontinued_count": 2,
@@ -13,10 +11,6 @@
       "其他": 8,
       "用户提交": 49
     }
-  },
-  "settings": {
-    "hours": 25,
-    "workers": 10
   },
   "feeds": [
     {
