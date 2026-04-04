@@ -208,9 +208,11 @@ def generate_podcast_report(updates, ai_summaries=None, metadata=None):
         if '?utm_source=' in podcast_url:
             podcast_url = podcast_url.split('?utm_source=')[0]
 
-        rank_display = f" — 排名 #{rank}" if rank > 0 else ""
-        lines.append(f'- 🎙️ [{podcast_name}]({podcast_url}){rank_display} — [{title}]({display_url})')
-        lines.append(f'  > {summary}')
+        rank_tag = f" · 排名 #{rank}" if rank > 0 else ""
+        lines.append(f'{i}. **[{title}]({display_url})**')
+        lines.append(f'   🎙️ [{podcast_name}]({podcast_url}){rank_tag}')
+        if summary:
+            lines.append(f'   > {summary}')
 
     lines.append('')
 

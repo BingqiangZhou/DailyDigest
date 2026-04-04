@@ -308,7 +308,7 @@ def generate_wechat_report(updates, ai_summaries=None, metadata=None):
 
             ai_summary = ai_summaries.get(article_url, '')
 
-            lines.append(f'- 📱 [{account_name}] — [{article_title}]({article_url})')
+            lines.append(f'- **[{article_title}]({article_url})** · *{account_name}*')
             if ai_summary:
                 lines.append(f'  > {ai_summary}')
             elif summary_text:

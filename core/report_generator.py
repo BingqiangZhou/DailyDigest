@@ -92,10 +92,8 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
                 title = article.title
                 link = article.url
                 source = article.source
-                lang = article.language
-                lang_tag = "🇨🇳" if lang == "zh" else "🇺🇸"
 
-                lines.append(f"- [{lang_tag}] [{title}]({link}) — *{source}*")
+                lines.append(f"- [{title}]({link}) · *{source}*")
 
             lines.append("")
 
@@ -178,8 +176,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
                 ai_info = summary_map.get(url, {})
                 ai_summary = ai_info.get("ai_summary", "")
 
-                # 紧凑两行格式
-                lines.append(f"- [{title}]({url}) — *{source_name}*")
+                lines.append(f"- **[{title}]({url})** · *{source_name}*")
                 if ai_summary:
                     lines.append(f"  > {ai_summary}")
                 elif description:
@@ -210,9 +207,9 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
                     stats_parts.append(f"🔥 {points}")
                 if comments is not None:
                     stats_parts.append(f"💬 {comments}")
-                stats_str = " | ".join(stats_parts)
+                stats_str = " · ".join(stats_parts)
 
-                lines.append(f"- [{title}]({url})" + (f" — *{stats_str}*" if stats_str else ""))
+                lines.append(f"- **[{title}]({url})**" + (f" · {stats_str}" if stats_str else ""))
                 if ai_summary:
                     lines.append(f"  > {ai_summary}")
 

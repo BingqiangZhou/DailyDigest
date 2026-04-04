@@ -48,18 +48,60 @@ def save_http_cache(cache_path, cache):
 # Section helpers
 # ---------------------------------------------------------------------------
 
-def strip_section_header_footer(content: str) -> str:
-    """Strip title/header lines and footer lines from a report section."""
+def _demote_headings(lines, levels):
+    """Add # prefix to heading lines to demote them by the given number of levels."""
+    result = []
+    for line in lines:
+        match = re.match(r'^(#{1,6})\s', line)
+        if match:
+            hashes = match.group(1)
+            new_level = min(len(hashes) + levels, 6)
+            result.append('#' * new_level + line[len(hashes):])
+        else:
+            result.append(line)
+    return result
+
+
+def _make_anchor(heading_text):
+    """Generate a GitHub-compatible anchor from heading text."""
+    # Remove emojis and special unicode symbols
+    text = re.sub(r'[\U00010000-\U0010ffff]', '', heading_text)
+    # Remove punctuation except hyphens, underscores, and CJK
+    text = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', text)
+    # Collapse whitespace into hyphens and lowercase
+    text = re.sub(r'[\s]+', '-', text).strip().lower()
+    return text
+
+
+def strip_section_header_footer(content: str, demote_headings: int = 0) -> str:
+    """Strip title/header lines and footer lines from a report section.
+
+    Args:
+        content: Markdown section content
+        demote_headings: number of # levels to add (e.g. 2 turns # into ###)
+    """
     lines = content.split("\n")
-    # Skip header: title lines, empty lines, blockquotes, separators
+    # Skip header: only skip lines BEFORE the first --- separator.
+    # This strips the # title, > metadata, empty lines, and the --- itself,
+    # but preserves ## category headings that come after ---.
     start = 0
-    while start < len(lines) and (
-        lines[start].startswith("#")
-        or lines[start].strip() == ""
-        or lines[start].startswith(">")
-        or lines[start].strip() == "---"
-    ):
-        start += 1
+    found_first_sep = False
+    for i, line in enumerate(lines):
+        if line.strip() == "---":
+            start = i + 1
+            found_first_sep = True
+            break
+        # Part of the header (title, metadata, empty lines)
+        start = i + 1
+    # If no separator found, fall back to skipping # title + metadata
+    if not found_first_sep:
+        start = 0
+        while start < len(lines) and (
+            lines[start].startswith("# ")  # only top-level headings
+            or lines[start].strip() == ""
+            or lines[start].startswith(">")
+        ):
+            start += 1
     # Skip footer: empty lines, timestamp lines, separators
     end = len(lines)
     while end > start and (
@@ -70,19 +112,32 @@ def strip_section_header_footer(content: str) -> str:
         or (lines[end - 1].strip().startswith("*") and "UTC" in lines[end - 1])
     ):
         end -= 1
-    return "\n".join(lines[start:end]).strip()
+
+    result_lines = lines[start:end]
+    if demote_headings > 0:
+        result_lines = _demote_headings(result_lines, demote_headings)
+
+    return "\n".join(result_lines).strip()
 
 
 def build_merged_report(sections, now, language="zh"):
-    """Merge multiple sections into a single report with header and TOC."""
+    """Merge multiple sections into a single report with header and TOC.
+
+    Each source section is cleaned (header/footer stripped, headings demoted
+    by 2 levels) and placed under a ## section title.  The TOC links to
+    those top-level ## headings only.
+    """
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M")
 
+    # Extract section names from each section's first heading
     section_names = []
     for section in sections:
-        first_line = section.split("\n")[0].strip()
-        name = first_line.lstrip("#").strip()
-        section_names.append(name)
+        for line in section.split("\n"):
+            stripped = line.strip()
+            if stripped.startswith("#"):
+                section_names.append(stripped.lstrip("#").strip())
+                break
 
     if language == "zh":
         header = f"# \U0001F4F0 Daily Digest - {date_str}\n\n"
@@ -95,28 +150,33 @@ def build_merged_report(sections, now, language="zh"):
 
     header += "\n---\n\n"
 
-    # Clean sections and collect ## headings for TOC
+    # Build cleaned sections: each gets a ## section title + demoted body
     cleaned_sections = []
     all_headings = []
-    for section in sections:
-        cleaned = strip_section_header_footer(section)
-        if cleaned:
-            for line in cleaned.split("\n"):
-                if line.startswith("## "):
-                    heading_text = line.lstrip("#").strip()
-                    anchor = heading_text.lower()
-                    anchor = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', anchor)
-                    anchor = re.sub(r'[\s]+', '-', anchor)
-                    all_headings.append((heading_text, anchor))
-            cleaned_sections.append(cleaned)
+    for i, section in enumerate(sections):
+        name = section_names[i] if i < len(section_names) else f"Section {i+1}"
+        cleaned = strip_section_header_footer(section, demote_headings=2)
+        if not cleaned:
+            continue
 
+        # Add ## section heading
+        section_heading = f"## {name}"
+        anchor = _make_anchor(name)
+        all_headings.append((name, anchor))
+
+        cleaned_sections.append(f"{section_heading}\n\n{cleaned}")
+
+    # Build TOC from top-level ## section headings only
     toc_label = "## \U0001F4D1 \u76ee\u5f55" if language == "zh" else "## \U0001F4D1 Table of Contents"
     toc_lines = [toc_label, ""]
     for heading_text, anchor in all_headings:
         toc_lines.append(f"- [{heading_text}](#{anchor})")
     toc = "\n".join(toc_lines) + "\n"
 
-    return header + toc + "\n---\n\n" + "\n\n---\n\n".join(cleaned_sections)
+    merged = header + toc + "\n---\n\n" + "\n\n---\n\n".join(cleaned_sections)
+    # Collapse consecutive --- separators into a single one
+    merged = re.sub(r'\n---\n\s*\n---\n', '\n---\n', merged)
+    return merged
 
 
 # ---------------------------------------------------------------------------
