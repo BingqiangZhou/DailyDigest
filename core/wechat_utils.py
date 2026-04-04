@@ -173,21 +173,20 @@ def _extract_wechat_content(html):
     return None
 
 
-def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2.0):
+def enrich_wechat_articles(updates, min_length=500, max_articles=0, delay=2.0):
     """补充获取微信文章全文
 
     Args:
-        updates_data: dict with 'updates' list
+        updates: list of Article objects
         min_length: 已有 full_text 超过此长度则跳过
         max_articles: 最大获取数（0=全部）
         delay: 请求间隔秒数
 
     Returns:
-        修改后的 updates_data
+        修改后的 updates list（原地修改 Article 对象）
     """
-    updates = updates_data.get("updates", [])
     if not updates:
-        return updates_data
+        return updates
 
     fetched = 0
     skipped = 0
@@ -196,8 +195,8 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
     # 筛选需要获取的文章
     to_fetch = []
     for i, update in enumerate(updates):
-        existing_text = update.get("full_text", "")
-        article_url = update.get("article_url", "")
+        existing_text = update.full_text or ""
+        article_url = update.url
         if len(existing_text) >= min_length:
             skipped += 1
             continue
@@ -210,7 +209,7 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
 
     def _fetch_one(item):
         idx, update = item
-        article_url = update.get("article_url", "")
+        article_url = update.url
         try:
             body, status, _ = fetch_url_with_retry(
                 article_url,
@@ -225,9 +224,9 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
                 return False
             html = body
             full_text = _extract_wechat_content(html)
-            if full_text and len(full_text) > len(update.get("full_text", "")):
-                update["full_text"] = full_text
-                update["content_source"] = "mp.weixin.qq.com"
+            if full_text and len(full_text) > len(update.full_text or ""):
+                update.full_text = full_text
+                update.extra["content_source"] = "mp.weixin.qq.com"
                 return True
             return False
         except Exception:
@@ -245,25 +244,25 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
                 time.sleep(delay / 3)  # 分散总延迟
 
     print(f'[WeChat] 文章补充: 获取 {fetched}, 跳过 {skipped}, 失败 {failed}')
-    return updates_data
+    return updates
 
 
 # ============================================================
 # 微信报告生成
 # ============================================================
 
-def generate_wechat_report(updates_data, ai_summaries=None):
+def generate_wechat_report(updates, ai_summaries=None, metadata=None):
     """生成微信公众号日报 Markdown 报告
 
     Args:
-        updates_data: dict with 'metadata' and 'updates'
+        updates: list of Article objects
         ai_summaries: dict, {article_url: ai_summary} 或 None
+        metadata: dict, optional metadata for report header
 
     Returns:
         str: Markdown 报告
     """
-    metadata = updates_data.get('metadata', {})
-    updates = updates_data.get('updates', [])
+    metadata = metadata or {}
     ai_summaries = ai_summaries or {}
 
     now = datetime.now(timezone.utc)
@@ -285,7 +284,7 @@ def generate_wechat_report(updates_data, ai_summaries=None):
     for cat in WECHAT_CATEGORY_ORDER:
         groups[cat] = []
     for update in updates:
-        cat = update.get('category', '其他')
+        cat = update.category
         if cat not in groups:
             groups[cat] = []
         groups[cat].append(update)
@@ -301,11 +300,11 @@ def generate_wechat_report(updates_data, ai_summaries=None):
 
         for update in cat_updates:
             article_index += 1
-            account_name = update.get('account_name', 'Unknown')
-            article_title = update.get('article_title', '(no title)')
-            article_url = update.get('article_url', '')
-            pub_date = update.get('pub_date', '')
-            summary_text = update.get('summary_text', '')
+            account_name = update.source
+            article_title = update.title
+            article_url = update.url
+            pub_date = update.published
+            summary_text = update.description
 
             ai_summary = ai_summaries.get(article_url, '')
 
