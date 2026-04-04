@@ -336,8 +336,6 @@ def generate_wechat_report(updates_data, ai_summaries=None):
 
         lines.append(f'## {cat} ({len(cat_updates)} 条)')
         lines.append('')
-        lines.append('---')
-        lines.append('')
 
         for update in cat_updates:
             article_index += 1
@@ -349,25 +347,14 @@ def generate_wechat_report(updates_data, ai_summaries=None):
 
             ai_summary = ai_summaries.get(article_url, '')
 
-            lines.append(f'### {article_index}. {account_name}')
-            lines.append('')
-            lines.append(f'**文章**: {article_title}')
-            lines.append('')
-            if article_url:
-                lines.append(f'**链接**: {article_url}')
-                lines.append('')
-            if pub_date:
-                lines.append(f'**发布时间**: {pub_date}')
-                lines.append('')
+            lines.append(f'- 📱 [{account_name}] — [{article_title}]({article_url})')
             if ai_summary:
-                lines.append(f'**AI 摘要**: {ai_summary}')
-                lines.append('')
+                lines.append(f'  > {ai_summary}')
             elif summary_text:
-                fallback = summary_text[:200] + ('...' if len(summary_text) > 200 else '')
-                lines.append(f'**摘要**: {fallback}')
-                lines.append('')
-            lines.append('---')
-            lines.append('')
+                fallback = summary_text[:150] + ('...' if len(summary_text) > 150 else '')
+                lines.append(f'  > {fallback}')
+
+        lines.append('')
 
     lines.append(f'*报告生成时间: {report_time} UTC*')
     return '\n'.join(lines)

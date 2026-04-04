@@ -91,7 +91,6 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         groups[final_cat].append(update)
 
     # 输出各分类
-    article_index = 0
     for cat, cat_updates in groups.items():
         if not cat_updates:
             continue
@@ -101,32 +100,25 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         lines.append("")
 
         for update in cat_updates:
-            article_index += 1
             title = update.get("title", "(no title)")
             url = update.get("url", "")
             source_name = update.get("source_name", "Unknown")
-            pub_date = update.get("published", "")
             description = update.get("description", "")
 
             ai_info = summary_map.get(url, {})
             ai_summary = ai_info.get("ai_summary", "")
 
-            lines.append(f"### {article_index}. {title}")
-            lines.append("")
-            lines.append(f"**{'来源' if report_language == 'zh' else 'Source'}**: {source_name} | **{'发布时间' if report_language == 'zh' else 'Published'}**: {pub_date}")
-            lines.append("")
-            if url:
-                lines.append(f"**{'链接' if report_language == 'zh' else 'Link'}**: {url}")
-                lines.append("")
+            # 紧凑两行格式
+            lines.append(f"- [{title}]({url}) — *{source_name}*")
             if ai_summary:
-                lines.append(f"**AI {'摘要' if report_language == 'zh' else 'Summary'}**: {ai_summary}")
-                lines.append("")
+                lines.append(f"  > {ai_summary}")
             elif description:
-                fallback = description[:200] + ("..." if len(description) > 200 else "")
-                lines.append(f"**{'摘要' if report_language == 'zh' else 'Summary'}**: {fallback}")
-                lines.append("")
-            lines.append("---")
-            lines.append("")
+                clean_desc = re.sub(r'<[^>]+>', '', description.strip())
+                if len(clean_desc) > 150:
+                    clean_desc = clean_desc[:150] + "..."
+                lines.append(f"  > {clean_desc}")
+
+        lines.append("")
 
     # Hacker News
     if hn_items:
@@ -135,7 +127,6 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         lines.append("")
 
         for item in hn_items:
-            article_index += 1
             title = item.get("title", "(no title)")
             url = item.get("url", "")
             points = item.get("hn_points")
@@ -146,24 +137,16 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
 
             stats_parts = []
             if points is not None:
-                stats_parts.append(f"points: {points}")
+                stats_parts.append(f"🔥 {points}")
             if comments is not None:
-                stats_parts.append(f"comments: {comments}")
-            stats_str = ", ".join(stats_parts)
+                stats_parts.append(f"💬 {comments}")
+            stats_str = " | ".join(stats_parts)
 
-            lines.append(f"### {article_index}. {title}")
-            lines.append("")
-            if stats_str:
-                lines.append(f"**{'热度' if report_language == 'zh' else 'Stats'}**: {stats_str}")
-                lines.append("")
-            if url:
-                lines.append(f"**{'链接' if report_language == 'zh' else 'Link'}**: {url}")
-                lines.append("")
+            lines.append(f"- [{title}]({url})" + (f" — *{stats_str}*" if stats_str else ""))
             if ai_summary:
-                lines.append(f"**AI {'摘要' if report_language == 'zh' else 'Summary'}**: {ai_summary}")
-                lines.append("")
-            lines.append("---")
-            lines.append("")
+                lines.append(f"  > {ai_summary}")
+
+        lines.append("")
 
     # 页脚
     footer_prefix = "报告生成时间" if report_language == "zh" else "Report generated at"

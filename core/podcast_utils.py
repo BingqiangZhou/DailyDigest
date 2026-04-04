@@ -238,19 +238,10 @@ def generate_podcast_report(updates_data, ai_summaries=None):
         # 清理 URL
         display_url = url.split('?utm_source=')[0] if url else ''
 
-        rank_display = f" (排名 #{rank})" if rank > 0 else ""
-        lines.append(f'## {i}. {podcast_name}{rank_display}')
-        lines.append('')
-        lines.append(f'**单集**: {title}')
-        lines.append('')
-        if display_url:
-            lines.append(f'**链接**: {display_url}')
-            lines.append('')
-        lines.append(f'**发布时间**: {pub_date}')
-        lines.append('')
-        lines.append(f'**摘要**: {summary}')
-        lines.append('')
-        lines.append('---')
-        lines.append('')
+        rank_display = f" — 排名 #{rank}" if rank > 0 else ""
+        lines.append(f'- 🎙️ [{podcast_name}]({display_url}){rank_display}')
+        lines.append(f'  > **单集**: {title} | {summary}')
+
+    lines.append('')
 
     return '\n'.join(lines)
