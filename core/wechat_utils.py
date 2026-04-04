@@ -8,17 +8,15 @@
 
 import json
 import re
-import ssl
 import time
 import random
-import urllib.request
-import urllib.error
-from html.parser import HTMLParser
 from pathlib import Path
 from datetime import datetime, timezone
 from collections import OrderedDict
 
 from .config import CONFIG_DIR, WORKSPACE_DIR, get_category_display
+from .http import fetch_url_with_retry
+from .html_utils import strip_html
 
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 天
@@ -33,40 +31,6 @@ WECHAT_CATEGORY_ORDER = ["wechat_security", "wechat_dev", "wechat_other", "wecha
 # ============================================================
 # Feed 列表获取
 # ============================================================
-
-def _create_ssl_context():
-    try:
-        return ssl.create_default_context()
-    except Exception:
-        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-        ctx.check_hostname = False
-        ctx.verify_mode = ssl.CERT_NONE
-        return ctx
-
-
-def _fetch_url(url, timeout=30):
-    """获取 URL 内容（带 SSL 降级）"""
-    import urllib.error
-    ctx = _create_ssl_context()
-    req = urllib.request.Request(url, headers={"User-Agent": "WechatRSSMonitor/1.0"})
-    try:
-        with urllib.request.urlopen(req, context=ctx, timeout=timeout) as resp:
-            return resp.read().decode("utf-8")
-    except Exception as first_err:
-        # 只在 SSL 相关错误时才降级
-        err_str = str(first_err).lower()
-        is_ssl_error = any(kw in err_str for kw in ["ssl", "certificate", "cert", "hostname"])
-        if not is_ssl_error:
-            raise first_err
-        try:
-            relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            relaxed.check_hostname = False
-            relaxed.verify_mode = ssl.CERT_NONE
-            with urllib.request.urlopen(req, context=relaxed, timeout=timeout) as resp:
-                return resp.read().decode("utf-8")
-        except Exception:
-            raise first_err
-
 
 def _parse_feed_list(markdown_text):
     """解析 Markdown Feed 列表"""
@@ -135,7 +99,10 @@ def fetch_wechat_feed_list(output_path=None, cache_path=None, force=False):
     # 获取
     print(f'[WeChat] 正在获取 Feed 列表...')
     try:
-        markdown_text = _fetch_url(SOURCE_URL)
+        body, status, _ = fetch_url_with_retry(SOURCE_URL, headers={"User-Agent": "WechatRSSMonitor/1.0"}, timeout=30)
+        if body is None:
+            raise ConnectionError(f"Failed to fetch {SOURCE_URL}")
+        markdown_text = body
     except Exception as e:
         print(f'[WeChat] ❌ 获取失败: {e}')
         if output_path.exists():
@@ -184,31 +151,6 @@ def fetch_wechat_feed_list(output_path=None, cache_path=None, force=False):
 # 文章全文获取
 # ============================================================
 
-class _TextExtractor(HTMLParser):
-    """从 HTML 提取可见文本"""
-    SKIP_TAGS = {"script", "style", "noscript"}
-
-    def __init__(self):
-        super().__init__()
-        self._pieces = []
-        self._skip_depth = 0
-
-    def handle_starttag(self, tag, attrs):
-        if tag.lower() in self.SKIP_TAGS:
-            self._skip_depth += 1
-
-    def handle_endtag(self, tag):
-        if tag.lower() in self.SKIP_TAGS and self._skip_depth > 0:
-            self._skip_depth -= 1
-
-    def handle_data(self, data):
-        if self._skip_depth == 0:
-            self._pieces.append(data)
-
-    def get_text(self):
-        return re.sub(r"\s+", " ", "".join(self._pieces)).strip()
-
-
 def _extract_wechat_content(html):
     """从微信文章 HTML 提取正文"""
     if not html:
@@ -225,9 +167,7 @@ def _extract_wechat_content(html):
                 eidx = html.find(em, start)
                 if eidx > start:
                     end = min(end, eidx)
-            extractor = _TextExtractor()
-            extractor.feed(html[start:end])
-            text = extractor.get_text()
+            text = strip_html(html[start:end])
             return text if len(text) > 100 else None
 
     return None
@@ -272,15 +212,18 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
         idx, update = item
         article_url = update.get("article_url", "")
         try:
-            headers = {
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-                "Accept": "text/html,application/xhtml+xml",
-                "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
-            }
-            req = urllib.request.Request(article_url, headers=headers)
-            ctx = _create_ssl_context()
-            with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-                html = resp.read().decode("utf-8", errors="replace")
+            body, status, _ = fetch_url_with_retry(
+                article_url,
+                headers={
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                    "Accept": "text/html,application/xhtml+xml",
+                    "Accept-Language": "zh-CN,zh;q=0.9,en;q=0.8",
+                },
+                timeout=30,
+            )
+            if body is None:
+                return False
+            html = body
             full_text = _extract_wechat_content(html)
             if full_text and len(full_text) > len(update.get("full_text", "")):
                 update["full_text"] = full_text
