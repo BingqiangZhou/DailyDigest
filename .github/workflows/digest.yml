@@ -78,13 +78,15 @@ jobs:
           retention-days: 30
         if: always()
 
-      - name: Commit reports
+      - name: Commit and push reports
         run: |
           if [ -d "daily-digests" ] && [ "$(ls -A daily-digests)" ]; then
             git config --local user.email "github-actions[bot]@users.noreply.github.com"
             git config --local user.name "github-actions[bot]"
-            git add daily-digests/ || true
-            git commit -m "📄 Add digest report $(date +%Y-%m-%d)" || true
-            git push || true
+            git add -f daily-digests/
+            git diff --cached --quiet || git commit -m "📄 Add digest report $(date +%Y-%m-%d)"
+            git pull --rebase --autostash || true
+            git push
+          else
+            echo "No reports to commit"
           fi
-        continue-on-error: true

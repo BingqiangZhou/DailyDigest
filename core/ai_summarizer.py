@@ -5,6 +5,7 @@ AI 摘要生成模块（OpenAI API 后端）
 
 import os
 import json
+import time
 from datetime import datetime, timezone
 
 from .config import get_category_display, CATEGORY_ORDER
@@ -23,30 +24,39 @@ def _get_client():
     if not api_key:
         raise ValueError("请设置环境变量 API_KEY")
 
-    base_url = os.environ.get("BASE_URL", DEFAULT_BASE_URL)
-    return OpenAI(api_key=api_key, base_url=base_url)
+    base_url = os.environ.get("BASE_URL") or DEFAULT_BASE_URL
+    return OpenAI(api_key=api_key, base_url=base_url, timeout=120, max_retries=2)
 
 
 def _get_model():
     """获取模型名称"""
-    return os.environ.get("MODEL", DEFAULT_MODEL)
+    return os.environ.get("MODEL") or DEFAULT_MODEL
 
 
-def _chat_completion(client, prompt, max_tokens=4000):
-    """调用 OpenAI 兼容 API"""
+def _chat_completion(client, prompt, max_tokens=4000, max_retries=3):
+    """调用 OpenAI 兼容 API（带重试）"""
     model = _get_model()
-    try:
-        response = client.chat.completions.create(
-            model=model,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=max_tokens,
-            temperature=0.7,
-            top_p=0.9,
-        )
-        return response.choices[0].message.content
-    except Exception as e:
-        print(f"[AI] ❌ API 调用失败 (model={model}): {e}")
-        return None
+    last_error = None
+    for attempt in range(max_retries):
+        try:
+            response = client.chat.completions.create(
+                model=model,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=max_tokens,
+                temperature=0.7,
+                top_p=0.9,
+                timeout=60,
+            )
+            return response.choices[0].message.content
+        except Exception as e:
+            last_error = e
+            print(f"[AI] ⚠️ API 调用失败 (attempt {attempt + 1}/{max_retries}, model={model}): {e}")
+            if attempt < max_retries - 1:
+                wait = (attempt + 1) * 5
+                print(f"[AI]   等待 {wait} 秒后重试...")
+                time.sleep(wait)
+    print(f"[AI] ❌ API 调用最终失败 (model={model}): {last_error}")
+    return None
 
 
 def _format_articles_for_prompt(articles, max_per_category=15):

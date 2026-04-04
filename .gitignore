@@ -21,7 +21,10 @@ venv/
 # Runtime data
 workspace/
 output/
-daily-digests/
+
+# Daily digest reports: ignore local generated files, keep directory
+daily-digests/*
+!daily-digests/.gitkeep
 
 # OS
 .DS_Store
