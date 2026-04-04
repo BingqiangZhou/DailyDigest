@@ -268,7 +268,12 @@ def fetch_url(url, cache=None, timeout=12):
         if e.code == 304:
             return None, 304, cached
         return None, e.code, {}
-    except Exception:
+    except Exception as e:
+        # 只在 SSL 相关错误时才降级
+        err_str = str(e).lower()
+        is_ssl_error = any(kw in err_str for kw in ["ssl", "certificate", "cert", "hostname"])
+        if not is_ssl_error:
+            return None, -1, {}
         # SSL 降级重试
         try:
             relaxed = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
@@ -298,7 +303,7 @@ def fetch_url_with_retry(url, cache=None, timeout=12, max_retries=2):
         if body is not None or status == 304:
             return body, status, new_cache
         if attempt < max_retries:
-            delay = (attempt + 1) * 2 + random.uniform(0, 1)
+            delay = min(2 ** attempt * 2, 30) + random.uniform(0, 1)
             time.sleep(delay)
     return None, -1, {}
 
@@ -310,6 +315,17 @@ def fetch_url_with_retry(url, cache=None, timeout=12, max_retries=2):
 def parse_rss_items(xml_text):
     """解析 RSS XML，返回条目列表"""
     items = []
+    # 预处理常见 HTML 实体（ET.fromstring 不支持）
+    xml_text = re.sub(r'&nbsp;', ' ', xml_text)
+    xml_text = re.sub(r'&mdash;', '—', xml_text)
+    xml_text = re.sub(r'&ndash;', '–', xml_text)
+    xml_text = re.sub(r'&copy;', '©', xml_text)
+    xml_text = re.sub(r'&reg;', '®', xml_text)
+    xml_text = re.sub(r'&laquo;', '«', xml_text)
+    xml_text = re.sub(r'&raquo;', '»', xml_text)
+    xml_text = re.sub(r'&hellip;', '…', xml_text)
+    xml_text = re.sub(r'&ldquo;', '"', xml_text)
+    xml_text = re.sub(r'&rdquo;', '"', xml_text)
     try:
         root = ET.fromstring(xml_text)
     except ET.ParseError:
@@ -482,7 +498,12 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
     _WORD_SPLIT = re.compile(r'[\s\-_:,;|/\\]+')
 
     for article in all_articles:
-        norm_url = normalize_url(article.get("url", ""))
+        raw_url = article.get("url", "")
+        if not raw_url:
+            # 空 URL 的文章跳过 URL 去重，直接保留
+            deduped.append(article)
+            continue
+        norm_url = normalize_url(raw_url)
         if norm_url in seen_urls:
             continue
         # 标题相似度检查（通过倒排索引快速定位候选）

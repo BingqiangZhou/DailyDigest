@@ -156,28 +156,38 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
 
     resolved = 0
     failed = 0
-    for podcast_name, indices in podcast_indices.items():
+
+    def _resolve_one(podcast_name, indices):
         xyz_url = podcasts_map.get(podcast_name)
         if not xyz_url:
-            failed += len(indices)
-            continue
+            return 0, len(indices)
         try:
             html = _fetch_url(xyz_url)
             episodes = _parse_xiaoyuzhou_episodes(html)
             if not episodes:
-                failed += len(indices)
-                continue
+                return 0, len(indices)
+            res, fail = 0, 0
             for idx in indices:
                 eid = _match_episode(updates[idx]['episode_title'], episodes)
                 if eid:
                     updates[idx]['episode_url'] = f'https://www.xiaoyuzhoufm.com/episode/{eid}'
-                    resolved += 1
+                    res += 1
                 else:
-                    failed += 1
-            time.sleep(random.uniform(0.2, 0.5))
+                    fail += 1
+            return res, fail
         except Exception as e:
             print(f"[Podcast] ⚠️ 解析 {podcast_name} 失败: {e}")
-            failed += len(indices)
+            return 0, len(indices)
+
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    items = list(podcast_indices.items())
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_resolve_one, name, idxs): name for name, idxs in items}
+        for future in as_completed(futures):
+            res, fail = future.result()
+            resolved += res
+            failed += fail
+            time.sleep(random.uniform(0.05, 0.15))
 
     # 清理 utm 后缀
     for update in updates:
@@ -239,6 +249,8 @@ def generate_podcast_report(updates_data, ai_summaries=None):
         # 清理 URL
         display_url = url.split('?utm_source=')[0] if url else ''
         podcast_url = update.get('podcast_url', display_url)
+        if '?utm_source=' in podcast_url:
+            podcast_url = podcast_url.split('?utm_source=')[0]
 
         rank_display = f" — 排名 #{rank}" if rank > 0 else ""
         lines.append(f'- 🎙️ [{podcast_name}]({podcast_url}){rank_display} — [{title}]({display_url})')

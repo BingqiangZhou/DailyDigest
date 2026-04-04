@@ -186,7 +186,7 @@ def fetch_wechat_feed_list(output_path=None, cache_path=None, force=False):
 
 class _TextExtractor(HTMLParser):
     """从 HTML 提取可见文本"""
-    SKIP_TAGS = {"script", "style", "noscript", "header", "footer", "nav"}
+    SKIP_TAGS = {"script", "style", "noscript"}
 
     def __init__(self):
         super().__init__()
@@ -253,19 +253,24 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
     skipped = 0
     failed = 0
 
+    # 筛选需要获取的文章
+    to_fetch = []
     for i, update in enumerate(updates):
         existing_text = update.get("full_text", "")
         article_url = update.get("article_url", "")
-
         if len(existing_text) >= min_length:
             skipped += 1
             continue
         if not article_url or "mp.weixin.qq.com" not in article_url:
             skipped += 1
             continue
-        if max_articles > 0 and fetched >= max_articles:
+        if max_articles > 0 and len(to_fetch) >= max_articles:
             break
+        to_fetch.append((i, update))
 
+    def _fetch_one(item):
+        idx, update = item
+        article_url = update.get("article_url", "")
         try:
             headers = {
                 "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -276,18 +281,25 @@ def enrich_wechat_articles(updates_data, min_length=500, max_articles=0, delay=2
             ctx = _create_ssl_context()
             with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
                 html = resp.read().decode("utf-8", errors="replace")
-
             full_text = _extract_wechat_content(html)
-            if full_text and len(full_text) > len(existing_text):
+            if full_text and len(full_text) > len(update.get("full_text", "")):
                 update["full_text"] = full_text
                 update["content_source"] = "mp.weixin.qq.com"
-                fetched += 1
-            else:
-                failed += 1
+                return True
+            return False
         except Exception:
-            failed += 1
+            return False
 
-        time.sleep(delay + random.uniform(0, 1))
+    if to_fetch:
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = {executor.submit(_fetch_one, item): item for item in to_fetch}
+            for future in as_completed(futures):
+                if future.result():
+                    fetched += 1
+                else:
+                    failed += 1
+                time.sleep(delay / 3)  # 分散总延迟
 
     print(f'[WeChat] 文章补充: 获取 {fetched}, 跳过 {skipped}, 失败 {failed}')
     return updates_data
