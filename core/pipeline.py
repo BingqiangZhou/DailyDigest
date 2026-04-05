@@ -320,7 +320,7 @@ def _generate_source_report(source_type, data, summaries, language):
             with open(trend_path, "r", encoding="utf-8") as f:
                 trend_insight = json.load(f)
         from .report_generator import generate_tech_report
-        report = generate_tech_report(updates, summaries, trend_insight, metadata, language)
+        report = generate_tech_report(updates, summaries, trend_insight, stats=metadata, report_language=language)
         print(f"\u2705 tech report generated ({len(updates)} articles)")
         return report
 
