@@ -411,7 +411,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
                 stats_parts.append(f"💬 {item.hn_comments}")
             stats_str = " · ".join(stats_parts)
 
-            title_cell = f"[**{_escape_pipe(item.title)}**]({_escape_pipe(item.url)})]"
+            title_cell = f"[**{_escape_pipe(item.title)}**]({_escape_pipe(item.url)})"
             lines.append(f"| {i} | {title_cell} | {_escape_pipe(stats_str)} |")
 
         lines.append("")

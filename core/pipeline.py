@@ -236,6 +236,40 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh"):
     return header + "\n\n---\n\n".join(parts)
 
 
+def try_build_unified_report(source, now, language="zh"):
+    """Attempt to build a unified two-part report from workspace article data.
+
+    Returns None if API_KEY is not set or if no articles are found.
+    """
+    if not os.environ.get("API_KEY"):
+        return None
+
+    from .article import Article
+    from .ai_filter import filter_ai_articles
+
+    all_articles = []
+    for src in ("tech", "podcast", "wechat"):
+        if source in (src, "all"):
+            data = _load_workspace_data(src)
+            if data:
+                for item in data.get("updates", []):
+                    try:
+                        all_articles.append(Article(**item))
+                    except Exception:
+                        continue
+
+    if not all_articles:
+        return None
+
+    print(f"\n🤖 Building unified AI + non-AI report from {len(all_articles)} articles...")
+    ai_articles, non_ai_articles = filter_ai_articles(all_articles)
+
+    if not ai_articles and not non_ai_articles:
+        return None
+
+    return build_unified_report(ai_articles, non_ai_articles, now, language)
+
+
 # ---------------------------------------------------------------------------
 # Finalize helpers
 # ---------------------------------------------------------------------------
@@ -333,26 +367,7 @@ def finalize_reports(source, language="zh"):
         return
 
     # Try unified two-part report
-    unified = None
-    if os.environ.get("API_KEY"):
-        from .article import Article
-        from .ai_filter import filter_ai_articles
-
-        all_articles = []
-        for src in ("tech", "podcast", "wechat"):
-            if source in (src, "all"):
-                data = _load_workspace_data(src)
-                if data:
-                    for item in data.get("updates", []):
-                        try:
-                            all_articles.append(Article(**item))
-                        except Exception:
-                            continue
-
-        if all_articles:
-            print(f"\n\U0001F916 Building unified AI + non-AI report from {len(all_articles)} articles...")
-            ai_articles, non_ai_articles = filter_ai_articles(all_articles)
-            unified = build_unified_report(ai_articles, non_ai_articles, now, language)
+    unified = try_build_unified_report(source, now, language)
 
     if unified:
         merged = unified
