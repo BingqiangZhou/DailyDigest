@@ -318,3 +318,102 @@ def _insert_tldr(content, tldr, language):
 
     new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
     return "\n".join(new_lines)
+
+
+def build_non_ai_section(non_ai_articles, report_language="zh"):
+    """Build Part II: non-AI tech news section.
+
+    Reuses the existing table-based report format for articles
+    that are not AI-related.
+
+    Args:
+        non_ai_articles: list of Article objects (non-AI)
+        report_language: "zh" or "en"
+
+    Returns:
+        Markdown string for Part II
+    """
+    if not non_ai_articles:
+        return ""
+
+    count = len(non_ai_articles)
+
+    if report_language == "zh":
+        lines = [f"# Part II: 💻 科技动态 ({count} 条)"]
+    else:
+        lines = [f"# Part II: 💻 Tech Updates ({count} items)"]
+
+    lines.append("")
+
+    # Group by category using same logic as Skill-mode report
+    groups = OrderedDict()
+    for cat in CATEGORY_ORDER:
+        if cat not in ("ai_ml", "ai_tools"):  # Skip AI categories in Part II
+            groups[cat] = []
+    groups["其他"] = []
+
+    hn_items = []
+    for update in non_ai_articles:
+        source_cat = normalize_category(update.category)
+        if source_cat == "hacker_news":
+            hn_items.append(update)
+            continue
+        if source_cat in ("ai_ml", "ai_tools"):
+            continue  # Safety check
+        if source_cat not in groups:
+            source_cat = "其他"
+        groups[source_cat].append(update)
+
+    # Output category tables
+    count_unit = "条" if report_language == "zh" else "items"
+    for cat, cat_updates in groups.items():
+        if not cat_updates:
+            continue
+
+        cat_display = get_category_display(cat)
+        lines.append(f"## {cat_display} ({len(cat_updates)} {count_unit})")
+        lines.append("")
+
+        has_desc = any(u.description for u in cat_updates)
+        if has_desc:
+            summary_header = "摘要" if report_language == "zh" else "Summary"
+            lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} | {summary_header} |")
+            lines.append("|---:|------|------|------|")
+        else:
+            lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} |")
+            lines.append("|---:|------|------|")
+
+        for i, update in enumerate(cat_updates, 1):
+            summary_text = ""
+            if update.description:
+                clean_desc = re.sub(r'<[^>]+>', '', update.description.strip())
+                if len(clean_desc) > 150:
+                    clean_desc = clean_desc[:150] + "..."
+                summary_text = clean_desc
+            lines.append(_article_table_row(i, update.title, update.url, update.source, summary_text))
+
+        lines.append("")
+
+    # Hacker News
+    if hn_items:
+        hn_label = "Hacker News 热门" if report_language == "zh" else "Hacker News Trending"
+        lines.append(f"## {hn_label} ({len(hn_items)} {count_unit})")
+        lines.append("")
+
+        lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'热度' if report_language == 'zh' else 'Stats'} |")
+        lines.append("|---:|------|------|")
+
+        for i, item in enumerate(hn_items, 1):
+            stats_parts = []
+            if item.hn_points is not None:
+                stats_parts.append(f"🔥 {item.hn_points}")
+            if item.hn_comments is not None:
+                stats_parts.append(f"💬 {item.hn_comments}")
+            stats_str = " · ".join(stats_parts)
+
+            title_cell = f"[**{_escape_pipe(item.title)}**]({_escape_pipe(item.url)})]"
+            lines.append(f"| {i} | {title_cell} | {_escape_pipe(stats_str)} |")
+
+        lines.append("")
+
+    return "\n".join(lines)
