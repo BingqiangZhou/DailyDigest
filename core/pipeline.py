@@ -332,7 +332,33 @@ def finalize_reports(source, language="zh"):
         print("\u26a0\ufe0f no reports to generate.")
         return
 
-    merged = build_merged_report(sections, now, language)
+    # Try unified two-part report
+    unified = None
+    if os.environ.get("API_KEY"):
+        from .article import Article
+        from .ai_filter import filter_ai_articles
+
+        all_articles = []
+        for src in ("tech", "podcast", "wechat"):
+            if source in (src, "all"):
+                data = _load_workspace_data(src)
+                if data:
+                    for item in data.get("updates", []):
+                        try:
+                            all_articles.append(Article(**item))
+                        except Exception:
+                            continue
+
+        if all_articles:
+            print(f"\n\U0001F916 Building unified AI + non-AI report from {len(all_articles)} articles...")
+            ai_articles, non_ai_articles = filter_ai_articles(all_articles)
+            unified = build_unified_report(ai_articles, non_ai_articles, now, language)
+
+    if unified:
+        merged = unified
+    else:
+        merged = build_merged_report(sections, now, language)
+
     filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
                            report_type="digest", language=language)
 
