@@ -184,6 +184,58 @@ def build_merged_report(sections, now, language="zh"):
     return merged
 
 
+def build_unified_report(ai_articles, non_ai_articles, now, language="zh"):
+    """Build a two-part unified report: AI deep analysis + non-AI tech news.
+
+    Args:
+        ai_articles: list of Article objects (AI-relevant)
+        non_ai_articles: list of Article objects (non-AI)
+        now: datetime with timezone
+        language: "zh" or "en"
+
+    Returns:
+        Markdown string of the complete unified report
+    """
+    from .ai_report import build_ai_section
+    from .report_generator import build_non_ai_section
+
+    date_str = now.strftime("%Y-%m-%d")
+    time_str = now.strftime("%H:%M")
+
+    ai_count = len(ai_articles)
+    non_ai_count = len(non_ai_articles)
+    total = ai_count + non_ai_count
+
+    if language == "zh":
+        header = f"# 📰 Daily Digest — {date_str}\n\n"
+        header += f"> 🤖 AI 深度分析 {ai_count} 篇 · 💻 科技动态 {non_ai_count} 条 · 共 {total} 篇\n\n"
+        header += f"> ⏰ 生成时间 {time_str} UTC\n"
+    else:
+        header = f"# 📰 Daily Digest — {date_str}\n\n"
+        header += f"> 🤖 AI Deep Analysis {ai_count} articles · 💻 Tech Updates {non_ai_count} items · Total {total}\n\n"
+        header += f"> ⏰ Generated at {time_str} UTC\n"
+
+    header += "\n---\n\n"
+
+    # Part I: AI Deep Digest
+    ai_section = build_ai_section(ai_articles, language)
+
+    # Part II: Non-AI Tech Updates
+    non_ai_section = build_non_ai_section(non_ai_articles, language)
+
+    # Combine parts
+    parts = []
+    if ai_section:
+        parts.append(ai_section)
+    if non_ai_section:
+        parts.append(non_ai_section)
+
+    if not parts:
+        return ""
+
+    return header + "\n\n---\n\n".join(parts)
+
+
 # ---------------------------------------------------------------------------
 # Finalize helpers
 # ---------------------------------------------------------------------------

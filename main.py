@@ -53,6 +53,45 @@ _SOURCE_RUNNERS = {
 _DEFAULT_HOURS = {"tech": 25, "podcast": 25, "wechat": 25}
 
 
+def _try_build_unified_report(sections, now, language):
+    """Attempt to build a unified two-part report from section data.
+
+    Returns None if API_KEY is not set (falls back to merged report).
+    """
+    if not os.environ.get("API_KEY"):
+        return None
+
+    from core.article import Article
+    from core.ai_filter import filter_ai_articles
+    from core.pipeline import build_unified_report
+
+    # Collect all articles from workspace data files
+    all_articles = []
+    from core.config import WORKSPACE_DIR
+    for source_type in ("tech", "podcast", "wechat"):
+        data_path = WORKSPACE_DIR / f"{source_type}_updates.json"
+        if data_path.exists():
+            import json as _json
+            with open(data_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            for item in data.get("updates", []):
+                try:
+                    all_articles.append(Article(**item))
+                except Exception:
+                    continue
+
+    if not all_articles:
+        return None
+
+    print(f"\n🤖 Building unified AI + non-AI report from {len(all_articles)} articles...")
+    ai_articles, non_ai_articles = filter_ai_articles(all_articles)
+
+    if not ai_articles and not non_ai_articles:
+        return None
+
+    return build_unified_report(ai_articles, non_ai_articles, now, language)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Daily Digest - unified daily digest generator",
@@ -117,8 +156,15 @@ Examples:
     from core.report_generator import save_report
 
     now = datetime.now(timezone.utc)
-    merged = build_merged_report(sections, now, language)
-    filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
+
+    # Try to build unified two-part report (AI deep + non-AI)
+    unified = _try_build_unified_report(sections, now, language)
+    if unified:
+        report_content = unified
+    else:
+        report_content = build_merged_report(sections, now, language)
+
+    filepath = save_report(report_content, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
                            report_type="digest", language=language)
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
