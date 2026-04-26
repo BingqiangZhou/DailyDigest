@@ -418,7 +418,10 @@ def run_tech_unified(hours=48, language="zh", limit=None):
                 "total_articles": len(ai_articles),
                 "categories": len(llm_category_results),
             }
+            from .llm import get_llm_client
+            trend_client = get_llm_client()
             trend_insights = generate_trend_insights(
+                trend_client,
                 {v["name"]: v["summary"] for v in llm_category_results.values() if v.get("summary")},
                 total_stats, language,
             )
