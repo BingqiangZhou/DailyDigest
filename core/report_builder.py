@@ -154,17 +154,19 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
     header += "\n---\n\n"
 
     has_tiers = False
+    category_results = None
     if summary_map:
         has_tiers = any(
             isinstance(v, dict) and "tier" in v
             for v in summary_map.values()
         )
+        if has_tiers:
+            category_results = build_category_results_from_summaries(ai_articles, summary_map)
     elif any(a.extra.get("editorial_tier") for a in ai_articles):
         has_tiers = True
         category_results = build_category_results_from_editorial(ai_articles, cluster_map)
 
     if has_tiers:
-        category_results = build_category_results_from_summaries(ai_articles, summary_map)
         ai_section_body = generate_tech_report(
             ai_articles,
             category_results=category_results,
