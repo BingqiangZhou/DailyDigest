@@ -42,7 +42,7 @@ def get_llm_client():
         if not api_key:
             raise ValueError("API_KEY environment variable is required")
         base_url = os.environ.get("BASE_URL") or DEFAULT_BASE_URL
-        _client = OpenAI(api_key=api_key, base_url=base_url, timeout=120, max_retries=0)
+        _client = OpenAI(api_key=api_key, base_url=base_url, timeout=600, max_retries=0)
     return _client
 
 
