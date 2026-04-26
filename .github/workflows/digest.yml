@@ -62,6 +62,7 @@ jobs:
           MODEL: ${{ secrets.MODEL }}
           SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
           REPORT_LANGUAGE: ${{ github.event.inputs.report_language || 'zh' }}
+          ENRICH_FULL_TEXT: "1"
         run: python main.py --source ${{ github.event.inputs.source || 'tech' }}
 
       - name: Upload processed articles tracker
