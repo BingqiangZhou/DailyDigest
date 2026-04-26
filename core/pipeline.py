@@ -286,6 +286,11 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
 
+    # Cleanup stale feed health and dedup entries
+    from .feed_health import cleanup as health_cleanup
+    health_cleanup()
+    cleanup_old_entries()
+
     # Step 1+2: Fetch tech RSS and WeChat in parallel
     logger.info("\n📡 Step 1/5: Fetching tech RSS + WeChat in parallel...")
     config = load_feed_config("tech")
