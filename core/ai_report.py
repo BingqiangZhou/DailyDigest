@@ -123,7 +123,10 @@ def _format_articles_tiered(articles: list[Article], cluster_map: dict = None) -
     if brief:
         sections.append("=== 📋 简讯 (Brief) — 常规更新（仅列表，无需详细分析）===")
         for article in brief:
-            sections.append(f"{idx}. [{article.title}]({article.url}) — {article.source}")
+            engagement = ""
+            if article.hn_points and article.hn_points > 0:
+                engagement = f" (🔥 {article.hn_points})"
+            sections.append(f"{idx}. [{article.title}]({article.url}) — {article.source}{engagement}")
             idx += 1
         sections.append("")
 

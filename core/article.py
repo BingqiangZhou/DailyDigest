@@ -101,6 +101,14 @@ def format_article_item(article, index, desc_limit=300, include_source_type=Fals
     desc = (article.description or "")[:desc_limit]
     if desc:
         lines.append(f"   摘要: {desc}")
+    # Engagement metrics
+    engagement_parts = []
+    if article.hn_points and article.hn_points > 0:
+        engagement_parts.append(f"HN {article.hn_points}赞")
+    if article.hn_comments and article.hn_comments > 0:
+        engagement_parts.append(f"{article.hn_comments}评")
+    if engagement_parts:
+        lines.append(f"   热度: {' · '.join(engagement_parts)}")
     if include_source_type and article.category:
         lines.append(f"   来源类型: {article.category}")
     return lines
