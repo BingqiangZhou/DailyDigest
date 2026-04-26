@@ -1501,13 +1501,6 @@
           "noise_filter": "tech_only"
         },
         {
-          "name": "Reuters",
-          "url": "https://feeds.reuters.com/reuters/topNews",
-          "language": "en",
-          "priority": 1,
-          "noise_filter": "tech_only"
-        },
-        {
           "name": "Al Jazeera",
           "url": "https://www.aljazeera.com/xml/rss/all.xml",
           "language": "en",
@@ -1559,20 +1552,6 @@
         {
           "name": "ProPublica",
           "url": "https://www.propublica.org/feed/",
-          "language": "en",
-          "priority": 2,
-          "noise_filter": "tech_only"
-        },
-        {
-          "name": "Reuters Business",
-          "url": "https://feeds.reuters.com/reuters/businessNews",
-          "language": "en",
-          "priority": 2,
-          "noise_filter": "tech_only"
-        },
-        {
-          "name": "Reuters World",
-          "url": "https://feeds.reuters.com/reuters/worldNews",
           "language": "en",
           "priority": 2,
           "noise_filter": "tech_only"

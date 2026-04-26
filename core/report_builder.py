@@ -148,6 +148,73 @@ def _merge_llm_summaries(editorial_results, llm_results):
     return merged
 
 
+def _build_data_dashboard(ai_articles, non_ai_articles, cluster_map, language="zh"):
+    """Build a data overview dashboard showing scan statistics.
+
+    Produces a compact table with total articles, AI vs non-AI split,
+    topic clusters, and source counts — similar to linux.do's data overview.
+    """
+    cluster_map = cluster_map or {}
+    total_ai = len(ai_articles)
+    total_non_ai = len(non_ai_articles)
+    total = total_ai + total_non_ai
+
+    if total == 0:
+        return ""
+
+    # Count multi-article clusters
+    multi_clusters = sum(
+        1 for c in cluster_map.values()
+        if isinstance(c, dict) and c.get("cluster_size", 1) > 1
+    )
+    cross_source_clusters = sum(
+        1 for c in cluster_map.values()
+        if isinstance(c, dict) and c.get("cross_source", False)
+    )
+
+    # Count unique sources
+    all_sources = set()
+    for a in ai_articles + non_ai_articles:
+        if a.source:
+            all_sources.add(a.source)
+
+    # Count editorial tiers (if available)
+    must_read = sum(1 for a in ai_articles if a.extra.get("editorial_tier") == "must_read")
+    noteworthy = sum(1 for a in ai_articles if a.extra.get("editorial_tier") == "noteworthy")
+
+    if language == "zh":
+        dash = "## 📊 数据概览\n\n"
+        dash += f"| 指标 | 数值 |\n"
+        dash += f"|------|------|\n"
+        dash += f"| 扫描文章总数 | {total} |\n"
+        dash += f"| 🤖 AI 相关 | {total_ai} ({total_ai * 100 // max(total, 1)}%) |\n"
+        dash += f"| 💻 科技动态 | {total_non_ai} ({total_non_ai * 100 // max(total, 1)}%) |\n"
+        dash += f"| 信息源数量 | {len(all_sources)} |\n"
+        if cluster_map:
+            dash += f"| 话题聚类 | {multi_clusters} 个多源话题 |\n"
+            dash += f"| 跨源验证 | {cross_source_clusters} 个话题 |\n"
+        if must_read or noteworthy:
+            dash += f"| 🔴 必读 | {must_read} |\n"
+            dash += f"| 🟡 值得关注 | {noteworthy} |\n"
+    else:
+        dash = "## 📊 Data Overview\n\n"
+        dash += f"| Metric | Value |\n"
+        dash += f"|--------|-------|\n"
+        dash += f"| Total articles scanned | {total} |\n"
+        dash += f"| 🤖 AI-related | {total_ai} ({total_ai * 100 // max(total, 1)}%) |\n"
+        dash += f"| 💻 Tech updates | {total_non_ai} ({total_non_ai * 100 // max(total, 1)}%) |\n"
+        dash += f"| Sources covered | {len(all_sources)} |\n"
+        if cluster_map:
+            dash += f"| Topic clusters | {multi_clusters} multi-source topics |\n"
+            dash += f"| Cross-verified | {cross_source_clusters} topics |\n"
+        if must_read or noteworthy:
+            dash += f"| 🔴 Must read | {must_read} |\n"
+            dash += f"| 🟡 Noteworthy | {noteworthy} |\n"
+
+    dash += "\n---\n\n"
+    return dash
+
+
 def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quality_scores=None,
                          summary_map=None, cluster_map=None,
                          llm_category_results=None, executive_summary="", trend_insights=""):
@@ -182,6 +249,11 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
         header += f"> ⏰ Generated at {time_str} UTC\n"
 
     header += "\n---\n\n"
+
+    # Data overview dashboard
+    dashboard = _build_data_dashboard(
+        ai_articles, non_ai_articles, cluster_map, language
+    )
 
     has_tiers = False
     category_results = None
@@ -245,9 +317,10 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
         toc += f"\n---\n\n"
 
     body = "\n\n---\n\n".join(parts)
+    # Insert dashboard between header and TOC/body
     if toc:
-        return header + toc + body
-    return header + body
+        return header + dashboard + toc + body
+    return header + dashboard + body
 
 
 def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh",
@@ -395,24 +468,21 @@ def _generate_importance_reason(article, cluster_map=None, language="zh"):
     cluster_info = (cluster_map or {}).get(article.url, {})
     cluster_size = cluster_info.get("cluster_size", 1)
     cross_source = cluster_info.get("cross_source", False)
-    score = article.extra.get("news_value_score", 0)
 
     if language == "zh":
         if cluster_size >= 3:
             parts.append(f"{cluster_size}篇相关报道")
         if cross_source:
             parts.append("多源验证")
-        if article.priority == 1:
-            parts.append("权威来源")
         if article.hn_points and article.hn_points >= 100:
             parts.append(f"HN {article.hn_points}赞")
         if not parts:
-            if score >= 0.6:
-                parts.append("高新闻价值")
-            elif article.description:
+            # Use article description as the primary importance signal
+            if article.description:
                 desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
-                parts.append(desc)
-            else:
+                if desc:
+                    parts.append(desc)
+            if not parts:
                 parts.append("值得关注")
         return "，".join(parts)
     else:
@@ -420,18 +490,15 @@ def _generate_importance_reason(article, cluster_map=None, language="zh"):
             parts.append(f"{cluster_size} related reports")
         if cross_source:
             parts.append("cross-source verification")
-        if article.priority == 1:
-            parts.append("authoritative source")
         if article.hn_points and article.hn_points >= 100:
             parts.append(f"HN {article.hn_points} pts")
         if not parts:
-            if score >= 0.6:
-                parts.append("high news value")
-            elif article.description:
+            if article.description:
                 desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
-                parts.append(desc)
-            else:
-                parts.append("worth reading")
+                if desc:
+                    parts.append(desc)
+            if not parts:
+                parts.append("noteworthy")
         return ", ".join(parts)
 
 

@@ -338,16 +338,15 @@ class TestImportanceReason:
             extra=e,
         )
 
-    def test_zh_reason_uses_chinese(self):
+    def test_zh_reason_uses_description(self):
         a = self._make_article(priority=1)
         reason = _generate_importance_reason(a, language="zh")
-        assert "权威" in reason
+        assert "值得关注" in reason
 
-    def test_en_reason_uses_english(self):
+    def test_en_reason_uses_description(self):
         a = self._make_article(priority=1)
         reason = _generate_importance_reason(a, language="en")
-        assert "authoritative" in reason
-        assert "权威" not in reason
+        assert "noteworthy" in reason
 
     def test_zh_cluster_reason(self):
         a = self._make_article()
@@ -366,7 +365,7 @@ class TestImportanceReason:
     def test_en_fallback_worth_reading(self):
         a = self._make_article(priority=0, extra={"news_value_score": 0.1})
         reason = _generate_importance_reason(a, language="en")
-        assert "worth reading" in reason
+        assert "noteworthy" in reason
 
 
 class TestHighlightHeadingLevels:

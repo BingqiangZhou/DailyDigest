@@ -210,15 +210,15 @@ AI_DIGEST_DIRECT_CATEGORIES = {"ai_ml", "ai_tools"}
 AI_KEYWORDS_ZH = [
     "人工智能", "AI", "大模型", "LLM", "机器学习", "深度学习",
     "神经网络", "GPT", "Claude", "Gemini", "大语言模型", "Transformer",
-    "AGI", "AIGC", "生成式", "智能体", "Agent", "RAG", "微调",
-    "训练", "推理", "开源模型", "闭源模型", "多模态", "文生图",
+    "AGI", "AIGC", "生成式", "智能体", "AI Agent", "RAG", "微调",
+    "开源模型", "闭源模型", "多模态", "文生图",
     "文生视频", "语音识别", "NLP", "计算机视觉", "强化学习",
     "芯片", "GPU", "TPU", "算力", "AI芯片", "英伟达", "NVIDIA",
 ]
 AI_KEYWORDS_EN = [
     "AI", "artificial intelligence", "LLM", "GPT", "Claude", "Gemini",
     "machine learning", "deep learning", "neural network", "transformer",
-    "AGI", "AIGC", "generative", "agent", "RAG", "fine-tun",
+    "AGI", "AIGC", "generative", "AI agent", "RAG", "fine-tun",
     "inference", "open-source model", "multimodal", "text-to-image",
     "text-to-video", "NLP", "computer vision", "reinforcement learning",
     "GPU", "TPU", "AI chip", "NVIDIA", "deepseek", "anthropic",

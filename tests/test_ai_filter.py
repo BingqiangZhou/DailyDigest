@@ -2,7 +2,7 @@
 
 import pytest
 from core.article import Article
-from core.ai_filter import _is_likely_ai_article, _hard_ai_relevance_check, apply_feed_noise_filter
+from core.ai_filter import _is_likely_ai_article, _hard_ai_relevance_check, _is_obvious_non_ai, apply_feed_noise_filter
 
 
 def _make_article(title="Test", description="", extra=None):
@@ -210,3 +210,57 @@ class TestTechOnlyNoiseFilter:
         ]
         result = apply_feed_noise_filter(articles)
         assert len(result) == 1
+
+
+class TestObviousNonAi:
+    """Test the negative gate that catches obviously non-AI content."""
+
+    def test_bbc_river_pollution(self):
+        a = _make_article(title="We're living in a shed because of river pollution")
+        assert _is_obvious_non_ai(a) is True
+        assert _is_likely_ai_article(a) is False
+
+    def test_bbc_orangutan_bridge(self):
+        a = _make_article(title="Watch: How one orangutan braved new bridge to unite his split community")
+        assert _is_obvious_non_ai(a) is True
+        assert _is_likely_ai_article(a) is False
+
+    def test_bbc_changing_skies(self):
+        a = _make_article(title="Your snaps of changing skies from meteors to rays")
+        assert _is_obvious_non_ai(a) is True
+
+    def test_bbc_supercomputer(self):
+        a = _make_article(title="A 17th Century 'supercomputer' once owned by Indian royalty heads for auction")
+        assert _is_obvious_non_ai(a) is True
+
+    def test_home_buying(self):
+        a = _make_article(title="To buy this Bay Area home, you'll need Anthropic equity")
+        assert _is_obvious_non_ai(a) is False  # This IS AI-related despite "home"
+
+    def test_agent_not_false_positive(self):
+        """Bare 'agent' should NOT match — only specific AI compounds."""
+        a = _make_article(title="Real estate agent reports market trends")
+        assert _is_likely_ai_article(a) is False
+
+    def test_ai_agent_passes(self):
+        """'AI agent' should match."""
+        a = _make_article(title="New AI agent framework released by Anthropic")
+        assert _is_likely_ai_article(a) is True
+
+    def test_claude_mixed_cjk_latin(self):
+        """Claude keyword should match in mixed CJK/Latin text."""
+        a = _make_article(title="Claude终于认了！降智坐实")
+        assert _is_likely_ai_article(a) is True
+
+    def test_gpt_mixed_cjk_latin(self):
+        """GPT keyword should match in mixed CJK/Latin text."""
+        a = _make_article(title="OpenAI发布GPT-5.5新模型")
+        assert _is_likely_ai_article(a) is True
+
+    def test_pure_sports_rejected(self):
+        a = _make_article(title="NFL championship game draws record viewership")
+        assert _is_obvious_non_ai(a) is True
+
+    def test_stock_tip_rejected(self):
+        a = _make_article(title="Top stock picks for reliable dividend income")
+        assert _is_obvious_non_ai(a) is True

@@ -492,7 +492,32 @@ def _insert_tldr(content, tldr, language):
     else:
         new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
 
-    return "\n".join(new_lines)
+    # Clean up any remaining double --- (three or more consecutive dashes)
+    result = "\n".join(new_lines)
+    while "---\n\n---" in result:
+        result = result.replace("---\n\n---", "---")
+    return result
+
+
+def _clean_description(desc: str, max_len: int = 150) -> str:
+    """Clean article description for display.
+
+    Strips HTML tags and removes HN RSS metadata noise
+    (Article URL, Comments URL, Points, # Comments lines).
+    """
+    if not desc:
+        return ""
+    clean = re.sub(r'<[^>]+>', '', desc.strip())
+    # Remove HN RSS metadata lines
+    clean = re.sub(r'^Article URL:.*$', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'^Comments URL:.*$', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'^Points:.*$', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'^# Comments.*$', '', clean, flags=re.MULTILINE)
+    clean = re.sub(r'\n{3,}', '\n\n', clean.strip())
+    clean = clean.strip()
+    if len(clean) > max_len:
+        clean = clean[:max_len].rstrip() + "..."
+    return clean
 
 
 def build_non_ai_section(non_ai_articles, report_language="zh"):
@@ -515,7 +540,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
     # Cap articles to avoid overwhelming the reader.
     # Prioritize: must_read > noteworthy > brief, then by news_value_score.
     original_count = len(non_ai_articles)
-    max_articles = 50
+    max_articles = 30
     if len(non_ai_articles) > max_articles:
         non_ai_articles = _select_non_ai_articles(non_ai_articles, max_articles)
 
@@ -558,9 +583,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
                 lines.append("#### ⭐ 重点科技新闻")
                 lines.append("")
                 for a in must_read_articles:
-                    desc = ""
-                    if a.description:
-                        desc = re.sub(r'<[^>]+>', '', a.description.strip())[:150]
+                    desc = _clean_description(a.description or "")
                     reason = a.extra.get("editorial_factors", {})
                     reason_text = ""
                     # Try to generate a brief importance hint
@@ -574,9 +597,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
                 lines.append("#### ⭐ Top Tech News")
                 lines.append("")
                 for a in must_read_articles:
-                    desc = ""
-                    if a.description:
-                        desc = re.sub(r'<[^>]+>', '', a.description.strip())[:150]
+                    desc = _clean_description(a.description or "")
                     lines.append(f"- **[{_escape_pipe(a.title)}]({_escape_pipe(a.url)})** — {a.source}")
                     if desc:
                         lines.append(f"  > {desc}")
@@ -626,12 +647,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
             lines.append("|---:|------|------|")
 
         for i, update in enumerate(cat_updates, 1):
-            summary_text = ""
-            if update.description:
-                clean_desc = re.sub(r'<[^>]+>', '', update.description.strip())
-                if len(clean_desc) > 150:
-                    clean_desc = clean_desc[:150] + "..."
-                summary_text = clean_desc
+            summary_text = _clean_description(update.description or "")
             lines.append(_article_table_row(i, update.title, update.url, update.source, summary_text))
 
         lines.append("")

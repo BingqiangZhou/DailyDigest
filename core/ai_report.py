@@ -204,43 +204,136 @@ def generate_ai_report(ai_articles: list[Article], language: str = "zh",
 
 def _generate_ai_listing_fallback(ai_articles: list[Article], language: str,
                                    summary_map: dict = None) -> str:
-    """Tiered fallback listing when AI API is unavailable.
+    """Structured fallback listing when AI API is unavailable.
 
-    When editorial tier data is present, renders articles in a structured
-    format: must_read → noteworthy table → collapsed brief list.
-    Without tiers, falls back to a simple table.
+    Produces a curated, grouped report even without LLM:
+      - Highlights: top 5 articles by authority/signal
+      - Grouped by category with descriptions as summaries
+      - Collapsed overflow section for remaining articles
     """
     has_tiers = any(a.extra.get("editorial_tier") for a in ai_articles)
     if has_tiers:
         return _generate_ai_listing_tiered(ai_articles, language, summary_map)
 
-    # Simple flat table (no tier data available)
+    from .config import get_category_display, normalize_category
+    from .topic_cluster import cluster_articles, get_cluster_map
+
     lines = []
 
-    if language == "zh":
-        lines.append("### 🤖 AI 相关文章")
-        lines.append("")
-        lines.append("| # | 文章 | 来源 | 分类 | 摘要 |")
-        lines.append("|---:|------|------|------|------|")
-    else:
-        lines.append("### 🤖 AI-Related Articles")
-        lines.append("")
-        lines.append("| # | Article | Source | Category | Summary |")
-        lines.append("|---:|------|------|------|------|")
+    # Try topic clustering for better grouping (non-LLM, heuristic)
+    try:
+        topic_clusters = cluster_articles(ai_articles)
+        cluster_map = get_cluster_map(topic_clusters)
+    except Exception:
+        cluster_map = {}
 
-    for i, article in enumerate(ai_articles, 1):
-        title = article.title.replace("|", "\\|").replace("\n", " ")
-        url = article.url.replace("|", "\\|")
-        source = article.source.replace("|", "\\|")
-        cat = article.category.replace("|", "\\|")
-        summary = ""
-        if summary_map and url in summary_map:
-            info = summary_map[url]
-            if isinstance(info, dict):
-                summary = info.get("ai_summary", "").replace("|", "\\|").replace("\n", " ")
-        lines.append(f"| {i} | [**{title}**]({url}) | *{source}* | {cat} | {summary} |")
+    # Rank articles by authority and description richness for highlights
+    def _article_rank(a):
+        score = 0
+        if a.priority == 1:
+            score += 3
+        elif a.priority == 2:
+            score += 1
+        if a.description and len(a.description) > 50:
+            score += 2
+        if a.extra.get("hn_points") and a.extra["hn_points"] >= 100:
+            score += 2
+        if cluster_map.get(a.url, {}).get("cluster_size", 1) > 1:
+            score += 1
+        return score
 
-    lines.append("")
+    sorted_articles = sorted(ai_articles, key=_article_rank, reverse=True)
+
+    # Highlights: top 5 most important articles
+    highlights = sorted_articles[:5]
+    if highlights:
+        if language == "zh":
+            lines.append("### 🔥 今日亮点")
+        else:
+            lines.append("### 🔥 Today's Highlights")
+        lines.append("")
+        for i, article in enumerate(highlights, 1):
+            title = article.title.replace("|", "\\|").replace("\n", " ")
+            url = article.url.replace("|", "\\|")
+            source = article.source.replace("|", "\\|")
+            lines.append(f"**{i}. [{title}]({url})**")
+            lines.append(f"> *{source}*")
+            desc = (article.description or "")[:200]
+            if desc:
+                desc = re.sub(r'<[^>]+>', '', desc)
+                lines.append(f"> {desc}")
+            lines.append("")
+
+    # Group remaining articles by category
+    remaining = sorted_articles[5:]
+    cat_groups = {}
+    for article in remaining:
+        cat = normalize_category(article.category)
+        cat_groups.setdefault(cat, []).append(article)
+
+    for cat in cat_groups:
+        articles_in_cat = cat_groups[cat]
+        cat_display = get_category_display(cat)
+        count = len(articles_in_cat)
+        count_unit = "篇" if language == "zh" else "articles"
+
+        if language == "zh":
+            lines.append(f"### {cat_display} ({count} {count_unit})")
+        else:
+            lines.append(f"### {cat_display} ({count} {count_unit})")
+        lines.append("")
+
+        has_desc = any(a.description for a in articles_in_cat[:20])
+        if has_desc:
+            summary_header = "摘要" if language == "zh" else "Summary"
+            if language == "zh":
+                lines.append(f"| # | 文章 | 来源 | {summary_header} |")
+            else:
+                lines.append(f"| # | Article | Source | {summary_header} |")
+            lines.append("|---:|------|------|------|")
+            for i, article in enumerate(articles_in_cat[:20], 1):
+                title = article.title.replace("|", "\\|").replace("\n", " ")
+                url = article.url.replace("|", "\\|")
+                source = article.source.replace("|", "\\|")
+                desc = ""
+                if article.description:
+                    desc = re.sub(r'<[^>]+>', '', article.description.strip())[:150]
+                # Check for AI summary from summary_map
+                if summary_map and url in summary_map:
+                    info = summary_map[url]
+                    if isinstance(info, dict) and info.get("ai_summary"):
+                        desc = info["ai_summary"].replace("|", "\\|").replace("\n", " ")[:150]
+                lines.append(f"| {i} | [**{title}**]({url}) | *{source}* | {desc} |")
+        else:
+            if language == "zh":
+                lines.append(f"| # | 文章 | 来源 |")
+            else:
+                lines.append(f"| # | Article | Source |")
+            lines.append("|---:|------|------|")
+            for i, article in enumerate(articles_in_cat[:20], 1):
+                title = article.title.replace("|", "\\|").replace("\n", " ")
+                url = article.url.replace("|", "\\|")
+                source = article.source.replace("|", "\\|")
+                lines.append(f"| {i} | [**{title}**]({url}) | *{source}* |")
+
+        # Collapsed overflow
+        overflow = articles_in_cat[20:]
+        if overflow:
+            lines.append("")
+            lines.append("<details>")
+            overflow_label = "更多" if language == "zh" else "More"
+            lines.append(f"<summary>📋 {overflow_label} ({len(overflow)} {count_unit})</summary>")
+            lines.append("")
+            for i, article in enumerate(overflow, 21):
+                title = article.title.replace("|", "\\|").replace("\n", " ")
+                url = article.url.replace("|", "\\|")
+                source = article.source.replace("|", "\\|")
+                lines.append(f"- [{title}]({url}) — *{source}*")
+            lines.append("")
+            lines.append("</details>")
+
+        lines.append("")
+
     return "\n".join(lines)
 
 

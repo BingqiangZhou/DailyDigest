@@ -87,6 +87,19 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
     except Exception as e:
         logger.warning(f"⚠️ Clustering failed (non-fatal): {e}")
 
+    # Run editorial pipeline on AI articles if they lack tier data
+    # (e.g. Skill mode path, or if pipeline failed during initial fetch)
+    if not any(a.extra.get("editorial_tier") for a in ai_articles):
+        try:
+            from .editorial import run_editorial_pipeline
+            from .config import EDITORIAL_ENABLED
+            if EDITORIAL_ENABLED:
+                ai_articles, _ = run_editorial_pipeline(ai_articles, cluster_map)
+        except Exception as e:
+            import traceback
+            logger.warning(f"⚠️ Editorial pipeline in finalize failed: {e}")
+            logger.debug(traceback.format_exc())
+
     # Full-text enrichment (optional)
     if api_key and os.environ.get("ENRICH_FULL_TEXT"):
         try:
@@ -370,7 +383,9 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         from .editorial import run_editorial_pipeline
         new_articles, editorial_stats = run_editorial_pipeline(new_articles, cluster_map)
     except Exception as e:
+        import traceback
         logger.warning(f"⚠️ Editorial pipeline failed (non-fatal): {e}")
+        logger.debug(traceback.format_exc())
 
     # Save workspace data AFTER editorial pipeline so tier data is preserved
     tech_new = [a for a in new_articles if not _is_wechat_article(a)]

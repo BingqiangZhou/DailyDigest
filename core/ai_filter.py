@@ -38,11 +38,10 @@ def _article_to_filter_item(index: int, article: Article) -> str:
 
 def _keyword_filter(articles: list[Article]) -> list[Article]:
     """Fallback keyword-based AI relevance filter."""
-    all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
     results = []
     for article in articles:
-        text = f"{article.title} {article.description or ''}".lower()
-        if any(kw.lower() in text for kw in all_keywords):
+        text = f"{article.title} {article.description or ''}"
+        if _ai_keyword_match(text):
             results.append(article)
     return results
 
@@ -98,25 +97,93 @@ def _api_filter(articles: list[Article], batch_size: int = 50) -> list[Article]:
     return results
 
 
+def _is_obvious_non_ai(article: Article) -> bool:
+    """Return True if the article is clearly NOT about AI based on title/description.
+
+    This is a negative gate applied BEFORE any positive keyword matching.
+    Catches wildlife, sports, politics, lifestyle, etc. that slip through
+    feed-level filters.
+    """
+    text = f"{article.title} {article.description or ''}".lower()
+
+    # Strong negative patterns — if any match, article is almost certainly not AI
+    negative_patterns = [
+        # Wildlife / nature / environment
+        r"\b(wildfires?|wetland|orangutan|wildlife|bird watching|river pollution|endangered species)\b",
+        # Natural disasters (not tech-related)
+        r"\b(earthquake|tsunami|volcano|hurricane|tornado|flood damage)\b",
+        # Sports
+        r"\b(nfl|nba|mlb|nhl|soccer match|football game|basketball game|olympics? medal)\b",
+        # Pure entertainment (not AI-generated content)
+        r"\b(box office|album release|concert tour|red carpet|tv series finale)\b",
+        # Lifestyle / health (not AI health applications)
+        r"\b(exercise routine|diet plan|workout|fitness tip|yoga pose|sleep better)\b",
+        # Crime / violence (not AI safety/ethics)
+        r"\b(shooting|gunman|stabbing|homicide|armed robbery|murder suspect)\b",
+        # Pure food / travel (not AI food tech)
+        r"\b(recipe|restaurant review|travel guide|hotel review|tourist attraction)\b",
+        # Celebrities / gossip
+        r"\b(celebrity|gossip|red carpet|dating rumor|divorce|wedding dress)\b",
+        # Random non-tech science / nature curiosities
+        r"\b(meteors?|aurora borealis|solar eclipse|dinosaur fossil|archaeology|supercomputer.*auction|royalty.*auction|your snaps)\b",
+        # Finance without tech angle
+        r"\b(stock (pick|tip)|dividend|earnings per share|hedge fund strategy)\b",
+    ]
+    for pattern in negative_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            return True
+    return False
+
+
+def _ai_keyword_match(text: str) -> bool:
+    """Check if text contains AI-related keywords with appropriate matching.
+
+    Short/ambiguous keywords (like 'AI', 'GPT', 'RAG') use word boundary
+    matching with ASCII flag to handle mixed CJK/Latin text correctly.
+    Longer keywords use substring matching.
+    """
+    all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
+    text_lower = text.lower()
+
+    for kw in all_keywords:
+        kw_lower = kw.lower()
+        # Short keywords (<=6 chars) require word boundaries to avoid
+        # false positives: "agent" shouldn't match "real estate agent".
+        # Use re.ASCII so \b only matches at ASCII/Latin boundaries,
+        # correctly handling mixed CJK/Latin text like "Claude降智".
+        if len(kw) <= 6:
+            if re.search(r'\b' + re.escape(kw_lower) + r'\b', text_lower, re.ASCII):
+                return True
+        else:
+            if kw_lower in text_lower:
+                return True
+    return False
+
+
 def _is_likely_ai_article(article: Article) -> bool:
     """Quick heuristic check: does this article look AI-related at all?
 
     Applied as a safety net even for direct-category articles to filter
     obvious false positives (e.g. wildlife articles, lifestyle posts).
     """
-    all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
-    text = f"{article.title} {article.description or ''}".lower()
-    # Check if any AI keyword appears in title or description
-    if any(kw.lower() in text for kw in all_keywords):
+    # Negative gate first — if it's obviously not AI, skip keyword matching
+    if _is_obvious_non_ai(article):
+        return False
+
+    text = f"{article.title} {article.description or ''}"
+    # Check if any AI keyword appears in title or description (word-boundary safe)
+    if _ai_keyword_match(text):
         return True
-    # Check for common AI-adjacent terms that might not be in the keyword list
+
+    # Check for common AI-adjacent terms (specific enough to avoid false positives)
     ai_adjacent = [
-        "ai ", "artificial intelligence", "machine learning", "deep learning",
-        "neural", "llm", "gpt", "claude", "gemini", "transformer",
-        "chatbot", "openai", "anthropic", "deepmind", "diffusion",
-        "copilot", "agi", "alignment", "reinforcement learning",
+        "artificial intelligence", "machine learning", "deep learning",
+        "neural network", "gpt-", "claude ", "gemini ", "transformer",
+        "chatbot", "openai", "anthropic", "deepmind", "diffusion model",
+        "copilot", "ai alignment", "reinforcement learning",
         "人工智能", "大模型", "大语言模型", "深度学习", "机器学习",
-        "智能体", "agent", "chatgpt", "神经网络", "训练", "推理",
+        "智能体", "ai agent", "chatgpt", "神经网络",
+        "foundation model", "language model", "generative ai",
     ]
     text_lower = text.lower()
     return any(term in text_lower for term in ai_adjacent)
@@ -129,15 +196,18 @@ def _hard_ai_relevance_check(article: Article) -> bool:
     No amount of clustering, authority, or API classification should
     override a complete absence of AI relevance in the article text.
     """
+    # Negative gate: obvious non-AI content is always rejected
+    if _is_obvious_non_ai(article):
+        return False
+
     # First check: does it pass the keyword/adjacent term test?
     if _is_likely_ai_article(article):
         return True
 
     # Check full_text for AI keywords as a secondary signal
-    full_text = (article.full_text or "").lower()
+    full_text = article.full_text or ""
     if full_text:
-        all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
-        if any(kw.lower() in full_text for kw in all_keywords):
+        if _ai_keyword_match(full_text):
             return True
 
     return False
@@ -196,19 +266,21 @@ def filter_ai_articles(articles: list[Article]) -> tuple[list[Article], list[Art
 NOISE_PATTERNS = [
     # Lifestyle / personal posts
     r"\b(exercise|hate exercise|learned to not hate|diet|fitness|sleep|meditation)\b",
-    # Entertainment / gaming
-    r"\b(game|gaming|movie|film|music|album|concert|fantasy|dnd|dungeons?)\b",
+    # Entertainment / gaming (not AI-in-gaming)
+    r"\b(movie|film|album|concert|fantasy|dnd|dungeons?)\b",
     # Pure politics / social (not AI policy)
     r"\b(election|voting|campaign|partisan|tribal affiliation)\b",
-    # Non-AI science / nature
-    r"\b(wildfires?|wetland|orangutan|wildlife|meteor|skydiving|species|river pollution|flood|drought|climate change protest)\b",
+    # Non-AI science / nature / environment
+    r"\b(wildfires?|wetland|orangutan|wildlife|meteor|skydiving|species|river pollution|flood|drought|climate change protest|supercomputer|auction|royalty|fossil|dinosaur|archaeology)\b",
+    # Random BBC-style general interest ("watch:", "your snaps", etc.)
+    r"\b(your snaps|watch:|braved|new bridge|split community|17th century)\b",
 ]
 
 # Broader noise patterns for tech_only feeds — filters political, lifestyle, sports content
 # that routinely leaks into general-purpose feeds (CNBC, BBC, Axios, etc.)
 TECH_NOISE_PATTERNS = [
     # Hard politics (keep tech policy like "AI regulation")
-    r"\b(election|voting|campaign|partisan|senator|congressman|governor voted|ballot|primary|trump|biden|white house correspondents|press dinner)\b",
+    r"\b(election|voting|campaign|partisan|senator|congressman|governor voted|ballot|primary|trump|biden|white house correspondents|press dinner|whcd)\b",
     # Breaking news / crime (shootings, arrests, trials)
     r"\b(shooting|gunman|shot and killed|arrested|indicted|trial\b|convicted|murder|homicide)\b",
     # Sports
@@ -221,6 +293,8 @@ TECH_NOISE_PATTERNS = [
     r"\b(wildfire|wetland|orangutan|wildlife|bird watching|volcano|earthquake|tsunami)\b",
     # Finance/stock news without tech angle
     r"\b(stock (pick|tip|portfolio)|dividend|earnings (per share|season)|hedge fund|ipo\b)\b",
+    # Non-tech consumer (home buying, car deals without tech angle)
+    r"\b(home sale|real estate|bay area home|mortgage rate)\b",
 ]
 
 

@@ -173,20 +173,22 @@ Step 3: 如果文章涉及具体技术、产品或数据，明确提及
 
 其中 article_url 为每篇文章的"链接"字段的值。"""
 
-TLDR_PROMPT_ZH = """你是一位资深编辑。请为以下{type_name}写一个"太长不看"(TL;DR)版本。
+TLDR_PROMPT_ZH = """你是一位资深科技编辑，正在为CTO级别读者写一份"太长不看"(TL;DR)摘要。
 
 ## 分析步骤
 
 Step 1: 从报告中识别3-5个最重要的发展动态
 Step 2: 按重要性排序（行业影响 > 新颖性 > 报道数量）
-Step 3: 为每个要点写一句简洁的中文总结
+Step 3: 为每个要点写一句包含具体事实的总结
 
-## 要求
-1. 用 3-5 个要点概括最重要的内容
-2. 每个要点一行，以 "- " 开头
-3. 总字数不超过 200 字
-4. 语言简洁有力，适合CTO在30秒内快速浏览
-5. 不要编造报告中没有的信息
+## 写作规则
+
+1. **每个要点必须包含具体事实**：产品名、公司名、数据点、价格变化、技术指标。不要写"某公司发布了新产品"这种模糊话，要写"OpenAI将Codex并入GPT-5.5，API成本涨20%"。
+2. **突出影响**：对开发者/从业者意味着什么？API价格变了？某个工具可用了？某项能力突破了？
+3. 用 3-5 个要点概括
+4. 每个要点一行，以 "- " 开头
+5. 总字数不超过 200 字
+6. 不要编造报告中没有的信息
 
 ## 原始报告
 
@@ -196,20 +198,22 @@ Step 3: 为每个要点写一句简洁的中文总结
 
 直接输出要点列表，不要输出其他内容。"""
 
-TLDR_PROMPT_EN = """You are a senior editor. Write a "Too Long; Didn't Read" (TL;DR) version of the following {type_name}.
+TLDR_PROMPT_EN = """You are a senior tech editor writing a TL;DR summary for CTO-level readers.
 
 ## Analysis Steps
 
 Step 1: Identify the top 3-5 developments from the report
 Step 2: Rank by significance (industry impact > novelty > number of sources)
-Step 3: Write a concise summary for each point
+Step 3: Write a concise summary for each point with SPECIFIC facts
 
-Requirements:
-1. 3-5 bullet points covering the most important content
-2. Each point starts with "- "
-3. Total under 200 words
-4. Concise and punchy — a CTO should understand what matters today in 30 seconds
-5. Do not fabricate information not in the report
+## Writing Rules
+
+1. **Every bullet must contain specific facts**: product names, company names, data points, price changes, technical benchmarks. Don't write "a company released a new product" — write "OpenAI merged Codex into GPT-5.5, with API costs rising 20%".
+2. **Highlight impact**: What does this mean for developers/practitioners? API pricing changed? A tool became available? A capability breakthrough?
+3. 3-5 bullet points covering the most important content
+4. Each point starts with "- "
+5. Total under 200 words
+6. Do not fabricate information not in the report
 
 ## Original Report
 

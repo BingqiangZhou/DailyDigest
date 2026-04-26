@@ -160,10 +160,17 @@ class TestAssignEditorialTier:
         a.extra["news_value_score"] = 0.35
         assert assign_editorial_tier(a) == "noteworthy"
 
-    def test_priority1_promotion(self):
+    def test_priority1_promotion_from_noteworthy(self):
+        """Priority-1 promotes noteworthy → must_read."""
         a = _make_article(priority=1)
-        a.extra["news_value_score"] = 0.35
-        assert assign_editorial_tier(a) == "noteworthy"
+        a.extra["news_value_score"] = 0.45  # noteworthy tier
+        assert assign_editorial_tier(a) == "must_read"
+
+    def test_priority1_no_promotion_from_brief(self):
+        """Priority-1 should NOT promote brief articles — need stronger signal."""
+        a = _make_article(priority=1)
+        a.extra["news_value_score"] = 0.35  # brief tier
+        assert assign_editorial_tier(a) == "brief"
 
 
 class TestAllocateDepth:
@@ -217,3 +224,24 @@ class TestRunEditorialPipeline:
         approved, stats = run_editorial_pipeline([], {})
         assert approved == []
         assert stats["approved"] == 0
+
+    def test_none_cluster_map(self):
+        """Pipeline should handle None cluster_map gracefully."""
+        a = _make_article(title="OpenAI GPT-5", source="OpenAI Blog", priority=1)
+        approved, stats = run_editorial_pipeline([a], None)
+        assert stats["total_input"] == 1
+        for art in approved:
+            assert "news_value_score" in art.extra
+            assert "editorial_tier" in art.extra
+
+    def test_tier_propagation_to_extra(self):
+        """All approved articles must have editorial_tier set in extra."""
+        articles = [
+            _make_article(title="OpenAI GPT-5", source="OpenAI Blog", priority=1,
+                          description="breakthrough release"),
+            _make_article(title="Routine update", source="Random Blog", priority=3),
+        ]
+        approved, _ = run_editorial_pipeline(articles, {})
+        for a in approved:
+            assert a.extra.get("editorial_tier") in ("must_read", "noteworthy", "brief")
+            assert a.extra.get("depth") in ("deep_analysis", "summary_only", "headline_only")

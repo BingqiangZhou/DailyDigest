@@ -128,8 +128,11 @@ def compute_news_value(article: Article, cluster_map: dict) -> dict:
     from .config import normalize_category
     cat = normalize_category(article.category)
     low_relevance_cats = {"general_news"}
+    medium_relevance_cats = {"tech_product", "tech_general"}
     if cat in low_relevance_cats:
-        composite *= 0.5  # General news needs 2x the signal to be included
+        composite *= 0.4  # General news needs strong signal to be included
+    elif cat in medium_relevance_cats:
+        composite *= 0.8  # Tech products/general need slightly more signal
 
     composite = min(round(composite, 3), 1.0)
 
@@ -163,8 +166,9 @@ def assign_editorial_tier(article: Article) -> str:
         if hn_points >= EDITORIAL_HN_PROMOTE_THRESHOLD:
             tier = _promote_tier(tier)
 
-    # Promotion: priority-1 source bumps up one tier
-    if tier != "must_read" and article.priority == 1:
+    # Promotion: priority-1 source bumps up one tier (only from noteworthy)
+    # Don't promote brief articles — they need stronger signal first
+    if tier == "noteworthy" and article.priority == 1:
         tier = _promote_tier(tier)
 
     return tier
@@ -186,7 +190,7 @@ def allocate_depth(article: Article) -> str:
 
 def run_editorial_pipeline(
     articles: list[Article],
-    cluster_map: dict,
+    cluster_map: dict | None = None,
 ) -> tuple[list[Article], dict]:
     """Run the full editorial pipeline on a list of articles.
 
@@ -204,6 +208,7 @@ def run_editorial_pipeline(
         logger.info("📝 Editorial pipeline disabled (EDITORIAL_ENABLED=false)")
         return articles, {"disabled": True}
 
+    cluster_map = cluster_map or {}
     threshold = EDITORIAL_NEWS_VALUE_THRESHOLD
 
     approved = []

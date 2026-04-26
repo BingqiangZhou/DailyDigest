@@ -167,7 +167,7 @@ def cluster_articles(articles: list[Article], similarity_threshold: float = 0.25
         ci, cj = url_to_cluster.get(url_i), url_to_cluster.get(url_j)
         if ci is None or cj is None or ci == cj:
             continue
-        if len(clusters) <= max_clusters:
+        if len(clusters) > 1:
             # Merge smaller cluster into larger
             if len(clusters.get(ci, [])) < len(clusters.get(cj, [])):
                 ci, cj = cj, ci
@@ -215,27 +215,24 @@ def cluster_articles(articles: list[Article], similarity_threshold: float = 0.25
         cluster_data["score"] = score_importance(cluster_data)
         result.append(cluster_data)
 
-    # Group singletons into a single "其他" cluster
-    if singleton_urls:
-        singleton_articles = [url_to_article[u] for u in singleton_urls if u in url_to_article]
-        if singleton_articles:
-            # Derive theme from most common keywords
-            all_kw = Counter()
-            for u in singleton_urls:
-                for kw in article_keywords.get(u, []):
-                    all_kw[kw] += 1
-            theme = ", ".join(kw for kw, _ in all_kw.most_common(3)) if all_kw else "其他"
-
-            cluster_data = {
-                "cluster_id": f"c_other",
-                "theme": theme,
-                "articles": singleton_articles,
-                "size": len(singleton_articles),
-                "cross_source": len({a.source for a in singleton_articles}) > 1,
-                "score": 0.0,
-            }
-            cluster_data["score"] = score_importance(cluster_data)
-            result.append(cluster_data)
+    # Keep singletons as individual clusters (each article = its own topic).
+    # Previously all singletons were grouped into one giant "其他" cluster
+    # which defeated the purpose of clustering — inflating cluster sizes
+    # and causing every article to appear "cross-source verified".
+    for u in singleton_urls:
+        article = url_to_article.get(u)
+        if not article:
+            continue
+        cluster_data = {
+            "cluster_id": f"c_s_{u[:8]}",
+            "theme": article.title[:50],
+            "articles": [article],
+            "size": 1,
+            "cross_source": False,
+            "score": 0.0,
+        }
+        cluster_data["score"] = score_importance(cluster_data)
+        result.append(cluster_data)
 
     # Sort by score descending
     result.sort(key=lambda c: c["score"], reverse=True)
