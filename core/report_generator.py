@@ -486,7 +486,12 @@ def _insert_tldr(content, tldr, language):
     tldr_blockquote = "\n".join(f"> {line}" for line in tldr_lines)
     tldr_block = [tldr_label, "", tldr_blockquote, "", "---", ""]
 
-    new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
+    # If the line at insert_idx is already ---, skip it to avoid double ---
+    if insert_idx < len(lines) and lines[insert_idx].strip() == "---":
+        new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx + 1:]
+    else:
+        new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
+
     return "\n".join(new_lines)
 
 
