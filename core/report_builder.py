@@ -148,6 +148,65 @@ def _merge_llm_summaries(editorial_results, llm_results):
     return merged
 
 
+def _build_highlights(ai_articles, non_ai_articles, cluster_map, language="zh"):
+    """Build a highlights section from top must-read articles.
+
+    Picks the top 3-5 most important articles across both AI and non-AI,
+    based on editorial tier and news value score.
+    """
+    all_articles = list(ai_articles) + list(non_ai_articles)
+    if not all_articles:
+        return ""
+
+    # Sort by editorial importance: must_read first, then by news_value_score
+    must_read = [a for a in all_articles if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in all_articles if a.extra.get("editorial_tier") == "noteworthy"]
+
+    # Sort each tier by score descending
+    must_read.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+    noteworthy.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+
+    # Take up to 5 from must_read, fill remainder from noteworthy
+    highlights = must_read[:5]
+    if len(highlights) < 5:
+        highlights.extend(noteworthy[:5 - len(highlights)])
+
+    if not highlights:
+        return ""
+
+    if language == "zh":
+        section = "### 🔥 今日亮点\n\n"
+        for i, a in enumerate(highlights, 1):
+            title = a.title.replace("|", "\\|").replace("\n", " ")
+            url = a.url.replace("|", "\\|")
+            source = a.source.replace("|", "\\|")
+            desc = re.sub(r'<[^>]+>', '', (a.description or "")[:100]).strip()
+            engagement = ""
+            if a.hn_points and a.hn_points >= 50:
+                engagement = f" (🔥HN {a.hn_points})"
+            section += f"**{i}. [{title}]({url})** — *{source}*{engagement}\n"
+            if desc:
+                section += f"> {desc}\n"
+            section += "\n"
+    else:
+        section = "### 🔥 Today's Highlights\n\n"
+        for i, a in enumerate(highlights, 1):
+            title = a.title.replace("|", "\\|").replace("\n", " ")
+            url = a.url.replace("|", "\\|")
+            source = a.source.replace("|", "\\|")
+            desc = re.sub(r'<[^>]+>', '', (a.description or "")[:100]).strip()
+            engagement = ""
+            if a.hn_points and a.hn_points >= 50:
+                engagement = f" (🔥HN {a.hn_points})"
+            section += f"**{i}. [{title}]({url})** — *{source}*{engagement}\n"
+            if desc:
+                section += f"> {desc}\n"
+            section += "\n"
+
+    section += "---\n\n"
+    return section
+
+
 def _build_data_dashboard(ai_articles, non_ai_articles, cluster_map, language="zh"):
     """Build a data overview dashboard showing scan statistics.
 
@@ -300,6 +359,9 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
     if not parts:
         return ""
 
+    # Build highlights section from top must-read articles
+    highlights = _build_highlights(ai_articles, non_ai_articles, cluster_map, language)
+
     # Build quick-nav TOC
     toc_entries = []
     if ai_section:
@@ -319,10 +381,10 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
         toc += f"\n---\n\n"
 
     body = "\n\n---\n\n".join(parts)
-    # Insert dashboard between header and TOC/body
+    # Insert dashboard + highlights between header and TOC/body
     if toc:
-        return header + dashboard + toc + body
-    return header + dashboard + body
+        return header + dashboard + highlights + toc + body
+    return header + dashboard + highlights + body
 
 
 def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh",

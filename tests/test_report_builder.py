@@ -1,8 +1,8 @@
-"""Tests for report_builder.py — data dashboard and report assembly."""
+"""Tests for report_builder.py — data dashboard, highlights, and report assembly."""
 
 from datetime import datetime, timezone
 from core.article import Article
-from core.report_builder import _build_data_dashboard
+from core.report_builder import _build_data_dashboard, _build_highlights
 
 
 def _make_article(title="Test", source="TestSource", category="ai_ml",
@@ -67,3 +67,46 @@ class TestBuildDataDashboard:
         ai = [_make_article("No tier")]
         result = _build_data_dashboard(ai, [], {}, "zh")
         assert "必读" not in result
+
+
+class TestBuildHighlights:
+    def test_zh_highlights_from_must_read(self):
+        ai = [
+            _make_article("Big AI news", editorial_tier="must_read", news_value_score=0.9),
+            _make_article("Lesser news", editorial_tier="noteworthy", news_value_score=0.5),
+        ]
+        result = _build_highlights(ai, [], {}, "zh")
+        assert "🔥 今日亮点" in result
+        assert "Big AI news" in result
+
+    def test_en_highlights(self):
+        ai = [_make_article("Must read", editorial_tier="must_read", news_value_score=0.9)]
+        result = _build_highlights(ai, [], {}, "en")
+        assert "🔥 Today's Highlights" in result
+        assert "Must read" in result
+
+    def test_empty_articles_no_highlights(self):
+        result = _build_highlights([], [], {}, "zh")
+        assert result == ""
+
+    def test_no_tier_articles_uses_noteworthy(self):
+        ai = [_make_article("Noteworthy", editorial_tier="noteworthy", news_value_score=0.5)]
+        result = _build_highlights(ai, [], {}, "zh")
+        assert "Noteworthy" in result
+
+    def test_hn_engagement_shown(self):
+        ai = [Article(
+            title="HN Post", url="https://hn.test/1", source="HN",
+            category="ai_ml", published="2026-04-27T12:00:00",
+            extra={"editorial_tier": "must_read", "news_value_score": 0.9, "hn_points": 200},
+        )]
+        result = _build_highlights(ai, [], {}, "zh")
+        assert "🔥HN 200" in result
+
+    def test_mixed_ai_and_non_ai(self):
+        ai = [_make_article("AI news", editorial_tier="must_read", news_value_score=0.9)]
+        non_ai = [_make_article("Tech news", category="tech_general",
+                                editorial_tier="must_read", news_value_score=0.8)]
+        result = _build_highlights(ai, non_ai, {}, "zh")
+        assert "AI news" in result
+        assert "Tech news" in result

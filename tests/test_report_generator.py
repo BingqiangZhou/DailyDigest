@@ -293,6 +293,7 @@ class TestUnifiedReportToc:
         assert "📑 快速导航" in report
         assert "AI 深度日报" in report
         assert "科技动态" in report
+        assert "🔥 今日亮点" in report
 
     def test_no_toc_when_only_one_part(self):
         from datetime import datetime, timezone
@@ -308,6 +309,8 @@ class TestUnifiedReportToc:
             llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
         )
         assert "📑" not in report
+        # Highlights should still appear for articles with tier data
+        assert "🔥 今日亮点" in report
 
     def test_no_double_separator_in_single_part_report(self):
         ai_article = Article(
