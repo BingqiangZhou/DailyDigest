@@ -1,8 +1,10 @@
 """Tests for core/report_generator.py — table rendering and utilities."""
 
+from datetime import datetime, timezone
+
 from core.article import Article
 from core.report_generator import _escape_pipe, _render_hn_table, generate_tech_report, _select_non_ai_articles
-from core.report_builder import _merge_llm_summaries, build_unified_report
+from core.report_builder import _merge_llm_summaries, build_unified_report, _generate_importance_reason
 
 
 class TestEscapePipe:
@@ -306,3 +308,99 @@ class TestUnifiedReportToc:
             llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
         )
         assert "📑" not in report
+
+    def test_no_double_separator_in_single_part_report(self):
+        ai_article = Article(
+            title="AI article", url="https://test/ai",
+            source="TestSource", category="ai_ml",
+            published="2026-04-27T12:00:00",
+            extra={"editorial_tier": "noteworthy", "news_value_score": 0.5},
+        )
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        report = build_unified_report(
+            [ai_article], [], now, "zh",
+            llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
+        )
+        assert "---\n---" not in report
+
+
+class TestImportanceReason:
+    def _make_article(self, title="Test", priority=1, hn_points=0, extra=None):
+        e = extra or {}
+        if priority:
+            e["priority"] = priority
+        if hn_points:
+            e["hn_points"] = hn_points
+        return Article(
+            title=title, url="https://test/" + title,
+            source="TestSource", category="ai_ml",
+            published="2026-04-27T12:00:00",
+            extra=e,
+        )
+
+    def test_zh_reason_uses_chinese(self):
+        a = self._make_article(priority=1)
+        reason = _generate_importance_reason(a, language="zh")
+        assert "权威" in reason
+
+    def test_en_reason_uses_english(self):
+        a = self._make_article(priority=1)
+        reason = _generate_importance_reason(a, language="en")
+        assert "authoritative" in reason
+        assert "权威" not in reason
+
+    def test_zh_cluster_reason(self):
+        a = self._make_article()
+        cluster_map = {a.url: {"cluster_size": 5, "cross_source": True}}
+        reason = _generate_importance_reason(a, cluster_map, "zh")
+        assert "5篇相关报道" in reason
+        assert "多源验证" in reason
+
+    def test_en_cluster_reason(self):
+        a = self._make_article()
+        cluster_map = {a.url: {"cluster_size": 5, "cross_source": True}}
+        reason = _generate_importance_reason(a, cluster_map, "en")
+        assert "5 related reports" in reason
+        assert "cross-source" in reason
+
+    def test_en_fallback_worth_reading(self):
+        a = self._make_article(priority=0, extra={"news_value_score": 0.1})
+        reason = _generate_importance_reason(a, language="en")
+        assert "worth reading" in reason
+
+
+class TestHighlightHeadingLevels:
+    def test_highlights_items_are_h4(self):
+        articles = [
+            Article(
+                title="Big AI news", url="https://test/1",
+                source="TestSource", category="ai_ml",
+                published="2026-04-27T12:00:00",
+                extra={"editorial_tier": "must_read", "news_value_score": 0.9},
+            ),
+        ]
+        category_results = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": articles,
+                "tiered": {
+                    "must_read": [{"index": 1, "summary": "Big release"}],
+                    "noteworthy": [], "brief": [],
+                },
+                "article_count": 1,
+            }
+        }
+        report = generate_tech_report(
+            articles,
+            category_results=category_results,
+            stats={"total_articles": 1, "categories": 1},
+            report_language="zh",
+        )
+        # Section heading should be ###
+        assert "### 🔥 今日重点" in report
+        # Individual items should be ####
+        assert "#### ⭐ [Big AI news]" in report
+        # Items should NOT be same level as section heading (exact line match)
+        for line in report.split("\n"):
+            if "Big AI news" in line and line.strip().startswith("#"):
+                    assert line.strip().startswith("####"), f"Expected h4 but got: {line}"

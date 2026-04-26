@@ -134,7 +134,7 @@ def _render_today_highlights(category_results, report_language):
         source = article.source.replace("|", "\\|")
         source_label = "来源" if report_language == "zh" else "Source"
         why_label = "为什么重要" if report_language == "zh" else "Why it matters"
-        lines.append(f"### ⭐ [{title}]({url})")
+        lines.append(f"#### ⭐ [{title}]({url})")
         lines.append("")
         lines.append(f"> **{source_label}**: *{source}* | **{why_label}**: {summary}")
         lines.append("")

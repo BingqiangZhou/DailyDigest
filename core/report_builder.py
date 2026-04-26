@@ -194,7 +194,7 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
             category_results = build_category_results_from_summaries(ai_articles, summary_map)
     elif any(a.extra.get("editorial_tier") for a in ai_articles):
         has_tiers = True
-        category_results = build_category_results_from_editorial(ai_articles, cluster_map)
+        category_results = build_category_results_from_editorial(ai_articles, cluster_map, language)
 
     # Merge LLM-generated summaries into editorial category results
     if has_tiers and category_results and llm_category_results:
@@ -244,7 +244,10 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
             toc += f"- [{entry}](#{anchor})\n"
         toc += f"\n---\n\n"
 
-    return header + toc + "\n\n---\n\n".join(parts)
+    body = "\n\n---\n\n".join(parts)
+    if toc:
+        return header + toc + body
+    return header + body
 
 
 def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh",
@@ -332,7 +335,7 @@ def build_category_results_from_summaries(updates, summary_map):
     return category_results
 
 
-def build_category_results_from_editorial(ai_articles, cluster_map=None):
+def build_category_results_from_editorial(ai_articles, cluster_map=None, language="zh"):
     """Build category_results from editorial tier data on articles.
 
     Used by API mode when editorial pipeline has annotated articles
@@ -363,12 +366,12 @@ def build_category_results_from_editorial(ai_articles, cluster_map=None):
         for i, article in enumerate(articles, 1):
             tier = article.extra.get("editorial_tier", "noteworthy")
             if tier == "must_read":
-                reason = _generate_importance_reason(article, cluster_map)
+                reason = _generate_importance_reason(article, cluster_map, language)
                 must_read.append({"index": i, "summary": reason})
             elif tier == "brief":
                 brief.append(i)
             else:
-                reason = _generate_importance_reason(article, cluster_map)
+                reason = _generate_importance_reason(article, cluster_map, language)
                 noteworthy.append({"index": i, "summary": reason})
 
         tiered = {
@@ -386,7 +389,7 @@ def build_category_results_from_editorial(ai_articles, cluster_map=None):
     return category_results
 
 
-def _generate_importance_reason(article, cluster_map=None):
+def _generate_importance_reason(article, cluster_map=None, language="zh"):
     """Generate a brief importance reason from article metadata."""
     parts = []
     cluster_info = (cluster_map or {}).get(article.url, {})
@@ -394,25 +397,42 @@ def _generate_importance_reason(article, cluster_map=None):
     cross_source = cluster_info.get("cross_source", False)
     score = article.extra.get("news_value_score", 0)
 
-    if cluster_size >= 3:
-        parts.append(f"{cluster_size}篇相关报道")
-    if cross_source:
-        parts.append("多源验证")
-    if article.priority == 1:
-        parts.append("权威来源")
-    if article.hn_points and article.hn_points >= 100:
-        parts.append(f"HN {article.hn_points}赞")
-
-    if not parts:
-        if score >= 0.6:
-            parts.append("高新闻价值")
-        elif article.description:
-            desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
-            parts.append(desc)
-        else:
-            parts.append("值得关注")
-
-    return "，".join(parts)
+    if language == "zh":
+        if cluster_size >= 3:
+            parts.append(f"{cluster_size}篇相关报道")
+        if cross_source:
+            parts.append("多源验证")
+        if article.priority == 1:
+            parts.append("权威来源")
+        if article.hn_points and article.hn_points >= 100:
+            parts.append(f"HN {article.hn_points}赞")
+        if not parts:
+            if score >= 0.6:
+                parts.append("高新闻价值")
+            elif article.description:
+                desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
+                parts.append(desc)
+            else:
+                parts.append("值得关注")
+        return "，".join(parts)
+    else:
+        if cluster_size >= 3:
+            parts.append(f"{cluster_size} related reports")
+        if cross_source:
+            parts.append("cross-source verification")
+        if article.priority == 1:
+            parts.append("authoritative source")
+        if article.hn_points and article.hn_points >= 100:
+            parts.append(f"HN {article.hn_points} pts")
+        if not parts:
+            if score >= 0.6:
+                parts.append("high news value")
+            elif article.description:
+                desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
+                parts.append(desc)
+            else:
+                parts.append("worth reading")
+        return ", ".join(parts)
 
 
 def classify_from_summaries(updates, summary_map):

@@ -4,6 +4,7 @@ Produces the Part I (AI deep digest) section of the unified report.
 """
 
 import os
+import re
 
 from .article import Article, format_article_item
 from .config import AI_DEEP_ANALYSIS_PROMPT_ZH, AI_DEEP_ANALYSIS_PROMPT_EN
@@ -276,7 +277,6 @@ def _generate_ai_listing_tiered(ai_articles: list[Article], language: str,
             lines.append(f"> *{source}*{' | ' + reason if reason else ''}")
             desc = (article.description or "")[:200]
             if desc:
-                import re
                 desc = re.sub(r'<[^>]+>', '', desc)
                 lines.append(f"> {desc}")
             lines.append("")
