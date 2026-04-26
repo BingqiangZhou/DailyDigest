@@ -134,6 +134,7 @@ def fetch_url(url, headers=None, cache=None, timeout=None):
         logger.debug(f"[HTTP] {url}: {status} ({type(e).__name__}: {e})")
         # Only retry with relaxed SSL on SSL-related errors
         if status == -5:
+            logger.warning(f"[HTTP] {url}: SSL verification failed, retrying with relaxed SSL")
             try:
                 relaxed = create_ssl_context(relaxed=True)
                 with urllib_request.urlopen(req, context=relaxed, timeout=timeout) as resp:
@@ -168,6 +169,9 @@ def fetch_url_with_retry(url, headers=None, cache=None, timeout=None, max_retrie
         if body is not None or status == 304:
             return body, status, new_cache
         last_status = status
+        # Don't retry permanent client errors (4xx except 429 rate-limit)
+        if 400 <= status < 500 and status != 429:
+            return None, status, {}
         if attempt < max_retries:
             delay = min(2 ** attempt * 2, 30) + random.uniform(0, 1)
             time.sleep(delay)

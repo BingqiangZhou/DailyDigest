@@ -422,10 +422,20 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
         }.get(priority, max_per_feed)
 
         try:
-            d = feedparser.parse(url, request_headers={
+            # Use HTTP client with timeout + retry, then parse the response body
+            from .http import fetch_url_with_retry, error_label
+            body, status, _ = fetch_url_with_retry(url, headers={
                 "User-Agent": "DailyDigest/1.0"
             })
+            if body is None:
+                label = error_label(status)
+                logger.warning(f"  {name}: fetch failed ({label})")
+                return name, category, language, priority, [], label
+            d = feedparser.parse(body)
             if not d.entries:
+                # Check for parse-level errors (bozo bit)
+                if d.get("bozo") and d.get("bozo_exception"):
+                    return name, category, language, priority, [], str(d.bozo_exception)[:200]
                 return name, category, language, priority, [], None
 
             articles = []

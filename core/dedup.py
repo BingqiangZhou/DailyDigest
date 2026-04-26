@@ -47,17 +47,9 @@ def article_id(article):
 
 
 def _normalize_url_for_dedup(url):
-    """简化版 URL 标准化（用于去重，避免循环导入 rss_fetcher）"""
-    from urllib.parse import urlparse, parse_qs, urlencode
-    parsed = urlparse(url)
-    # 去除常见追踪参数
-    tracking_params = {"utm_source", "utm_medium", "utm_campaign", "utm_content", "utm_term",
-                       "ref", "source", "from", "fbclid", "gclid"}
-    params = {k: v for k, v in parse_qs(parsed.query).items() if k.lower() not in tracking_params}
-    query = urlencode(params, doseq=True) if params else ""
-    # 统一路径（去尾斜杠）
-    path = parsed.path.rstrip("/")
-    return f"{parsed.scheme}://{parsed.netloc}{path}?{query}" if query else f"{parsed.scheme}://{parsed.netloc}{path}"
+    """URL normalization for dedup — delegates to rss_fetcher.normalize_url."""
+    from .rss_fetcher import normalize_url
+    return normalize_url(url)
 
 
 def filter_and_mark(articles):
