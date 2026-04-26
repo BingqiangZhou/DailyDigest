@@ -13,7 +13,14 @@
     "hours": 25,
     "workers": 30,
     "count": 1000,
-    "tech_categories": ["科技", "科技新闻", "科学", "创业", "商业新闻", "投资"],
+    "tech_categories": [
+      "科技",
+      "科技新闻",
+      "科学",
+      "创业",
+      "商业新闻",
+      "投资"
+    ],
     "filter_tech_only": true
   },
   "podcasts": [
@@ -155,7 +162,7 @@
       "author": "Zhiqi, Shiye",
       "episode_count": 287,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/stovol/rss",
+      "url": "https://feed.xyzfm.space/5e7cc741418a84a046b0c2bd.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e7cc741418a84a046b0c2bd"
@@ -177,7 +184,7 @@
       "author": "莫不谷, 霸王花木兰, 金钟罩_放学以后",
       "episode_count": 62,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/81d05f80/podcast/rss",
+      "url": "https://feed.xyzfm.space/6024c3e5bc1c2d25787e74a5.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/6024c3e5bc1c2d25787e74a5"
@@ -232,7 +239,7 @@
       "author": "徐涛丨声动活泼, Selina_SS, 声动活泼的声小音",
       "episode_count": 409,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/shengdongjixi/rss",
+      "url": "https://feed.xyzfm.space/5e2831ed418a84a046231c00.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e2831ed418a84a046231c00"
@@ -463,7 +470,7 @@
       "author": "泓君Jane",
       "episode_count": 239,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/sv101/rss",
+      "url": "https://feed.xyzfm.space/5e5c52c9418a84a04625e6cc.xml",
       "description": "",
       "category": "科技",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e5c52c9418a84a04625e6cc"
@@ -683,7 +690,7 @@
       "author": "丁教Diane, 声动活泼的声小音, Yaxian",
       "episode_count": 404,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/guiguzaozhidao/rss",
+      "url": "https://feed.xyzfm.space/5e74b52c418a84a046ecaceb.xml",
       "description": "",
       "category": "科技",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e74b52c418a84a046ecaceb"
@@ -969,7 +976,7 @@
       "author": "murmur希希, XiaojiaoW, 老袁袁袁, 姐姐好读SisReads",
       "episode_count": 78,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/sisreads/rss",
+      "url": "https://feed.xyzfm.space/65c0311a35dd8780ed84097c.xml",
       "description": "",
       "category": "图书",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/65c0311a35dd8780ed84097c"
@@ -1453,7 +1460,7 @@
       "author": "MasterPa, 曼祺_MatchQ",
       "episode_count": 155,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/latetalk/rss",
+      "url": "https://feed.xyzfm.space/61933ace1b4320461e91fd55.xml",
       "description": "",
       "category": "商务",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/61933ace1b4320461e91fd55"
@@ -2795,7 +2802,7 @@
       "author": "-龙-, -螈-",
       "episode_count": 130,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/23c71f28/podcast/rss",
+      "url": "https://feed.xyzfm.space/5ed1c5b2418a84a0468528cb.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5ed1c5b2418a84a0468528cb"
@@ -4170,7 +4177,7 @@
       "author": "羅二狗, 状态_不是本人, 周333",
       "episode_count": 73,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/1011dbe04/podcast/rss",
+      "url": "https://feed.xyzfm.space/5ec6303f418a84a046f2713f.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5ec6303f418a84a046f2713f"
@@ -4324,7 +4331,7 @@
       "author": "車大力",
       "episode_count": 113,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/8090/rss",
+      "url": "https://feed.xyzfm.space/5e425da0418a84a0469876d5.xml",
       "description": "",
       "category": "音乐",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e425da0418a84a0469876d5"
@@ -5325,7 +5332,7 @@
       "author": "泓君Jane, FengLIU, XHJ137",
       "episode_count": 86,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/web3101/rss",
+      "url": "https://feed.xyzfm.space/62c2b6b3a61b9fd92a401b39.xml",
       "description": "",
       "category": "科技",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/62c2b6b3a61b9fd92a401b39"
@@ -5336,7 +5343,7 @@
       "author": "MalloryYang, 五色全味",
       "episode_count": 68,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/c088a7b4/podcast/rss",
+      "url": "https://feed.xyzfm.space/5e7c8b56418a84a046e4ac69.xml",
       "description": "",
       "category": "电视与电影",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e7c8b56418a84a046e4ac69"
@@ -5490,7 +5497,7 @@
       "author": "罗套套, Ru茹犟",
       "episode_count": 63,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/eddf3318/podcast/rss",
+      "url": "https://feed.xyzfm.space/5f3f32b09504bbdb77ebfb17.xml",
       "description": "",
       "category": "两性",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5f3f32b09504bbdb77ebfb17"
@@ -5578,7 +5585,7 @@
       "author": "极限小宇, 比栗Billie",
       "episode_count": 45,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/1302dccc/podcast/rss",
+      "url": "https://feed.xyzfm.space/5e7c7fad418a84a046bf455b.xml",
       "description": "",
       "category": "自我完善",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5e7c7fad418a84a046bf455b"
@@ -5820,7 +5827,7 @@
       "author": "Tiller, zhaohui",
       "episode_count": 49,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/dreamlabo/rss",
+      "url": "https://feed.xyzfm.space/5f1a3f7a9504bbdb77148668.xml",
       "description": "",
       "category": "商务",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5f1a3f7a9504bbdb77148668"
@@ -6007,7 +6014,7 @@
       "author": "100种生活",
       "episode_count": 157,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/776161ac/podcast/rss",
+      "url": "https://feed.xyzfm.space/61ab42d1d28510c8f75c7fc2.xml",
       "description": "",
       "category": "纪实",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/61ab42d1d28510c8f75c7fc2"
@@ -6238,7 +6245,7 @@
       "author": "诡谲子, Boo_, 梦楚, 瑜冰Yubing, 胡桃楸",
       "episode_count": 119,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/5d9c1a28/podcast/rss",
+      "url": "https://feed.xyzfm.space/5fd87572dee9c1e16dd03851.xml",
       "description": "",
       "category": "哲学",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5fd87572dee9c1e16dd03851"
@@ -8284,7 +8291,7 @@
       "author": "林三土",
       "episode_count": 44,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/27c34048/podcast/rss",
+      "url": "https://feed.xyzfm.space/5ef183ca418a84a0461721e6.xml",
       "description": "",
       "category": "社会科学",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5ef183ca418a84a0461721e6"
@@ -8955,7 +8962,7 @@
       "author": "MasterPa",
       "episode_count": 31,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/shanyouhu/rss",
+      "url": "https://feed.xyzfm.space/65bef356fb83c7fafa8174b1.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/65bef356fb83c7fafa8174b1"
@@ -9890,7 +9897,7 @@
       "author": "咸鱼罐头",
       "episode_count": 37,
       "link_type": "rss",
-      "url": "https://anchor.fm/s/20809f4c/podcast/rss",
+      "url": "https://feed.xyzfm.space/5eb9eec1418a84a0461b1732.xml",
       "description": "",
       "category": "自我完善",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/5eb9eec1418a84a0461b1732"
@@ -10770,7 +10777,7 @@
       "author": "方可成, 放晴公园",
       "episode_count": 353,
       "link_type": "rss",
-      "url": "https://feeds.fireside.fm/sunshine/rss",
+      "url": "https://feed.xyzfm.space/62cf88b6141c9d226e6452db.xml",
       "description": "",
       "category": "社会与文化",
       "xiaoyuzhou_url": "https://www.xiaoyuzhoufm.com/podcast/62cf88b6141c9d226e6452db"
