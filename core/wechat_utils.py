@@ -17,6 +17,9 @@ from collections import OrderedDict
 from .config import CONFIG_DIR, WORKSPACE_DIR, get_category_display
 from .http import fetch_url_with_retry
 from .html_utils import strip_html
+from .logging_config import get_logger
+
+logger = get_logger("wechat")
 
 
 CACHE_TTL_SECONDS = 7 * 24 * 3600  # 7 天
@@ -90,21 +93,21 @@ def fetch_wechat_feed_list(output_path=None, cache_path=None, force=False):
                 cache_data = json.load(f)
             cached_time = datetime.fromisoformat(cache_data["fetch_time"]).timestamp()
             if (time.time() - cached_time) < CACHE_TTL_SECONDS:
-                print(f'[WeChat] Feed 列表缓存有效，跳过获取')
+                logger.info(f'[WeChat] Feed 列表缓存有效，跳过获取')
                 with open(output_path, "r", encoding="utf-8") as f:
                     return json.load(f)
         except (FileNotFoundError, json.JSONDecodeError, KeyError, ValueError):
             pass
 
     # 获取
-    print(f'[WeChat] 正在获取 Feed 列表...')
+    logger.info(f'[WeChat] 正在获取 Feed 列表...')
     try:
         body, status, _ = fetch_url_with_retry(SOURCE_URL, headers={"User-Agent": "WechatRSSMonitor/1.0"}, timeout=30)
         if body is None:
             raise ConnectionError(f"Failed to fetch {SOURCE_URL}")
         markdown_text = body
     except Exception as e:
-        print(f'[WeChat] ❌ 获取失败: {e}')
+        logger.error(f'[WeChat] ❌ 获取失败: {e}')
         if output_path.exists():
             with open(output_path, "r", encoding="utf-8") as f:
                 return json.load(f)
@@ -143,7 +146,7 @@ def fetch_wechat_feed_list(output_path=None, cache_path=None, force=False):
     with open(cache_path, "w", encoding="utf-8") as f:
         json.dump({"fetch_time": fetch_time}, f, ensure_ascii=False, indent=2)
 
-    print(f'[WeChat] ✅ Feed 列表更新: {len(feeds)} 个 ({active_count} 活跃)')
+    logger.info(f'[WeChat] ✅ Feed 列表更新: {len(feeds)} 个 ({active_count} 活跃)')
     return result
 
 
@@ -243,7 +246,7 @@ def enrich_wechat_articles(updates, min_length=500, max_articles=0, delay=2.0):
                     failed += 1
                 time.sleep(delay / 3)  # 分散总延迟
 
-    print(f'[WeChat] 文章补充: 获取 {fetched}, 跳过 {skipped}, 失败 {failed}')
+    logger.info(f'[WeChat] 文章补充: 获取 {fetched}, 跳过 {skipped}, 失败 {failed}')
     return updates
 
 

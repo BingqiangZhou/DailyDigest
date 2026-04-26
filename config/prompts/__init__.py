@@ -1,0 +1,16 @@
+"""Prompt re-exports for backward compatibility."""
+
+from .ai_filter import AI_FILTER_PROMPT_ZH, AI_FILTER_PROMPT_EN
+from .ai_report import AI_DEEP_ANALYSIS_PROMPT_ZH, AI_DEEP_ANALYSIS_PROMPT_EN
+from .wechat import WECHAT_STRUCTURE_PROMPT_ZH
+from .critique import (
+    CATEGORY_SUMMARY_CRITIQUE, DEEP_ANALYSIS_CRITIQUE,
+    CATEGORY_SUMMARY_CRITIQUE_EN, DEEP_ANALYSIS_CRITIQUE_EN,
+    get_category_summary_critique, get_deep_analysis_critique,
+)
+from .summarizer import (
+    CATEGORY_SUMMARY_PROMPT_ZH, CATEGORY_SUMMARY_PROMPT_EN,
+    EXECUTIVE_SUMMARY_PROMPT_ZH, EXECUTIVE_SUMMARY_PROMPT_EN,
+    PODCAST_BATCH_PROMPT, WECHAT_BATCH_PROMPT,
+    TLDR_PROMPT_ZH, TLDR_PROMPT_EN,
+)

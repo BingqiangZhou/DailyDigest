@@ -17,6 +17,9 @@ from datetime import datetime, timezone
 
 from .config import CONFIG_DIR, OUTPUT_DIR, WORKSPACE_DIR, ensure_dirs
 from .http import fetch_url_with_retry
+from .logging_config import get_logger
+
+logger = get_logger("podcast")
 
 
 # ============================================================
@@ -94,10 +97,10 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
             needs_resolve.append(i)
 
     if not needs_resolve:
-        print(f'[Podcast] 所有 {len(updates)} 个更新已有小宇宙链接')
+        logger.info(f'[Podcast] 所有 {len(updates)} 个更新已有小宇宙链接')
         return updates
 
-    print(f'[Podcast] {len(needs_resolve)}/{len(updates)} 个需要解析小宇宙链接')
+    logger.info(f'[Podcast] {len(needs_resolve)}/{len(updates)} 个需要解析小宇宙链接')
 
     # 按播客名分组
     podcast_indices = defaultdict(list)
@@ -133,7 +136,7 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
                     fail += 1
             return res, fail
         except Exception as e:
-            print(f"[Podcast] ⚠️ 解析 {podcast_name} 失败: {e}")
+            logger.warning(f"[Podcast] ⚠️ 解析 {podcast_name} 失败: {e}")
             return 0, len(indices)
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -152,7 +155,7 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
         if 'xiaoyuzhoufm.com/episode/' in url and '?utm_source=' in url:
             article.url = url.split('?utm_source=')[0]
 
-    print(f'[Podcast] URL 解析完成: 成功 {resolved}, 失败 {failed}')
+    logger.info(f'[Podcast] URL 解析完成: 成功 {resolved}, 失败 {failed}')
     return updates
 
 

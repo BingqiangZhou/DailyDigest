@@ -21,8 +21,11 @@ from .config import (
     normalize_category, get_category_display,
     CATEGORIES, CATEGORY_ORDER, LEGACY_CATEGORY_MAP,
 )
-from .http import create_ssl_context, fetch_url, fetch_url_with_retry
+from .http import create_ssl_context, fetch_url, fetch_url_with_retry, error_label
 from .html_utils import strip_html, strip_html_with_bs4
+from .logging_config import get_logger
+
+logger = get_logger("rss")
 
 
 # ============================================================
@@ -231,7 +234,8 @@ def parse_rss_items(xml_text):
 # 统一抓取接口
 # ============================================================
 
-def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
+def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None,
+                       timeout=None, max_per_source=30):
     """使用标准库并发抓取 RSS 源（Skill 模式）
 
     Args:
@@ -239,6 +243,8 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
         hours: 时间范围（小时）
         workers: 并发数
         cache: HTTP 缓存 dict
+        timeout: 单次请求超时秒数（None 使用默认值）
+        max_per_source: 每个源最大文章数（防止 ArXiv 等高产源淹没报告）
 
     Returns:
         (updates, stats, new_cache)
@@ -261,7 +267,8 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
 
     def check_single_feed(feed_info):
         url = feed_info["url"]
-        body, status, feed_cache = fetch_url_with_retry(url, cache=new_cache.get(url, {}))
+        body, status, feed_cache = fetch_url_with_retry(url, cache=new_cache.get(url, {}),
+                                                         timeout=timeout)
         if body is None:
             if status == 304:
                 return feed_info, [], "not_modified", feed_cache
@@ -270,6 +277,8 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
         rss_items = parse_rss_items(body)
         articles = []
         for item in rss_items:
+            if len(articles) >= feed_info.get("max_articles", max_per_source):
+                break
             pub_date_raw = item.get("pub_date_raw", "")
             pub_date = parse_rss_date(pub_date_raw)
             if pub_date and pub_date > cutoff_time:
@@ -311,13 +320,14 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None):
                 stats["not_modified_count"] += 1
             elif error:
                 stats["error_count"] += 1
-                print(f"  [{completed}/{total}] ❌ {feed_info.get('name', '?')}: {error}", flush=True)
+                label = error_label(int(error.split()[-1])) if error.startswith("HTTP -") else error
+                logger.error(f"  [{completed}/{total}] ❌ {feed_info.get('name', '?')}: {label}")
             else:
                 stats["success_count"] += 1
                 if articles:
-                    print(f"  [{completed}/{total}] ✅ {feed_info.get('name', '?')}: {len(articles)} 新文章", flush=True)
+                    logger.info(f"  [{completed}/{total}] ✅ {feed_info.get('name', '?')}: {len(articles)} 新文章")
                 else:
-                    print(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 无更新", flush=True)
+                    logger.info(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 无更新")
             if articles:
                 all_articles.extend(articles)
 
@@ -380,7 +390,7 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
     try:
         import feedparser
     except ImportError:
-        print("[RSS] feedparser 未安装，回退到 stdlib 模式")
+        logger.warning("[RSS] feedparser 未安装，回退到 stdlib 模式")
         updates, stats, _ = fetch_feeds_stdlib(feed_list, hours=hours)
         # 转换为 articles_by_category 格式
         articles_by_category = defaultdict(list)
@@ -469,14 +479,14 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
             completed += 1
             if error:
                 stats["failed"] += 1
-                print(f"  [{completed}/{total}] ❌ {name}: {error}", flush=True)
+                logger.error(f"  [{completed}/{total}] ❌ {name}: {error}")
             else:
                 stats["success"] += 1
                 if articles:
                     all_articles[category].extend(articles)
                     stats["total_articles"] += len(articles)
-                    print(f"  [{completed}/{total}] ✅ {name}: {len(articles)} 篇", flush=True)
+                    logger.info(f"  [{completed}/{total}] ✅ {name}: {len(articles)} 篇")
                 else:
-                    print(f"  [{completed}/{total}] ⏭️  {name}: 无更新", flush=True)
+                    logger.info(f"  [{completed}/{total}] ⏭️  {name}: 无更新")
 
     return dict(all_articles), stats

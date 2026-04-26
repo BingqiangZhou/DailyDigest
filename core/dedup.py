@@ -12,6 +12,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .config import WORKSPACE_DIR
+from .logging_config import get_logger
+
+logger = get_logger("dedup")
 
 
 TRACKER_FILE = WORKSPACE_DIR / "processed_articles.json"
@@ -79,7 +82,7 @@ def filter_and_mark(articles):
 
     tracker["articles"] = processed
     _save_tracker(tracker)
-    print(f"[Dedup] 总文章: {len(articles)}, 新文章: {len(new_articles)}, 已标记")
+    logger.info(f"[Dedup] 总文章: {len(articles)}, 新文章: {len(new_articles)}, 已标记")
     return new_articles
 
 
@@ -103,6 +106,6 @@ def cleanup_old_entries(days=30):
 
     if to_remove:
         _save_tracker(tracker)
-        print(f"[Dedup] 清理了 {len(to_remove)} 条过期记录")
+        logger.info(f"[Dedup] 清理了 {len(to_remove)} 条过期记录")
 
     return len(to_remove)

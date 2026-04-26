@@ -5,58 +5,29 @@ AI 摘要生成模块（OpenAI API 后端）
 
 import os
 import json
-import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
-from .config import get_category_display, CATEGORY_ORDER
+from .config import get_category_display, CATEGORY_ORDER, WECHAT_STRUCTURE_PROMPT_ZH
+from config.prompts.summarizer import (
+    CATEGORY_SUMMARY_PROMPT_ZH, CATEGORY_SUMMARY_PROMPT_EN,
+    EXECUTIVE_SUMMARY_PROMPT_ZH, EXECUTIVE_SUMMARY_PROMPT_EN,
+    PODCAST_BATCH_PROMPT, WECHAT_BATCH_PROMPT,
+    TLDR_PROMPT_ZH, TLDR_PROMPT_EN,
+)
+from .llm_utils import parse_llm_json, strip_code_fences
+from .llm import (
+    get_llm_client as _get_client,
+    get_model as _get_model,
+    chat_completion as _chat_completion,
+    chat_with_profile as _chat_with_profile,
+    generate_with_critique,
+    TASK_PROFILES,
+)
+from .article import format_article_item
+from .logging_config import get_logger
 
-
-# 默认模型配置
-DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
-DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
-
-
-def _get_client():
-    """初始化 OpenAI 兼容 API 客户端"""
-    from openai import OpenAI
-
-    api_key = os.environ.get("API_KEY")
-    if not api_key:
-        raise ValueError("请设置环境变量 API_KEY")
-
-    base_url = os.environ.get("BASE_URL") or DEFAULT_BASE_URL
-    return OpenAI(api_key=api_key, base_url=base_url, timeout=120, max_retries=2)
-
-
-def _get_model():
-    """获取模型名称"""
-    return os.environ.get("MODEL") or DEFAULT_MODEL
-
-
-def _chat_completion(client, prompt, max_tokens=4000, max_retries=3):
-    """调用 OpenAI 兼容 API（带重试）"""
-    model = _get_model()
-    last_error = None
-    for attempt in range(max_retries):
-        try:
-            response = client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=max_tokens,
-                temperature=0.7,
-                top_p=0.9,
-            )
-            return response.choices[0].message.content
-        except Exception as e:
-            last_error = e
-            print(f"[AI] ⚠️ API 调用失败 (attempt {attempt + 1}/{max_retries}, model={model}): {e}")
-            if attempt < max_retries - 1:
-                wait = min(2 ** attempt * 2, 30)
-                print(f"[AI]   等待 {wait} 秒后重试...")
-                time.sleep(wait)
-    print(f"[AI] ❌ API 调用最终失败 (model={model}): {last_error}")
-    return None
+logger = get_logger("ai_summarizer")
 
 
 def _format_articles_for_prompt(articles, max_per_category=15):
@@ -67,18 +38,9 @@ def _format_articles_for_prompt(articles, max_per_category=15):
     sorted_articles = sorted(articles, key=lambda a: a.priority)
     lines = []
     for i, article in enumerate(sorted_articles[:max_per_category], 1):
-        title = article.title
-        source = article.source
-        summary = article.description[:200]
-        link = article.url
-        lang_tag = "🇨🇳" if article.language == "zh" else "🇺🇸"
+        item_lines = format_article_item(article, i, desc_limit=200)
+        lines.extend(item_lines)
         transcript = article.extra.get("transcript", "")
-
-        lines.append(f"{i}. [{lang_tag}] {title}")
-        lines.append(f"   来源: {source}")
-        if summary:
-            lines.append(f"   摘要: {summary}")
-        lines.append(f"   链接: {link}")
         if transcript:
             lines.append(f"   视频字幕: {transcript[:500]}")
         lines.append("")
@@ -95,37 +57,17 @@ def summarize_category(client, category, articles, report_language="zh"):
     articles_text = _format_articles_for_prompt(articles)
 
     if report_language == "zh":
-        prompt = f"""你是一位专业的科技新闻编辑。请对以下「{category_name}」分类的最新文章进行汇总分析。
-
-## 文章列表
-
-{articles_text}
-
-## 要求
-
-1. **整体概述**（2-3句话）：概括该分类过去24-48小时的重要趋势和热点
-2. **重点文章推荐**（3-5篇）：挑选最重要/最有趣的文章，每篇用1-2句话说明为什么值得关注
-3. **关键洞察**（1-2条）：从这些文章中提炼出的关键趋势或洞察
-
-请用中文输出，保持专业但易懂的语调。使用 Markdown 格式。不要编造文章中没有的信息。"""
+        prompt = CATEGORY_SUMMARY_PROMPT_ZH.format(
+            category_name=category_name, articles_text=articles_text,
+        )
     else:
-        prompt = f"""You are a professional tech news editor. Please summarize and analyze the following articles in the "{category_name}" category.
+        prompt = CATEGORY_SUMMARY_PROMPT_EN.format(
+            category_name=category_name, articles_text=articles_text,
+        )
 
-## Article List
-
-{articles_text}
-
-## Requirements
-
-1. **Overview** (2-3 sentences): Summarize the key trends and highlights from the past 24-48 hours
-2. **Top Picks** (3-5 articles): Select the most important/interesting articles, explain why each is worth attention in 1-2 sentences
-3. **Key Insights** (1-2 insights): Extract key trends or insights from these articles
-
-Please write in English, professional yet accessible tone. Use Markdown format. Do not fabricate information not present in the articles."""
-
-    summary = _chat_completion(client, prompt, max_tokens=4000)
+    summary = _chat_with_profile(client, prompt, "summarize")
     if summary is None:
-        print(f"[AI] ❌ 生成 {category_name} 摘要失败")
+        logger.error(f"[AI] ❌ 生成 {category_name} 摘要失败")
     return summary
 
 
@@ -135,43 +77,22 @@ def generate_executive_summary(client, category_summaries, total_stats, report_l
         return ""
 
     if report_language == "zh":
-        prompt = f"""你是一位资深科技媒体主编。基于以下各分类的摘要，生成一份简洁的"今日要闻"执行摘要。
-
-## 今日数据
-- 总文章数: {total_stats.get('total_articles', 0)}
-- 涉及分类: {total_stats.get('categories', 0)}
-- 数据时间范围: 过去 48 小时
-
-## 各分类摘要
-
-{json.dumps(category_summaries, ensure_ascii=False, indent=2)}
-
-## 要求
-- 3-5句话概括今日最值得关注的科技/AI 动态
-- 突出最重要的 1-2 个事件或趋势
-- 使用中文，简洁有力的新闻语调
-- 不要超过 200 字"""
+        prompt = EXECUTIVE_SUMMARY_PROMPT_ZH.format(
+            total_articles=total_stats.get('total_articles', 0),
+            categories=total_stats.get('categories', 0),
+            category_summaries=json.dumps(category_summaries, ensure_ascii=False, indent=2),
+        )
     else:
-        prompt = f"""You are a senior tech media editor-in-chief. Based on the category summaries below, generate a concise "Today's Highlights" executive summary.
+        prompt = EXECUTIVE_SUMMARY_PROMPT_EN.format(
+            total_articles=total_stats.get('total_articles', 0),
+            categories=total_stats.get('categories', 0),
+            category_summaries=json.dumps(category_summaries, ensure_ascii=False, indent=2),
+        )
 
-## Today's Data
-- Total articles: {total_stats.get('total_articles', 0)}
-- Categories covered: {total_stats.get('categories', 0)}
-- Time range: Past 48 hours
-
-## Category Summaries
-
-{json.dumps(category_summaries, ensure_ascii=False, indent=2)}
-
-## Requirements
-- 3-5 sentences summarizing the most noteworthy tech/AI developments today
-- Highlight the 1-2 most important events or trends
-- Use English, concise and impactful news tone
-- Do not exceed 200 words"""
-
-    summary = _chat_completion(client, prompt, max_tokens=1000)
+    from .config import CATEGORY_SUMMARY_CRITIQUE
+    summary = generate_with_critique(client, prompt, "summarize", CATEGORY_SUMMARY_CRITIQUE)
     if summary is None:
-        print("[AI] ❌ 生成执行摘要失败")
+        logger.error("[AI] ❌ 生成执行摘要失败")
         return ""
     return summary
 
@@ -186,7 +107,7 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
     """
     client = _get_client()
     model = _get_model()
-    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
+    logger.info(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
     results = {}
     category_summaries_for_exec = {}
@@ -201,13 +122,13 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
     ]
 
     total = len(categories_to_process)
-    print(f"[AI] 📋 共 {total} 个分类需要生成摘要")
+    logger.info(f"[AI] 📋 共 {total} 个分类需要生成摘要")
 
     # 并发生成分类摘要
     def _summarize_one(category):
         articles = articles_by_category[category]
         category_name = get_category_display(category)
-        print(f"[AI] 🤖 开始「{category_name}」({len(articles)} 篇)...")
+        logger.info(f"[AI] 🤖 开始「{category_name}」({len(articles)} 篇)...")
         summary = summarize_category(client, category, articles, report_language)
         return category, category_name, articles, summary
 
@@ -225,9 +146,9 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
                     "articles": articles[:15],
                 }
                 category_summaries_for_exec[category_name] = summary[:200]
-                print(f"[AI] ✅ [{completed}/{total}] 「{category_name}」完成")
+                logger.info(f"[AI] ✅ [{completed}/{total}] 「{category_name}」完成")
             else:
-                print(f"[AI] ❌ [{completed}/{total}] 「{category_name}」失败")
+                logger.error(f"[AI] ❌ [{completed}/{total}] 「{category_name}」失败")
 
     # 生成执行摘要（必须在所有分类完成后）
     total_stats = {
@@ -236,16 +157,76 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
     }
 
     if results:
-        print(f"[AI] 🤖 正在生成执行摘要...")
+        logger.info(f"[AI] 🤖 正在生成执行摘要...")
         executive_summary = generate_executive_summary(
             client, category_summaries_for_exec, total_stats, report_language
         )
     else:
-        print(f"[AI] ⚠️ 所有分类摘要均失败，跳过执行摘要")
+        logger.warning(f"[AI] ⚠️ 所有分类摘要均失败，跳过执行摘要")
         executive_summary = ""
 
-    print(f"[AI] ✅ 完成! 共生成 {len(results)}/{total} 个分类摘要\n")
+    logger.info(f"[AI] ✅ 完成! 共生成 {len(results)}/{total} 个分类摘要\n")
     return results, executive_summary
+
+
+def _generic_batch_summarize(updates, source_name, count_unit, format_item, build_prompt,
+                             parse_response, batch_size=10, max_workers=5):
+    """Generic batch summarization with concurrent API calls.
+
+    Args:
+        updates: list of Article objects
+        source_name: display name for log messages (e.g. "播客", "微信")
+        count_unit: counter word for logs (e.g. "集", "篇")
+        format_item: callable(article, index) -> list[str] lines for prompt
+        build_prompt: callable(joined_lines) -> str full LLM prompt
+        parse_response: callable(parsed_dict) -> dict {url: summary}
+        batch_size: items per batch
+        max_workers: max concurrent API calls
+
+    Returns:
+        dict: {url: summary}
+    """
+    client = _get_client()
+    model = _get_model()
+    logger.info(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
+
+    batches = []
+    for i in range(0, len(updates), batch_size):
+        batches.append((i // batch_size, updates[i:i + batch_size]))
+    total_batches = len(batches)
+    logger.info(f"[AI] 📋 共 {len(updates)} {count_unit}，分 {total_batches} 批")
+
+    def _process_batch(batch_info):
+        batch_num, batch = batch_info
+        logger.info(f"[AI] 🤖 {source_name} batch {batch_num + 1}/{total_batches} ({len(batch)} {count_unit})...")
+
+        lines = []
+        for j, item in enumerate(batch, 1):
+            lines.extend(format_item(item, j))
+            lines.append("")
+
+        prompt = build_prompt("\n".join(lines))
+
+        response = _chat_with_profile(client, prompt, "summarize")
+        batch_summaries = {}
+        if response:
+            try:
+                parsed = parse_llm_json(response)
+                batch_summaries = parse_response(parsed)
+                logger.info(f"[AI] ✅ batch {batch_num + 1}: {len(batch_summaries)} 条摘要")
+            except (ValueError, json.JSONDecodeError):
+                logger.warning(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
+                logger.debug(f"[AI] 📄 原始响应: {response[:300]}")
+        return batch_summaries
+
+    ai_summaries = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(_process_batch, b): b[0] for b in batches}
+        for future in as_completed(futures):
+            ai_summaries.update(future.result())
+
+    logger.info(f"[AI] ✅ {source_name}摘要完成! 共 {len(ai_summaries)} 条\n")
+    return ai_summaries
 
 
 def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
@@ -259,72 +240,24 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
     Returns:
         dict: {episode_url: summary}
     """
-    client = _get_client()
-    model = _get_model()
-    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
-    # 分批
-    batches = []
-    for i in range(0, len(updates), batch_size):
-        batches.append((i // batch_size, updates[i:i + batch_size]))
-    total_batches = len(batches)
-    print(f"[AI] 📋 共 {len(updates)} 集，分 {total_batches} 批")
+    def format_item(ep, j):
+        lines = [f"{j}. 播客: {ep.source}", f"   单集: {ep.title}", f"   链接: {ep.url}"]
+        shownotes = (ep.full_text or ep.description)[:300]
+        if shownotes:
+            lines.append(f"   节目简介: {shownotes}")
+        return lines
 
-    def _summarize_batch(batch_info):
-        batch_num, batch = batch_info
-        print(f"[AI] 🤖 播客 batch {batch_num + 1}/{total_batches} ({len(batch)} 集)...")
+    def build_prompt(joined_lines):
+        return PODCAST_BATCH_PROMPT.format(joined_lines=joined_lines)
 
-        lines = []
-        for j, ep in enumerate(batch, 1):
-            lines.append(f"{j}. 播客: {ep.source}")
-            lines.append(f"   单集: {ep.title}")
-            lines.append(f"   链接: {ep.url}")
-            shownotes = (ep.full_text or ep.description)[:300]
-            if shownotes:
-                lines.append(f"   节目简介: {shownotes}")
-            lines.append("")
+    def parse_response(parsed):
+        return parsed if isinstance(parsed, dict) else {}
 
-        prompt = f"""你是一位播客内容编辑。请对以下播客单集各写一句中文摘要（30-50字）。
-过滤掉广告和推广内容。如果内容不足，输出"内容暂无"。
-
-## 单集列表
-
-{chr(10).join(lines)}
-
-## 输出格式
-
-请严格按以下 JSON 格式输出，不要输出其他内容：
-{{"链接1": "摘要1", "链接2": "摘要2", ...}}
-
-其中 key 为每个单集的"链接"字段的值（即 episode_url），value 为对应的中文摘要。"""
-
-        response = _chat_completion(client, prompt, max_tokens=2000)
-        batch_summaries = {}
-        if response:
-            try:
-                json_str = response.strip()
-                if json_str.startswith("```"):
-                    json_str = json_str.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-                parsed = json.loads(json_str)
-                if isinstance(parsed, dict):
-                    batch_summaries.update(parsed)
-                    print(f"[AI] ✅ batch {batch_num + 1}: {len(parsed)} 条摘要")
-            except (json.JSONDecodeError, ValueError):
-                print(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
-                print(f"[AI] 📄 原始响应: {response[:300]}")
-        return batch_summaries
-
-    ai_summaries = {}
-    completed = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_summarize_batch, b): b[0] for b in batches}
-        for future in as_completed(futures):
-            batch_summaries = future.result()
-            completed += 1
-            ai_summaries.update(batch_summaries)
-
-    print(f"[AI] ✅ 播客摘要完成! 共 {len(ai_summaries)} 条\n")
-    return ai_summaries
+    return _generic_batch_summarize(
+        updates, "播客", "集", format_item, build_prompt, parse_response,
+        batch_size=batch_size, max_workers=max_workers,
+    )
 
 
 def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
@@ -338,75 +271,110 @@ def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
     Returns:
         dict: {article_url: ai_summary}
     """
+
+    def format_item(art, j):
+        lines = [f"{j}. 公众号: {art.source}", f"   文章: {art.title}", f"   链接: {art.url}"]
+        summary = (art.description or "")[:200]
+        if summary:
+            lines.append(f"   摘要: {summary}")
+        return lines
+
+    def build_prompt(joined_lines):
+        return WECHAT_BATCH_PROMPT.format(joined_lines=joined_lines)
+
+    def parse_response(parsed):
+        result = {}
+        for item in parsed.get("summaries", []):
+            url = item.get("article_url", "")
+            summary = item.get("ai_summary", "")
+            if url and summary:
+                result[url] = summary
+        return result
+
+    return _generic_batch_summarize(
+        updates, "微信", "篇", format_item, build_prompt, parse_response,
+        batch_size=batch_size, max_workers=max_workers,
+    )
+
+
+def generate_wechat_structure(ai_articles, language="zh"):
+    """Generate AI-powered structure for WeChat article: highlights + themed summaries.
+
+    Args:
+        ai_articles: list of Article objects (AI-relevant, already curated)
+        language: "zh" or "en"
+
+    Returns:
+        dict with keys:
+          highlights: list of str (one-line bullet items)
+          themes: list of {title, summary, articles: [Article]}
+        Returns None on failure.
+    """
+    if not os.environ.get("API_KEY"):
+        return None
+
     client = _get_client()
-    model = _get_model()
-    print(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
-    # 分批
-    batches = []
-    for i in range(0, len(updates), batch_size):
-        batches.append((i // batch_size, updates[i:i + batch_size]))
-    total_batches = len(batches)
-    print(f"[AI] 📋 共 {len(updates)} 篇，分 {total_batches} 批")
+    # Format articles as numbered list
+    lines = []
+    for i, a in enumerate(ai_articles, 1):
+        source = f"来源：{a.source}" if a.source else ""
+        summary = (a.description or "")[:200]
+        lines.append(f"{i}. {a.title}")
+        if source:
+            lines.append(f"   {source}")
+        if summary:
+            lines.append(f"   摘要：{summary}")
+        lines.append(f"   链接：{a.url}")
+        lines.append("")
 
-    def _summarize_batch(batch_info):
-        batch_num, batch = batch_info
-        print(f"[AI] 🤖 微信 batch {batch_num + 1}/{total_batches} ({len(batch)} 篇)...")
+    articles_text = "\n".join(lines)
 
-        lines = []
-        for j, art in enumerate(batch, 1):
-            lines.append(f"{j}. 公众号: {art.source}")
-            lines.append(f"   文章: {art.title}")
-            lines.append(f"   链接: {art.url}")
-            summary = (art.description or "")[:200]
-            if summary:
-                lines.append(f"   摘要: {summary}")
-            lines.append("")
+    prompt = WECHAT_STRUCTURE_PROMPT_ZH.format(articles=articles_text)
 
-        prompt = f"""你是一位微信公众号内容编辑。请对以下文章各写一句中文摘要（不超过100字）。
+    logger.info(f"[AI] 🤖 正在生成公众号文章结构（{len(ai_articles)} 篇文章）...")
+    response = _chat_with_profile(client, prompt, "wechat_structure")
 
-## 文章列表
+    if not response:
+        logger.error("[AI] ❌ 公众号文章结构生成失败")
+        return None
 
-{chr(10).join(lines)}
+    # Parse JSON response
+    try:
+        parsed = parse_llm_json(response)
 
-## 输出格式
+        highlights = parsed.get("highlights", [])
+        raw_themes = parsed.get("themes", [])
 
-请严格按以下 JSON 格式输出，不要输出其他内容：
-{{"summaries": [{{"article_url": "url1", "ai_summary": "摘要1"}}, ...]}}
+        # Resolve ref indices to actual Article objects
+        themes = []
+        for t in raw_themes:
+            ref_indices = t.get("refs", [])
+            theme_articles = []
+            for idx in ref_indices:
+                if 1 <= idx <= len(ai_articles):
+                    theme_articles.append(ai_articles[idx - 1])
+            if theme_articles:
+                themes.append({
+                    "title": t.get("title", ""),
+                    "summary": t.get("summary", ""),
+                    "articles": theme_articles,
+                })
 
-其中 article_url 为每篇文章的"链接"字段的值。"""
+        if not highlights and not themes:
+            logger.warning("[AI] ⚠️ AI返回的结构为空")
+            return None
 
-        response = _chat_completion(client, prompt, max_tokens=2000)
-        batch_summaries = {}
-        if response:
-            try:
-                json_str = response.strip()
-                if json_str.startswith("```"):
-                    json_str = json_str.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-                parsed = json.loads(json_str)
-                summaries_list = parsed.get("summaries", [])
-                for item in summaries_list:
-                    url = item.get("article_url", "")
-                    summary = item.get("ai_summary", "")
-                    if url and summary:
-                        batch_summaries[url] = summary
-                print(f"[AI] ✅ batch {batch_num + 1}: {len(summaries_list)} 条摘要")
-            except (json.JSONDecodeError, ValueError):
-                print(f"[AI] ⚠️ batch {batch_num + 1}: JSON 解析失败")
-                print(f"[AI] 📄 原始响应: {response[:300]}")
-        return batch_summaries
+        logger.info(f"[AI] ✅ 公众号文章结构生成完成：{len(highlights)} 条要点，{len(themes)} 个主题")
+        return {
+            "highlights": highlights,
+            "themes": themes,
+        }
 
-    ai_summaries = {}
-    completed = 0
-    with ThreadPoolExecutor(max_workers=max_workers) as executor:
-        futures = {executor.submit(_summarize_batch, b): b[0] for b in batches}
-        for future in as_completed(futures):
-            batch_summaries = future.result()
-            completed += 1
-            ai_summaries.update(batch_summaries)
-
-    print(f"[AI] ✅ 微信摘要完成! 共 {len(ai_summaries)} 条\n")
-    return ai_summaries
+    except (json.JSONDecodeError, ValueError) as e:
+        logger.error(f"[AI] ❌ 公众号文章结构JSON解析失败: {e}")
+        logger.debug(f"[AI] 📄 原始响应: {response[:500]}")
+        return None
 
 
 def generate_tldr(report_content, report_type="tech", language="zh"):
@@ -440,49 +408,16 @@ def generate_tldr(report_content, report_type="tech", language="zh"):
     content = report_content[:8000]
 
     if language == "zh":
-        prompt = f"""你是一位资深编辑。请为以下{type_name}写一个"太长不看"(TL;DR)版本。
-
-要求：
-1. 用 3-5 个要点概括最重要的内容
-2. 每个要点一行，以 "- " 开头
-3. 总字数不超过 200 字
-4. 语言简洁有力，适合快速浏览
-5. 不要编造报告中没有的信息
-
-## 原始报告
-
-{content}
-
-## 输出格式
-
-直接输出要点列表，不要输出其他内容。"""
+        prompt = TLDR_PROMPT_ZH.format(type_name=type_name, content=content)
     else:
-        prompt = f"""You are a senior editor. Write a "Too Long; Didn't Read" (TL;DR) version of the following {type_name}.
+        prompt = TLDR_PROMPT_EN.format(type_name=type_name, content=content)
 
-Requirements:
-1. 3-5 bullet points covering the most important content
-2. Each point starts with "- "
-3. Total under 200 words
-4. Concise and punchy, suitable for quick scanning
-5. Do not fabricate information not in the report
-
-## Original Report
-
-{content}
-
-## Output Format
-
-Output only the bullet points, nothing else."""
-
-    print(f"[AI] 🤖 正在生成 TL;DR ({type_name})...")
-    response = _chat_completion(client, prompt, max_tokens=500)
+    logger.info(f"[AI] 🤖 正在生成 TL;DR ({type_name})...")
+    response = _chat_with_profile(client, prompt, "tldr")
     if response:
-        # 清理可能的 markdown 包裹
-        tldr = response.strip()
-        if tldr.startswith("```"):
-            tldr = tldr.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        print(f"[AI] ✅ TL;DR 生成完成")
+        tldr = strip_code_fences(response)
+        logger.info(f"[AI] ✅ TL;DR 生成完成")
         return tldr
     else:
-        print(f"[AI] ⚠️ TL;DR 生成失败")
+        logger.warning(f"[AI] ⚠️ TL;DR 生成失败")
         return ""

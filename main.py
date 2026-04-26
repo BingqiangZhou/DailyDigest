@@ -33,7 +33,7 @@ except ImportError:
 
 from core.pipeline import (
     finalize_reports,
-    run_tech,
+    run_tech_unified,
     run_podcast,
     run_wechat,
     build_merged_report,
@@ -45,7 +45,7 @@ from core.pipeline import (
 # ---------------------------------------------------------------------------
 
 _SOURCE_RUNNERS = {
-    "tech": lambda hours, lang, limit: run_tech(hours=hours, language=lang, limit=limit),
+    "tech": lambda hours, lang, limit: run_tech_unified(hours=hours, language=lang, limit=limit),
     "podcast": lambda hours, _lang, limit: run_podcast(hours=hours, limit=limit),
     "wechat": lambda hours, _lang, limit: run_wechat(hours=hours, limit=limit),
 }
@@ -53,13 +53,13 @@ _SOURCE_RUNNERS = {
 _DEFAULT_HOURS = {"tech": 25, "podcast": 25, "wechat": 25}
 
 
-def _try_build_unified_report(sections, now, language, source):
+def _try_build_unified_report(sections, now, language, source, output_format="markdown"):
     """Attempt to build a unified two-part report from workspace data.
 
     Returns None if API_KEY is not set (falls back to merged report).
     """
     from core.pipeline import try_build_unified_report
-    return try_build_unified_report(source, now, language)
+    return try_build_unified_report(source, now, language, output_format=output_format)
 
 
 def main():
@@ -85,6 +85,9 @@ Examples:
                         help="build report from sub-agent summaries in workspace/")
     parser.add_argument("--limit", type=int, default=None,
                         help="limit number of sources (for testing)")
+    parser.add_argument("--format", choices=["markdown", "wechat"],
+                        default="markdown", dest="output_format",
+                        help="output format: markdown (default) or wechat (公众号)")
     args = parser.parse_args()
 
     language = args.language or os.environ.get("REPORT_LANGUAGE", "zh")
@@ -96,7 +99,7 @@ Examples:
         print(f"\U0001F4CB Daily Digest -- Finalize mode")
         print(f"\u23f0 {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
         print("=" * 60)
-        finalize_reports(args.source, language)
+        finalize_reports(args.source, language, output_format=args.output_format)
         return
 
     # Normal mode: fetch, summarise, and generate
@@ -110,6 +113,9 @@ Examples:
 
     for src, runner in _SOURCE_RUNNERS.items():
         if args.source not in (src, "all"):
+            continue
+        # WeChat already included in run_tech_unified; skip to avoid double-fetch
+        if src == "wechat" and args.source == "all":
             continue
         hours = args.hours or _DEFAULT_HOURS.get(src, 25)
         result = runner(hours, language, args.limit)
@@ -128,14 +134,18 @@ Examples:
     now = datetime.now(timezone.utc)
 
     # Try to build unified two-part report (AI deep + non-AI)
-    unified = _try_build_unified_report(sections, now, language, args.source)
+    unified = _try_build_unified_report(sections, now, language, args.source,
+                                        output_format=args.output_format)
     if unified:
         report_content = unified
     else:
         report_content = build_merged_report(sections, now, language)
 
-    filepath = save_report(report_content, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
-                           report_type="digest", language=language)
+    is_wechat = args.output_format == "wechat"
+    ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
+    filepath = save_report(report_content, ext, OUTPUT_DIR,
+                           report_type="digest", language=language,
+                           skip_tldr=is_wechat)
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     print("\n" + "=" * 60)

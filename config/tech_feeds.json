@@ -111,7 +111,8 @@
           "name": "ArXiv ML (cs.LG)",
           "url": "http://export.arxiv.org/rss/cs.LG",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "max_articles": 10
         },
         {
           "name": "BBC Science",
@@ -297,19 +298,22 @@
           "name": "ArXiv CL (cs.CL)",
           "url": "http://export.arxiv.org/rss/cs.CL",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "max_articles": 10
         },
         {
           "name": "ArXiv CV (cs.CV)",
           "url": "http://export.arxiv.org/rss/cs.CV",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "max_articles": 10
         },
         {
           "name": "ArXiv RO (cs.RO)",
           "url": "http://export.arxiv.org/rss/cs.RO",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "max_articles": 10
         },
         {
           "name": "Google Cloud AI",
@@ -387,7 +391,8 @@
           "name": "arXiv AI (cs.AI)",
           "url": "http://export.arxiv.org/rss/cs.AI",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "max_articles": 10
         },
         {
           "name": "Google Gemini Blog",
@@ -1630,7 +1635,8 @@
   ],
   "settings": {
     "max_articles_per_feed": 10,
+    "max_per_source": 30,
     "hours_back": 25,
-    "timeout_seconds": 15
+    "timeout_seconds": 20
   }
 }

@@ -1,308 +1,116 @@
 """
-Pipeline orchestration for Daily Digest.
+Pipeline orchestration for DailyDigest.
 
-Provides cache I/O, report building, finalization, and per-source run
-functions used by the CLI entry point in main.py.
+Provides per-source run functions and finalize logic used by the CLI
+entry point in main.py. Report building and workspace I/O are in
+report_builder.py and workspace.py respectively.
 """
 
 import json
 import os
-import re
-from dataclasses import asdict
 from datetime import datetime, timezone
-from pathlib import Path
+
+from .logging_config import get_logger
+from .workspace import (
+    load_http_cache, save_http_cache, ensure_pipeline_dirs,
+    save_workspace_updates, load_workspace_data, merge_batch_summaries,
+)
+from .report_builder import (
+    build_merged_report, build_unified_report, build_unified_wechat_report,
+    build_category_results_from_summaries, classify_from_summaries,
+)
+
+logger = get_logger("pipeline")
+
+
+def _log_no_api_key(source_type, path):
+    """Log the 'no API key' hint for Skill mode."""
+    logger.info(f"💡 no API_KEY, raw data saved to {path}")
+    logger.info("   Run sub-agent summaries, then:")
+    logger.info(f"   python main.py --source {source_type} --finalize")
 
 
 # ---------------------------------------------------------------------------
-# HTTP cache helpers
+# Unified report builder (workspace → report)
 # ---------------------------------------------------------------------------
 
-def load_http_cache(name):
-    """Load an HTTP cache dict from workspace/{name}.
-
-    Returns (cache_dict, cache_path).
-    """
-    from .config import WORKSPACE_DIR
-    cache_path = WORKSPACE_DIR / name
-    if cache_path.exists():
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                return json.load(f), cache_path
-        except (json.JSONDecodeError, ValueError):
-            print(f"[Cache] cache file corrupted, ignoring: {cache_path}")
-    return {}, cache_path
-
-
-def save_http_cache(cache_path, cache):
-    """Save *cache* dict to *cache_path* atomically."""
-    try:
-        tmp_path = cache_path.with_suffix(".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(cache, f)
-        tmp_path.replace(cache_path)
-    except Exception as e:
-        print(f"[Cache] cache save failed: {e}")
-
-
-# ---------------------------------------------------------------------------
-# Section helpers
-# ---------------------------------------------------------------------------
-
-def _demote_headings(lines, levels):
-    """Add # prefix to heading lines to demote them by the given number of levels.
-
-    Also normalizes # heading (h1) to h3 within demoted content, since AI-generated
-    text may contain raw h1 headings that should not appear at the top level.
-    """
-    result = []
-    for line in lines:
-        match = re.match(r'^(#{1,6})\s', line)
-        if match:
-            hashes = match.group(1)
-            new_level = min(len(hashes) + levels, 6)
-            result.append('#' * new_level + line[len(hashes):])
-        else:
-            result.append(line)
-    return result
-
-
-def _make_anchor(heading_text):
-    """Generate a GitHub-compatible anchor from heading text."""
-    # Remove emojis and special unicode symbols
-    text = re.sub(r'[\U00010000-\U0010ffff]', '', heading_text)
-    # Remove punctuation except hyphens, underscores, and CJK
-    text = re.sub(r'[^\w\u4e00-\u9fff\s-]', '', text)
-    # Collapse whitespace into hyphens and lowercase
-    text = re.sub(r'[\s]+', '-', text).strip().lower()
-    return text
-
-
-def strip_section_header_footer(content: str, demote_headings: int = 0) -> str:
-    """Strip title/header lines and footer lines from a report section.
-
-    Args:
-        content: Markdown section content
-        demote_headings: number of # levels to add (e.g. 2 turns # into ###)
-    """
-    lines = content.split("\n")
-    # Skip header: only skip lines BEFORE the first --- separator.
-    # This strips the # title, > metadata, empty lines, and the --- itself,
-    # but preserves ## category headings that come after ---.
-    start = 0
-    found_first_sep = False
-    for i, line in enumerate(lines):
-        if line.strip() == "---":
-            start = i + 1
-            found_first_sep = True
-            break
-        # Part of the header (title, metadata, empty lines)
-        start = i + 1
-    # If no separator found, fall back to skipping # title + metadata
-    if not found_first_sep:
-        start = 0
-        while start < len(lines) and (
-            lines[start].startswith("# ")  # only top-level headings
-            or lines[start].strip() == ""
-            or lines[start].startswith(">")
-        ):
-            start += 1
-    # Skip footer: empty lines, timestamp lines, separators
-    end = len(lines)
-    while end > start and (
-        lines[end - 1].strip() == ""
-        or "生成时间" in lines[end - 1]
-        or "Generated" in lines[end - 1]
-        or lines[end - 1].strip() == "---"
-        or (lines[end - 1].strip().startswith("*") and "UTC" in lines[end - 1])
-    ):
-        end -= 1
-
-    result_lines = lines[start:end]
-    if demote_headings > 0:
-        result_lines = _demote_headings(result_lines, demote_headings)
-
-    return "\n".join(result_lines).strip()
-
-
-def build_merged_report(sections, now, language="zh"):
-    """Merge multiple sections into a single report with header and TOC.
-
-    Each source section is cleaned (header/footer stripped, headings demoted
-    by 3 levels so AI-generated ## becomes #### and ### becomes #####)
-    and placed under a ## section title.  The TOC links to
-    those top-level ## headings only.
-    """
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M")
-
-    # Extract section names from each section's first heading
-    section_names = []
-    for section in sections:
-        for line in section.split("\n"):
-            stripped = line.strip()
-            if stripped.startswith("#"):
-                section_names.append(stripped.lstrip("#").strip())
-                break
-
-    if language == "zh":
-        header = f"# \U0001F4F0 Daily Digest — {date_str}\n\n"
-        header += f"> \U0001F4E1 {' · '.join(section_names)}\n\n"
-        header += f"> \U0001F550 生成时间 {time_str} UTC\n"
-    else:
-        header = f"# \U0001F4F0 Daily Digest — {date_str}\n\n"
-        header += f"> \U0001F4E1 {' · '.join(section_names)}\n\n"
-        header += f"> \U0001F550 Generated at {time_str} UTC\n"
-
-    header += "\n---\n\n"
-
-    # Build cleaned sections: each gets a ## section title + demoted body
-    cleaned_sections = []
-    all_headings = []
-    for i, section in enumerate(sections):
-        name = section_names[i] if i < len(section_names) else f"Section {i+1}"
-        cleaned = strip_section_header_footer(section, demote_headings=3)
-        if not cleaned:
-            continue
-
-        # Add ## section heading
-        section_heading = f"## {name}"
-        anchor = _make_anchor(name)
-        all_headings.append((name, anchor))
-
-        cleaned_sections.append(f"{section_heading}\n\n{cleaned}")
-
-    # Build TOC from top-level ## section headings only
-    toc_label = "## \U0001F4D1 目录" if language == "zh" else "## \U0001F4D1 Table of Contents"
-    toc_lines = [toc_label, ""]
-    for heading_text, anchor in all_headings:
-        toc_lines.append(f"- [{heading_text}](#{anchor})")
-    toc = "\n".join(toc_lines) + "\n"
-
-    merged = header + toc + "\n---\n\n" + "\n\n---\n\n".join(cleaned_sections)
-    # Collapse consecutive --- separators (with optional whitespace between)
-    merged = re.sub(r'(\n---\n\s*){2,}', '\n---\n', merged)
-    return merged
-
-
-def build_unified_report(ai_articles, non_ai_articles, now, language="zh"):
-    """Build a two-part unified report: AI deep analysis + non-AI tech news.
-
-    Args:
-        ai_articles: list of Article objects (AI-relevant)
-        non_ai_articles: list of Article objects (non-AI)
-        now: datetime with timezone
-        language: "zh" or "en"
-
-    Returns:
-        Markdown string of the complete unified report
-    """
-    from .ai_report import build_ai_section
-    from .report_generator import build_non_ai_section
-
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M")
-
-    ai_count = len(ai_articles)
-    non_ai_count = len(non_ai_articles)
-    total = ai_count + non_ai_count
-
-    if language == "zh":
-        header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> 🤖 AI 深度分析 {ai_count} 篇 · 💻 科技动态 {non_ai_count} 条 · 共 {total} 篇\n\n"
-        header += f"> ⏰ 生成时间 {time_str} UTC\n"
-    else:
-        header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> 🤖 AI Deep Analysis {ai_count} articles · 💻 Tech Updates {non_ai_count} items · Total {total}\n\n"
-        header += f"> ⏰ Generated at {time_str} UTC\n"
-
-    header += "\n---\n\n"
-
-    # Part I: AI Deep Digest
-    ai_section = build_ai_section(ai_articles, language)
-
-    # Part II: Non-AI Tech Updates
-    non_ai_section = build_non_ai_section(non_ai_articles, language)
-
-    # Combine parts
-    parts = []
-    if ai_section:
-        parts.append(ai_section)
-    if non_ai_section:
-        parts.append(non_ai_section)
-
-    if not parts:
-        return ""
-
-    return header + "\n\n---\n\n".join(parts)
-
-
-def try_build_unified_report(source, now, language="zh"):
+def try_build_unified_report(source, now, language="zh", output_format="markdown"):
     """Attempt to build a unified two-part report from workspace article data.
 
-    Returns None if API_KEY is not set or if no articles are found.
+    Uses API-based AI filter when API_KEY is set, or sub-agent summary data
+    for Skill mode classification when no API_KEY.
     """
-    if not os.environ.get("API_KEY"):
-        return None
-
     from .article import Article
-    from .ai_filter import filter_ai_articles
 
     all_articles = []
+    summaries_by_source = {}
     for src in ("tech", "podcast", "wechat"):
-        if source in (src, "all"):
-            data = _load_workspace_data(src)
+        if source in (src, "all") or (source == "tech" and src == "wechat"):
+            data = load_workspace_data(src)
             if data:
                 for item in data.get("updates", []):
                     try:
                         all_articles.append(Article(**item))
-                    except Exception:
+                    except TypeError:
                         continue
+                summaries_by_source[src] = merge_batch_summaries(src)
 
     if not all_articles:
         return None
 
-    print(f"\n🤖 Building unified AI + non-AI report from {len(all_articles)} articles...")
-    ai_articles, non_ai_articles = filter_ai_articles(all_articles)
+    api_key = os.environ.get("API_KEY")
+    merged_summaries = {}
+    for s in summaries_by_source.values():
+        merged_summaries.update(s)
+
+    if api_key:
+        from .ai_filter import filter_ai_articles
+        logger.info(f"\n🤖 Building unified AI + non-AI report from {len(all_articles)} articles...")
+        ai_articles, non_ai_articles = filter_ai_articles(all_articles)
+    else:
+        if not merged_summaries:
+            return None
+        logger.info(f"\n🤖 Building unified report from {len(all_articles)} articles (Skill mode)...")
+        ai_articles, non_ai_articles = classify_from_summaries(all_articles, merged_summaries)
 
     if not ai_articles and not non_ai_articles:
         return None
 
-    return build_unified_report(ai_articles, non_ai_articles, now, language)
+    # Generate topic clusters for AI articles
+    cluster_map = {}
+    try:
+        from .topic_cluster import cluster_articles, get_cluster_map
+        topic_clusters = cluster_articles(ai_articles)
+        cluster_map = get_cluster_map(topic_clusters)
+    except Exception as e:
+        logger.warning(f"⚠️ Clustering failed (non-fatal): {e}")
+
+    # Full-text enrichment (optional)
+    if api_key and os.environ.get("ENRICH_FULL_TEXT"):
+        try:
+            from .enrich import enrich_tech_articles
+            ai_articles, _ = enrich_tech_articles(ai_articles, cluster_map=cluster_map)
+        except Exception as e:
+            logger.warning(f"⚠️ Enrichment failed (non-fatal): {e}")
+
+    if output_format == "wechat":
+        return build_unified_wechat_report(
+            ai_articles, non_ai_articles, now, language,
+            summary_map=merged_summaries if not api_key else None,
+            cluster_map=cluster_map,
+        )
+
+    return build_unified_report(
+        ai_articles, non_ai_articles, now, language,
+        quality_scores=None,
+        summary_map=merged_summaries if not api_key else None,
+        cluster_map=cluster_map,
+    )
 
 
 # ---------------------------------------------------------------------------
 # Finalize helpers
 # ---------------------------------------------------------------------------
-
-def _load_workspace_data(source_type):
-    """Load {source_type}_updates.json from workspace.  Returns dict or None."""
-    from .config import WORKSPACE_DIR
-    path = WORKSPACE_DIR / f"{source_type}_updates.json"
-    if not path.exists():
-        print(f"\u26a0\ufe0f workspace/{source_type}_updates.json not found; run fetch first.")
-        return None
-    with open(path, "r", encoding="utf-8") as f:
-        return json.load(f)
-
-
-def _merge_batch_summaries(source_type):
-    """Glob {source_type}_summary_batch_*.json and merge into a single dict."""
-    from .config import WORKSPACE_DIR
-    summary_map = {}
-    for p in sorted(WORKSPACE_DIR.glob(f"{source_type}_summary_batch_*.json")):
-        with open(p, "r", encoding="utf-8") as f:
-            batch = json.load(f)
-        if source_type == "podcast":
-            for url, summary in batch.items():
-                summary_map[url] = summary
-        else:
-            items = batch.get("summaries", [])
-            for item in items:
-                url = item.get("url") or item.get("article_url", "")
-                if url:
-                    summary_map[url] = item if source_type == "tech" else item.get("ai_summary", "")
-    return summary_map
-
 
 def _generate_source_report(source_type, data, summaries, language):
     """Dispatch to the correct report generator and return the markdown string."""
@@ -312,28 +120,48 @@ def _generate_source_report(source_type, data, summaries, language):
     metadata = data.get("metadata", {})
 
     if source_type == "tech":
-        # Also load trend insight if present
         from .config import WORKSPACE_DIR
         trend_path = WORKSPACE_DIR / "tech_trend_insight.json"
         trend_insight = None
         if trend_path.exists():
             with open(trend_path, "r", encoding="utf-8") as f:
                 trend_insight = json.load(f)
+
+        has_tiers = any(
+            isinstance(v, dict) and "tier" in v
+            for v in (summaries.values() if isinstance(summaries, dict) else [])
+        )
+
         from .report_generator import generate_tech_report
-        report = generate_tech_report(updates, summaries, trend_insight, stats=metadata, report_language=language)
-        print(f"\u2705 tech report generated ({len(updates)} articles)")
+
+        if has_tiers:
+            category_results = build_category_results_from_summaries(updates, summaries)
+            report_stats = {
+                "total_articles": len(updates),
+                "categories": len(category_results),
+            }
+            report = generate_tech_report(
+                updates,
+                category_results=category_results,
+                stats=report_stats,
+                report_language=language,
+            )
+        else:
+            report = generate_tech_report(updates, summaries, trend_insight, stats=metadata, report_language=language)
+
+        logger.info(f"✅ tech report generated ({len(updates)} articles)")
         return report
 
     if source_type == "podcast":
         from .podcast_utils import generate_podcast_report
         report = generate_podcast_report(updates, summaries, metadata=metadata)
-        print(f"\u2705 podcast report generated ({len(summaries)} summaries)")
+        logger.info(f"✅ podcast report generated ({len(summaries)} summaries)")
         return report
 
     if source_type == "wechat":
         from .wechat_utils import generate_wechat_report
         report = generate_wechat_report(updates, summaries, metadata=metadata)
-        print(f"\u2705 wechat report generated ({len(summaries)} summaries)")
+        logger.info(f"✅ wechat report generated ({len(summaries)} summaries)")
         return report
 
     raise ValueError(f"Unknown source_type: {source_type}")
@@ -341,14 +169,14 @@ def _generate_source_report(source_type, data, summaries, language):
 
 def _finalize_source(source_type, language="zh"):
     """Unified finalizer for a single source type.  Returns report string or None."""
-    data = _load_workspace_data(source_type)
+    data = load_workspace_data(source_type)
     if data is None:
         return None
-    summaries = _merge_batch_summaries(source_type)
+    summaries = merge_batch_summaries(source_type)
     return _generate_source_report(source_type, data, summaries, language)
 
 
-def finalize_reports(source, language="zh"):
+def finalize_reports(source, language="zh", output_format="markdown"):
     """--finalize mode: read sub-agent summaries from workspace/ and build final reports."""
     from .config import OUTPUT_DIR
     from .report_generator import save_report
@@ -357,143 +185,243 @@ def finalize_reports(source, language="zh"):
 
     sections = []
     for src in ("tech", "podcast", "wechat"):
-        if source in (src, "all"):
+        if source in (src, "all") or (source == "tech" and src == "wechat"):
             report = _finalize_source(src, language)
             if report:
                 sections.append(report)
 
     if not sections:
-        print("\u26a0\ufe0f no reports to generate.")
+        logger.warning("⚠️ no reports to generate.")
         return
 
-    # Try unified two-part report
-    unified = try_build_unified_report(source, now, language)
+    unified = try_build_unified_report(source, now, language, output_format=output_format)
 
     if unified:
         merged = unified
     else:
         merged = build_merged_report(sections, now, language)
 
-    filepath = save_report(merged, f"{now.strftime('%Y-%m-%d')}.md", OUTPUT_DIR,
-                           report_type="digest", language=language)
+    is_wechat = output_format == "wechat"
+    ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
+    filepath = save_report(merged, ext, OUTPUT_DIR,
+                           report_type="digest", language=language,
+                           skip_tldr=is_wechat)
 
-    print("\n" + "=" * 60)
-    print(f"\u2705 Finalize done! report: {filepath}")
-    print("=" * 60 + "\n")
+    logger.info("\n" + "=" * 60)
+    logger.info(f"✅ Finalize done! report: {filepath}")
+    logger.info("=" * 60 + "\n")
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for unified pipeline
+# ---------------------------------------------------------------------------
+
+def _fetch_wechat_articles(hours=24, limit=None):
+    """Fetch, dedup, and enrich WeChat articles."""
+    from .wechat_utils import fetch_wechat_feed_list, enrich_wechat_articles
+    from .rss_fetcher import fetch_feeds_stdlib
+    from .dedup import filter_and_mark
+
+    api_key = os.environ.get("API_KEY")
+
+    logger.info("\n📱 Fetching WeChat feed list...")
+    feed_data = fetch_wechat_feed_list()
+    feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
+    if limit:
+        feeds = feeds[:limit]
+        logger.info(f"   (limit mode: first {limit} accounts)")
+    feed_list = [
+        {"name": f["name"], "url": f["url"], "category": f.get("category", "其他"),
+         "language": "zh", "_wechat_meta": {"index": f.get("index", 0)}}
+        for f in feeds
+    ]
+
+    logger.info("📡 Checking WeChat updates...")
+    cache, cache_path = load_http_cache(".wechat_http_cache.json")
+    raw_updates, stats, new_cache = fetch_feeds_stdlib(
+        feed_list, hours=hours, workers=10, cache=cache
+    )
+    save_http_cache(cache_path, new_cache)
+
+    raw_updates = filter_and_mark(raw_updates)
+    if not raw_updates:
+        logger.info("ℹ️ No WeChat updates.")
+        return [], stats
+
+    logger.info(f"✅ {len(raw_updates)} WeChat updates")
+
+    if api_key:
+        logger.info("📖 Enriching WeChat articles with full text...")
+        raw_updates = enrich_wechat_articles(raw_updates)
+
+    return raw_updates, stats
 
 
 # ---------------------------------------------------------------------------
 # Per-source pipeline runners
 # ---------------------------------------------------------------------------
 
-def run_tech(hours=48, language="zh", limit=None):
-    """Tech news pipeline.  Returns (report_str, stats_dict) or None."""
-    from .config import load_feed_config, ensure_dirs, OUTPUT_DIR, WORKSPACE_DIR
+def run_tech_unified(hours=48, language="zh", limit=None):
+    """Unified tech+wechat pipeline."""
+    from .config import load_feed_config, OUTPUT_DIR, WORKSPACE_DIR, normalize_category
     from .dedup import filter_and_mark, cleanup_old_entries
+    from .ai_filter import filter_ai_articles
 
-    ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
+    ensure_pipeline_dirs()
+    api_key = os.environ.get("API_KEY")
 
-    # Step 1: Fetch RSS
-    print("\n\U0001F4E1 Step 1/4: Fetching tech RSS...")
+    # Step 1: Fetch tech RSS
+    logger.info("\n📡 Step 1/5: Fetching tech RSS...")
     config = load_feed_config("tech")
     feed_list = [
         {"name": f["name"], "url": f["url"], "category": c["name"],
-         "language": f.get("language", "en"), "priority": f.get("priority", 3)}
+         "language": f.get("language", "en"), "priority": f.get("priority", 3),
+         **({"max_articles": f["max_articles"]} if "max_articles" in f else {})}
         for c in config.get("categories", [])
         for f in c.get("feeds", [])
     ]
     if limit:
         feed_list = feed_list[:limit]
-        print(f"   (limit mode: first {limit} sources)")
+        logger.info(f"   (limit mode: first {limit} sources)")
     settings = config.get("settings", {})
 
-    api_key = os.environ.get("API_KEY")
     if api_key:
         from .rss_fetcher import fetch_feeds_feedparser
-        articles_by_category, fetch_stats = fetch_feeds_feedparser(
+        articles_by_category, tech_stats = fetch_feeds_feedparser(
             feed_list, hours=settings.get("hours_back", hours),
             max_per_feed=settings.get("max_articles_per_feed", 10)
         )
+        tech_articles = [a for arts in articles_by_category.values() for a in arts]
     else:
         from .rss_fetcher import fetch_feeds_stdlib
         cache, cache_path = load_http_cache(".http_cache.json")
-        updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=20, cache=cache)
+        updates, tech_stats, new_cache = fetch_feeds_stdlib(
+            feed_list, hours=hours, workers=20, cache=cache,
+            timeout=settings.get("timeout_seconds"),
+            max_per_source=settings.get("max_per_source", 30),
+        )
         save_http_cache(cache_path, new_cache)
-        articles_by_category = {}
-        for u in updates:
-            cat = u.category
-            articles_by_category.setdefault(cat, []).append(u)
-        fetch_stats = stats
+        tech_articles = updates
 
-    all_articles = [a for arts in articles_by_category.values() for a in arts]
+    if not tech_articles:
+        logger.warning("⚠️ No tech articles fetched.")
+
+    # Step 2: Fetch WeChat
+    logger.info("\n📱 Step 2/5: Fetching WeChat articles...")
+    wechat_hours = min(hours, 25)
+    wechat_articles, wechat_stats = _fetch_wechat_articles(
+        hours=wechat_hours, limit=limit
+    )
+
+    # Step 3: Merge + dedup
+    all_articles = tech_articles + wechat_articles
     if not all_articles:
-        print("\u26a0\ufe0f no articles fetched.")
+        logger.warning("⚠️ No articles from any source.")
         return None
 
-    # Step 2: Dedup
-    print("\U0001F50D Step 2/4: Dedup...")
+    logger.info(f"\n🔍 Step 3/5: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
     cleanup_old_entries(days=30)
     new_articles = filter_and_mark(all_articles)
     if not new_articles:
-        print("\u26a0\ufe0f all articles already processed.")
+        logger.warning("⚠️ All articles already processed.")
+        return None
+    logger.info(f"✅ {len(new_articles)} new articles total")
+
+    def _is_wechat_article(a):
+        return a.category.startswith("wechat_") or "mp.weixin.qq.com" in a.url
+
+    tech_new = [a for a in new_articles if not _is_wechat_article(a)]
+    wechat_new = [a for a in new_articles if _is_wechat_article(a)]
+
+    save_workspace_updates("tech", tech_new, tech_stats)
+    if wechat_new:
+        save_workspace_updates("wechat", wechat_new, wechat_stats)
+
+    # Step 4: Cluster + classify + summarize
+    cluster_map = {}
+    try:
+        logger.info("🔍 Step 4/5: Clustering topics...")
+        from .topic_cluster import cluster_articles, get_cluster_map
+        topic_clusters = cluster_articles(new_articles)
+        cluster_map = get_cluster_map(topic_clusters)
+        clustered = sum(1 for c in topic_clusters if c["size"] > 1)
+        logger.info(f"✅ {len(topic_clusters)} topic clusters ({clustered} multi-article)")
+    except Exception as e:
+        logger.warning(f"⚠️ Topic clustering failed (non-fatal): {e}")
+
+    if api_key and os.environ.get("ENRICH_FULL_TEXT"):
+        try:
+            logger.info("📖 Enriching high-importance articles...")
+            from .enrich import enrich_tech_articles
+            new_articles, _ = enrich_tech_articles(new_articles, cluster_map=cluster_map)
+        except Exception as e:
+            logger.warning(f"⚠️ Full-text enrichment failed (non-fatal): {e}")
+
+    if not api_key:
+        logger.info("💡 no API_KEY, raw data saved to workspace/")
+        logger.info("   Run sub-agent summaries, then:")
+        logger.info("   python main.py --source tech --finalize")
         return None
 
-    new_by_category = {}
-    for a in new_articles:
-        cat = a.category
-        new_by_category.setdefault(cat, []).append(a)
-    print(f"\u2705 {len(new_articles)} new articles")
+    # AI / non-AI classification
+    logger.info("🤖 Step 5/5: AI classification + unified report...")
+    ai_articles, non_ai_articles = filter_ai_articles(new_articles)
 
-    # Step 3: AI summaries
-    print("\U0001F916 Step 3/4: AI summaries...")
-    if api_key:
+    ai_by_category = {}
+    for a in ai_articles:
+        cat = normalize_category(a.category)
+        ai_by_category.setdefault(cat, []).append(a)
+
+    if ai_by_category:
         from .ai_summarizer import summarize_all_categories
-        category_results, executive_summary = summarize_all_categories(new_by_category, language)
-        if not category_results:
-            print("\u26a0\ufe0f AI summary failed.")
-            return None
-        from .report_generator import generate_tech_report
-        report_stats = {"total_articles": len(new_articles), "categories": len(category_results)}
-        report = generate_tech_report(
-            new_articles,
-            category_results=category_results,
-            executive_summary=executive_summary,
-            stats=report_stats,
-            report_language=language,
+        category_results, executive_summary = summarize_all_categories(
+            ai_by_category, language
         )
     else:
-        from .report_generator import generate_tech_report
-        updates_path = WORKSPACE_DIR / "tech_updates.json"
-        with open(updates_path, "w", encoding="utf-8") as f:
-            json.dump({"metadata": fetch_stats, "updates": [asdict(a) for a in new_articles]}, f, ensure_ascii=False, indent=2)
-        print(f"\U0001F4A1 no API_KEY, raw data saved to {updates_path}")
-        print("   Run sub-agent summaries, then:")
-        print(f"   python main.py --source tech --finalize")
-        return None
+        category_results, executive_summary = {}, ""
 
-    # Step 4: Report
-    print("\U0001F4C4 Step 4/4: Generating report...")
-    return report, {"total_articles": len(new_articles), "categories": len(new_by_category)}
+    now = datetime.now(timezone.utc)
+    report = build_unified_report(
+        ai_articles, non_ai_articles, now, language,
+        quality_scores=None,
+        summary_map=None,
+        cluster_map=cluster_map,
+    )
+
+    combined_stats = {
+        "total_articles": len(new_articles),
+        "tech": len(tech_new),
+        "wechat": len(wechat_new),
+    }
+    return report, combined_stats
 
 
 def run_podcast(hours=24, limit=None):
     """Podcast pipeline.  Returns (report_str, stats_dict) or None."""
-    from .config import CONFIG_DIR, ensure_dirs, OUTPUT_DIR, WORKSPACE_DIR
+    from .config import CONFIG_DIR
     from .rss_fetcher import fetch_feeds_stdlib
     from .podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report
     from .dedup import filter_and_mark
 
-    ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
+    ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
 
-    print("\n\U0001F399\ufe0f Step 1/3: Checking podcast updates...")
+    logger.info("\n🎙️ Step 1/3: Checking podcast updates...")
     with open(CONFIG_DIR / "podcast_feeds.json", "r", encoding="utf-8") as f:
         pdata = json.load(f)
 
     podcasts = pdata.get("podcasts", [])[:pdata.get("settings", {}).get("count", 1000)]
+
+    # Filter to tech-related categories if configured
+    psettings = pdata.get("settings", {})
+    tech_cats = set(psettings.get("tech_categories", []))
+    if psettings.get("filter_tech_only") and tech_cats:
+        before = len(podcasts)
+        podcasts = [p for p in podcasts if p.get("category", "") in tech_cats]
+        logger.info(f"   ({before} total -> {len(podcasts)} tech-related podcasts)")
     if limit:
         podcasts = podcasts[:limit]
-        print(f"   (limit mode: first {limit} podcasts)")
+        logger.info(f"   (limit mode: first {limit} podcasts)")
     feed_list = [
         {"name": p["name"], "url": p["url"], "category": "podcast", "language": "zh",
          "_podcast_meta": {"rank": p.get("rank", 0), "xiaoyuzhou_url": p.get("xiaoyuzhou_url", "")}}
@@ -506,7 +434,7 @@ def run_podcast(hours=24, limit=None):
 
     raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
-        print("\u26a0\ufe0f no podcast updates.")
+        logger.warning("⚠️ no podcast updates.")
         return None
 
     for u in raw_updates:
@@ -514,83 +442,74 @@ def run_podcast(hours=24, limit=None):
         u.extra["rank"] = meta.get("rank", 0)
         u.extra["xiaoyuzhou_url"] = meta.get("xiaoyuzhou_url", "")
 
-    print(f"\u2705 {len(raw_updates)} podcast updates")
+    logger.info(f"✅ {len(raw_updates)} podcast updates")
 
-    print("\U0001F517 Step 2/3: Resolving xiaoyuzhou URLs...")
+    logger.info("🔗 Step 2/3: Resolving xiaoyuzhou URLs...")
     updates = resolve_xiaoyuzhou_urls(raw_updates)
 
-    updates_path = WORKSPACE_DIR / "podcast_updates.json"
-    with open(updates_path, "w", encoding="utf-8") as f:
-        json.dump({"metadata": stats, "updates": [asdict(u) for u in updates]}, f, ensure_ascii=False, indent=2)
+    updates_path = save_workspace_updates("podcast", updates, stats)
 
     if api_key:
-        print("\U0001F4C4 Step 3/3: AI summaries + report...")
+        logger.info("📄 Step 3/3: AI summaries + report...")
         from .ai_summarizer import summarize_podcast_batch
         ai_summaries = summarize_podcast_batch(updates)
         report = generate_podcast_report(updates, ai_summaries, metadata=stats)
     else:
-        print("\U0001F4C4 Step 3/3: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 3/3: Preliminary report (no AI summaries)...")
         report = generate_podcast_report(updates, metadata=stats)
-        print(f"\U0001F4A1 no API_KEY, raw data saved to {updates_path}")
-        print("   Run sub-agent summaries, then:")
-        print(f"   python main.py --source podcast --finalize")
+        _log_no_api_key("podcast", updates_path)
 
     return report, {"total_episodes": len(updates)}
 
 
 def run_wechat(hours=24, limit=None):
     """WeChat pipeline.  Returns (report_str, stats_dict) or None."""
-    from .config import ensure_dirs, OUTPUT_DIR, WORKSPACE_DIR
     from .wechat_utils import fetch_wechat_feed_list, generate_wechat_report, enrich_wechat_articles
     from .rss_fetcher import fetch_feeds_stdlib
     from .dedup import filter_and_mark
 
-    ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
+    ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
 
-    print("\n\U0001F4F1 Step 1/3: Fetching WeChat feed list...")
+    logger.info("\n📱 Step 1/3: Fetching WeChat feed list...")
     feed_data = fetch_wechat_feed_list()
     feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
     if limit:
         feeds = feeds[:limit]
-        print(f"   (limit mode: first {limit} accounts)")
+        logger.info(f"   (limit mode: first {limit} accounts)")
     feed_list = [
         {"name": f["name"], "url": f["url"], "category": f.get("category", "其他"), "language": "zh",
          "_wechat_meta": {"index": f.get("index", 0)}}
         for f in feeds
     ]
 
-    print("\U0001F4E1 Step 2/3: Checking WeChat updates...")
+    logger.info("📡 Step 2/3: Checking WeChat updates...")
     cache, cache_path = load_http_cache(".wechat_http_cache.json")
     raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=10, cache=cache)
     save_http_cache(cache_path, new_cache)
 
     raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
-        print("\u26a0\ufe0f no WeChat updates.")
+        logger.warning("⚠️ no WeChat updates.")
         return None
 
     updates = raw_updates
-    print(f"\u2705 {len(updates)} WeChat updates")
+    logger.info(f"✅ {len(updates)} WeChat updates")
 
     if api_key:
-        print("\U0001F4D6 Enriching WeChat articles with full text...")
+        logger.info("📖 Enriching WeChat articles with full text...")
         updates = enrich_wechat_articles(updates)
 
-    updates_path = WORKSPACE_DIR / "wechat_updates.json"
-    with open(updates_path, "w", encoding="utf-8") as f:
-        json.dump({"metadata": stats, "updates": [asdict(a) for a in updates]}, f, ensure_ascii=False, indent=2)
+    updates_path = save_workspace_updates("wechat", updates, stats)
 
     if api_key:
-        print("\U0001F4C4 Step 3/3: AI summaries + report...")
+        logger.info("📄 Step 3/3: AI summaries + report...")
         from .ai_summarizer import summarize_wechat_batch
         ai_summaries = summarize_wechat_batch(updates)
         report = generate_wechat_report(updates, ai_summaries, metadata=stats)
     else:
-        print("\U0001F4C4 Step 3/3: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 3/3: Preliminary report (no AI summaries)...")
         report = generate_wechat_report(updates, metadata=stats)
-        print(f"\U0001F4A1 no API_KEY, raw data saved to {updates_path}")
-        print("   Run sub-agent summaries, then:")
-        print(f"   python main.py --source wechat --finalize")
+        _log_no_api_key("wechat", updates_path)
 
     return report, {"total_articles": len(updates)}

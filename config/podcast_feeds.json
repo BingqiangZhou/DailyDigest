@@ -12,7 +12,9 @@
   "settings": {
     "hours": 25,
     "workers": 30,
-    "count": 1000
+    "count": 1000,
+    "tech_categories": ["科技", "科技新闻", "科学", "创业", "商业新闻", "投资"],
+    "filter_tech_only": true
   },
   "podcasts": [
     {

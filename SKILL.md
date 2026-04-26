@@ -74,10 +74,19 @@ python main.py --source wechat
 
 ```
 Read {project_root}/workspace/tech_batch_{N}.json
-For each article, write ONE Chinese sentence summary (under 100 chars).
-Suggest a better category if wrong.
+
+For each article, follow these steps:
+Step 1: Identify the primary topic and sub-domain (AI/ML, security, cloud, open-source, etc.)
+Step 2: Write a 50-100 character Chinese summary that captures the key insight (not just restating the title)
+Step 3: Assign a tier based on significance:
+  - must_read: Major announcement, breakthrough, cross-industry impact, or new model/product release
+  - noteworthy: Significant update, useful tool, or notable research
+  - brief: Routine update, minor release, or incremental improvement
+Step 4: For must_read articles, write a 1-2 sentence "importance_reason" explaining why this matters
+Step 5: Self-check: Do the must_read articles genuinely represent the most important developments?
+
 Output JSON to {project_root}/workspace/tech_summary_batch_{N}.json:
-{"summaries": [{"url": "...", "ai_summary": "...", "category": "..."}]}
+{"summaries": [{"url": "...", "ai_summary": "...", "category": "...", "tier": "noteworthy", "importance_reason": ""}]}
 Use json.dump() with ensure_ascii=False, encoding="utf-8".
 ```
 
@@ -85,8 +94,14 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 
 ```
 Read {project_root}/workspace/podcast_batch_{N}.json
-Summarize each episode into ONE Chinese sentence (30-50 chars).
-Filter out ads/promotional content.
+
+For each episode, follow these steps:
+Step 1: Identify the episode's core topic
+Step 2: If the episode discusses a specific technology or product, name it explicitly
+Step 3: Write a 30-50 character Chinese summary focusing on the key takeaway
+Step 4: Filter out ads, sponsor reads, and promotional content — do not summarize these
+
+If content is insufficient, output "内容暂无".
 Output JSON to {project_root}/workspace/podcast_summary_batch_{N}.json:
 {"url1": "summary1", "url2": "summary2", ...}
 ```
@@ -95,7 +110,12 @@ Output JSON to {project_root}/workspace/podcast_summary_batch_{N}.json:
 
 ```
 Read {project_root}/workspace/wechat_batch_{N}.json
-Summarize each article into ONE Chinese sentence (under 100 chars).
+
+For each article, follow these steps:
+Step 1: Extract the article's core claim, finding, or key insight
+Step 2: Write a 50-100 character Chinese summary that captures the key information
+Step 3: If the article mentions specific technologies, products, or data, include them in the summary
+
 Output JSON to {project_root}/workspace/wechat_summary_batch_{N}.json:
 {"summaries": [{"article_url": "...", "ai_summary": "..."}]}
 Use json.dump() with ensure_ascii=False, encoding="utf-8".
@@ -106,18 +126,41 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 ```
 ├── main.py                  # 统一入口（GitHub Actions 和 Skill 都调用它）
 ├── core/                    # 核心模块
-│   ├── config.py            # 配置管理
+│   ├── article.py           # Article 数据类 + ArticleExtra TypedDict
+│   ├── config.py            # 配置管理（分类、环境变量）
+│   ├── llm.py               # LLM 客户端单例 + 任务配置 + 重试逻辑
+│   ├── llm_utils.py         # JSON 解析（code fence 剥离 + json.loads）
+│   ├── logging_config.py    # 结构化 logging 配置
 │   ├── rss_fetcher.py       # RSS 抓取
 │   ├── dedup.py             # 去重
-│   ├── ai_summarizer.py     # AI 摘要（OpenAI API）
+│   ├── ai_summarizer.py     # AI 摘要（并发批量 + 多轮审阅）
+│   ├── ai_report.py         # AI 深度分析报告
+│   ├── ai_filter.py         # AI/非AI 分类
+│   ├── wechat_article.py    # 公众号文章渲染
+│   ├── topic_cluster.py     # 话题聚类与重要性评分
+│   ├── enrich.py            # 全文补充（ENRICH_FULL_TEXT=1 开启）
 │   ├── report_generator.py  # 报告生成
+│   ├── pipeline.py          # Pipeline 编排（run_tech/run_podcast/run_wechat）
 │   ├── podcast_utils.py     # 播客专有逻辑
 │   └── wechat_utils.py      # 微信专有逻辑
-├── config/                  # 源配置
+├── config/                  # 源配置 + Prompt 模板
+│   ├── prompts/             # Prompt 模板（独立模块）
+│   │   ├── ai_filter.py     #   AI 过滤 prompt
+│   │   ├── ai_report.py     #   深度分析 prompt
+│   │   ├── wechat.py        #   公众号结构 prompt
+│   │   └── critique.py      #   审阅 prompt
 │   ├── tech_feeds.json      # 268+ 科技 RSS
 │   ├── podcast_feeds.json   # 1000 播客
 │   ├── youtube_feeds.json   # YouTube 频道
 │   └── wechat_feeds.json    # 微信公众号
+├── tests/                   # 测试套件（pytest）
+│   ├── conftest.py          # 共享 fixture
+│   ├── test_article.py      # Article 数据类测试
+│   ├── test_config.py       # 配置函数测试
+│   ├── test_llm_utils.py    # JSON 解析测试
+│   ├── test_wechat_article.py # 渲染函数测试
+│   └── test_report_generator.py # 报告工具函数测试
+├── knowledge/               # 知识库
 ├── workspace/               # 运行时中间文件
 └── daily-digests/           # 报告输出
 ```
