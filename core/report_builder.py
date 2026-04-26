@@ -159,6 +159,9 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
             isinstance(v, dict) and "tier" in v
             for v in summary_map.values()
         )
+    elif any(a.extra.get("editorial_tier") for a in ai_articles):
+        has_tiers = True
+        category_results = build_category_results_from_editorial(ai_articles, cluster_map)
 
     if has_tiers:
         category_results = build_category_results_from_summaries(ai_articles, summary_map)
@@ -271,6 +274,86 @@ def build_category_results_from_summaries(updates, summary_map):
         }
 
     return category_results
+
+
+def build_category_results_from_editorial(ai_articles, cluster_map=None):
+    """Build category_results from editorial tier data on articles.
+
+    Used by API mode when editorial pipeline has annotated articles
+    with editorial_tier (must_read/noteworthy/brief) in article.extra.
+    Produces the same structure as build_category_results_from_summaries
+    so the existing _render_tiered_category renderer can be reused.
+    """
+    from .config import normalize_category, get_category_display, CATEGORIES
+
+    cat_articles = {}
+    cat_display_names = {}
+
+    valid_cats = set(CATEGORIES.keys())
+
+    for article in ai_articles:
+        final_cat = normalize_category(article.category)
+        cat_display_names.setdefault(final_cat, get_category_display(final_cat))
+        cat_articles.setdefault(final_cat, []).append(article)
+
+    category_results = {}
+    for cat, articles in cat_articles.items():
+        # Sort by editorial score descending within each category
+        articles.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+
+        must_read = []
+        noteworthy = []
+        brief = []
+        for i, article in enumerate(articles, 1):
+            tier = article.extra.get("editorial_tier", "noteworthy")
+            if tier == "must_read":
+                reason = _generate_importance_reason(article, cluster_map)
+                must_read.append({"index": i, "summary": reason})
+            elif tier == "brief":
+                brief.append(i)
+            else:
+                reason = _generate_importance_reason(article, cluster_map)
+                noteworthy.append({"index": i, "summary": reason})
+
+        tiered = {
+            "must_read": must_read,
+            "noteworthy": noteworthy,
+            "brief": brief,
+        }
+        category_results[cat] = {
+            "name": cat_display_names.get(cat, cat),
+            "articles": articles,
+            "tiered": tiered,
+            "article_count": len(articles),
+        }
+
+    return category_results
+
+
+def _generate_importance_reason(article, cluster_map=None):
+    """Generate a brief importance reason from article metadata."""
+    parts = []
+    cluster_info = (cluster_map or {}).get(article.url, {})
+    cluster_size = cluster_info.get("cluster_size", 1)
+    cross_source = cluster_info.get("cross_source", False)
+    score = article.extra.get("news_value_score", 0)
+
+    if cluster_size >= 3:
+        parts.append(f"{cluster_size}篇相关报道")
+    if cross_source:
+        parts.append("多源验证")
+    if article.priority == 1:
+        parts.append("权威来源")
+    if article.hn_points and article.hn_points >= 100:
+        parts.append(f"HN {article.hn_points}赞")
+
+    if not parts:
+        if score >= 0.6:
+            parts.append("高新闻价值")
+        else:
+            parts.append(article.description[:80] if article.description else "值得关注")
+
+    return "，".join(parts)
 
 
 def classify_from_summaries(updates, summary_map):

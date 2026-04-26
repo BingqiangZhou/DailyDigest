@@ -464,7 +464,8 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
     """Build Part II: non-AI tech news section.
 
     Reuses the existing table-based report format for articles
-    that are not AI-related.
+    that are not AI-related. When editorial tier data is present,
+    must_read articles are rendered prominently at the top.
 
     Args:
         non_ai_articles: list of Article objects (non-AI)
@@ -485,6 +486,44 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
 
     lines.append("")
 
+    # Check if any articles have editorial tier data
+    has_editorial = any(a.extra.get("editorial_tier") for a in non_ai_articles)
+
+    # Prominently render must_read non-AI articles at the top
+    if has_editorial:
+        must_read_articles = [a for a in non_ai_articles
+                              if a.extra.get("editorial_tier") == "must_read"
+                              and normalize_category(a.category) != "hacker_news"]
+        if must_read_articles:
+            if report_language == "zh":
+                lines.append("### ⭐ 重点科技新闻")
+                lines.append("")
+                for a in must_read_articles:
+                    desc = ""
+                    if a.description:
+                        desc = re.sub(r'<[^>]+>', '', a.description.strip())[:150]
+                    reason = a.extra.get("editorial_factors", {})
+                    reason_text = ""
+                    cluster_info = ""
+                    # Try to generate a brief importance hint
+                    if reason.get("cross_source", 0) > 0.1:
+                        reason_text = " [多源验证]"
+                    lines.append(f"- **[{_escape_pipe(a.title)}]({_escape_pipe(a.url)})** — {a.source}{reason_text}")
+                    if desc:
+                        lines.append(f"  > {desc}")
+                    lines.append("")
+            else:
+                lines.append("### ⭐ Top Tech News")
+                lines.append("")
+                for a in must_read_articles:
+                    desc = ""
+                    if a.description:
+                        desc = re.sub(r'<[^>]+>', '', a.description.strip())[:150]
+                    lines.append(f"- **[{_escape_pipe(a.title)}]({_escape_pipe(a.url)})** — {a.source}")
+                    if desc:
+                        lines.append(f"  > {desc}")
+                    lines.append("")
+
     # Group by category using same logic as Skill-mode report
     groups = OrderedDict()
     for cat in CATEGORY_ORDER:
@@ -500,6 +539,9 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
             continue
         if source_cat in ("ai_ml", "ai_tools"):
             continue  # Safety check
+        # Skip must_read articles already rendered above
+        if has_editorial and update.extra.get("editorial_tier") == "must_read":
+            continue
         if source_cat not in groups:
             source_cat = "其他"
         groups[source_cat].append(update)

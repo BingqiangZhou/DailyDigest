@@ -18,7 +18,21 @@ def _format_articles_for_deep_analysis(articles: list[Article],
 
     When cluster_map is provided, articles belonging to the same topic
     cluster are annotated with [CLUSTER: N篇关于"theme"] markers.
+
+    When editorial tier data is present, articles are grouped into
+    tiered sections (must_read / noteworthy / brief) so the LLM
+    receives explicit editorial hierarchy signals.
     """
+    has_editorial = any(a.extra.get("editorial_tier") for a in articles)
+
+    if has_editorial:
+        return _format_articles_tiered(articles, cluster_map)
+
+    return _format_articles_flat(articles, cluster_map)
+
+
+def _format_articles_flat(articles: list[Article], cluster_map: dict = None) -> str:
+    """Format articles as a flat numbered list (original behavior)."""
     lines = []
     for i, article in enumerate(articles, 1):
         cluster_info = (cluster_map or {}).get(article.url)
@@ -35,6 +49,58 @@ def _format_articles_for_deep_analysis(articles: list[Article],
             lines.append(f"   正文片段: {full}")
         lines.append("")
     return "\n".join(lines)
+
+
+def _format_articles_tiered(articles: list[Article], cluster_map: dict = None) -> str:
+    """Format articles grouped by editorial tier for the LLM."""
+    must_read = [a for a in articles if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in articles if a.extra.get("editorial_tier") == "noteworthy"]
+    brief = [a for a in articles if a.extra.get("editorial_tier") == "brief"]
+
+    sections = []
+    idx = 1
+
+    if must_read:
+        sections.append("=== ⭐ 必读 (Must Read) — 最重要的 AI 动态 ===")
+        for article in must_read:
+            sections.extend(_format_single_article(article, idx, cluster_map))
+            idx += 1
+        sections.append("")
+
+    if noteworthy:
+        sections.append("=== 📰 值得关注 (Noteworthy) — 重要更新与研究 ===")
+        for article in noteworthy:
+            sections.extend(_format_single_article(article, idx, cluster_map))
+            idx += 1
+        sections.append("")
+
+    if brief:
+        sections.append("=== 📋 简讯 (Brief) — 常规更新 ===")
+        for article in brief:
+            sections.extend(_format_single_article(article, idx, cluster_map))
+            idx += 1
+        sections.append("")
+
+    return "\n".join(sections)
+
+
+def _format_single_article(article: Article, index: int, cluster_map: dict = None) -> list[str]:
+    """Format a single article with cluster annotation and full text."""
+    lines = []
+    cluster_info = (cluster_map or {}).get(article.url)
+    if cluster_info and cluster_info.get("cluster_size", 1) > 1:
+        lines.append(f"[CLUSTER: {cluster_info['cluster_size']}篇关于\"{cluster_info['theme']}\"]")
+
+    item_lines = format_article_item(article, index, desc_limit=300, include_source_type=True)
+    lines.extend(item_lines)
+
+    full_text_len = len(article.full_text or "")
+    full_limit = 2000 if full_text_len > 500 else 500
+    full = (article.full_text or "")[:full_limit]
+    if full:
+        lines.append(f"   正文片段: {full}")
+    lines.append("")
+    return lines
 
 
 def generate_ai_report(ai_articles: list[Article], language: str = "zh",

@@ -69,10 +69,16 @@ def _extract_article_content(html: str) -> str:
 def _select_articles_for_enrichment(articles: list[Article],
                                      cluster_map: dict = None,
                                      max_articles: int = 50,
-                                     min_cluster_score: float = 0.4) -> list[Article]:
+                                     min_cluster_score: float = 0.4,
+                                     use_editorial_depth: bool = True) -> list[Article]:
     """Select high-importance articles for full-text enrichment.
 
-    Selection criteria (OR):
+    When use_editorial_depth=True (default), selects articles with
+    editorial depth "deep_analysis". Falls back to cluster-based
+    selection when editorial data is unavailable.
+
+    Selection criteria (editorial): editorial depth == "deep_analysis"
+    Selection criteria (cluster, OR):
     - In a multi-article cluster with cross-source corroboration
     - Cluster importance score above threshold
     - Has less than 500 chars of existing content
@@ -87,13 +93,23 @@ def _select_articles_for_enrichment(articles: list[Article],
         if _should_skip_url(article.url):
             continue
 
-        # Check cluster-based importance
+        # Editorial-based selection (preferred)
+        if use_editorial_depth:
+            if article.extra.get("depth") == "deep_analysis":
+                candidates.append(article)
+                continue
+            # If no editorial data, fall through to cluster-based
+            if "editorial_tier" not in article.extra:
+                pass  # Fall through to cluster logic below
+            else:
+                continue  # Editorial data exists but not deep_analysis
+
+        # Cluster-based selection (fallback)
         cluster_info = (cluster_map or {}).get(article.url, {})
         cluster_score = cluster_info.get("score", 0)
         cluster_size = cluster_info.get("cluster_size", 1)
         cross_source = cluster_info.get("cross_source", False)
 
-        # Select if: high cluster score OR in a cross-source cluster
         is_important = (
             cluster_score >= min_cluster_score
             or (cluster_size >= 2 and cross_source)
@@ -102,9 +118,9 @@ def _select_articles_for_enrichment(articles: list[Article],
         if is_important:
             candidates.append(article)
 
-    # Sort by cluster score descending, limit count
+    # Sort by editorial score (if available) or cluster score
     candidates.sort(
-        key=lambda a: (cluster_map or {}).get(a.url, {}).get("score", 0),
+        key=lambda a: a.extra.get("news_value_score", 0) or (cluster_map or {}).get(a.url, {}).get("score", 0),
         reverse=True,
     )
     return candidates[:max_articles]

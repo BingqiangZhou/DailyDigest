@@ -41,7 +41,8 @@ HIGH_SIGNAL_KEYWORDS = {
 }
 
 # Source authority weight mapping (domain -> tier weight)
-_AUTHORITY_DOMAINS = {
+# Public constant — used by core/editorial.py for article-level scoring
+AUTHORITY_DOMAINS = {
     # Tier 1 (weight 1.0)
     "openai.com": 1.0, "anthropic.com": 1.0, "ai.google": 1.0,
     "deepmind.google": 1.0, "ai.meta.com": 1.0, "arxiv.org": 1.0,
@@ -266,7 +267,7 @@ def score_importance(cluster: dict) -> float:
     for article in articles:
         source = article.source or ""
         domain_auth = 0.4  # default tier 3
-        for domain, weight in _AUTHORITY_DOMAINS.items():
+        for domain, weight in AUTHORITY_DOMAINS.items():
             if domain in source.lower() or domain in source:
                 domain_auth = weight
                 break
@@ -291,7 +292,7 @@ def get_cluster_map(clusters: list[dict]) -> dict[str, dict]:
     """Build a url -> cluster_info lookup for enrichment.
 
     Returns:
-        dict mapping article URL to {"cluster_id": str, "theme": str, "score": float}
+        dict mapping article URL to {"cluster_id": str, "theme": str, "score": float, ...}
     """
     cluster_map = {}
     for cluster in clusters:
@@ -301,6 +302,7 @@ def get_cluster_map(clusters: list[dict]) -> dict[str, dict]:
             "score": cluster["score"],
             "cluster_size": cluster["size"],
             "cross_source": cluster["cross_source"],
+            "factor_scores": cluster.get("factor_scores", {}),
         }
         for article in cluster["articles"]:
             cluster_map[article.url] = info

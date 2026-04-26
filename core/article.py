@@ -23,6 +23,11 @@ class ArticleExtra(TypedDict, total=False):
     xiaoyuzhou_url: str
     transcript: str
     content_source: str
+    # Editorial pipeline fields (core/editorial.py)
+    news_value_score: float          # Composite 0-1 newsworthiness score
+    editorial_tier: str              # "must_read" | "noteworthy" | "brief"
+    editorial_factors: dict          # Individual factor scores for debugging
+    depth: str                       # "deep_analysis" | "summary_only" | "headline_only"
 
 
 @dataclass

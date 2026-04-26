@@ -352,7 +352,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     cluster_map = {}
     t3 = time.time()
     try:
-        logger.info("🔍 Step 4/5: Clustering topics...")
+        logger.info("🔍 Step 4/6: Clustering topics...")
         from .topic_cluster import cluster_articles, get_cluster_map
         topic_clusters = cluster_articles(new_articles)
         cluster_map = get_cluster_map(topic_clusters)
@@ -360,6 +360,13 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.info(f"✅ {len(topic_clusters)} topic clusters ({clustered} multi-article) ({time.time() - t3:.1f}s)")
     except Exception as e:
         logger.warning(f"⚠️ Topic clustering failed (non-fatal): {e}")
+
+    # Step 4.5: Editorial pipeline — scoring, tiering, depth allocation, filtering
+    try:
+        from .editorial import run_editorial_pipeline
+        new_articles, editorial_stats = run_editorial_pipeline(new_articles, cluster_map)
+    except Exception as e:
+        logger.warning(f"⚠️ Editorial pipeline failed (non-fatal): {e}")
 
     if api_key and os.environ.get("ENRICH_FULL_TEXT"):
         try:
@@ -379,7 +386,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
 
     # AI / non-AI classification + summarization
     t4 = time.time()
-    logger.info("🤖 Step 5/5: AI classification + summarization...")
+    logger.info("🤖 Step 6/6: AI classification + summarization...")
     ai_articles, non_ai_articles = filter_ai_articles(new_articles)
 
     ai_by_category = {}

@@ -226,6 +226,23 @@ AI_KEYWORDS_EN = [
 ]
 
 # ============================================================
+# Editorial Pipeline Configuration
+# ============================================================
+
+# Enable/disable the editorial pipeline (scoring, tiering, depth allocation)
+EDITORIAL_ENABLED = os.environ.get("EDITORIAL_ENABLED", "true").lower() != "false"
+
+# Minimum news value score to pass the initial filter
+EDITORIAL_NEWS_VALUE_THRESHOLD = float(os.environ.get("EDITORIAL_THRESHOLD", "0.15"))
+
+# Tier thresholds on news_value_score
+EDITORIAL_TIER_MUST_READ = float(os.environ.get("TIER_MUST_READ", "0.70"))
+EDITORIAL_TIER_NOTEWORTHY = float(os.environ.get("TIER_NOTEWORTHY", "0.40"))
+
+# HN points threshold for tier promotion
+EDITORIAL_HN_PROMOTE_THRESHOLD = int(os.environ.get("HN_PROMOTE_THRESHOLD", "200"))
+
+# ============================================================
 # AI Prompt Templates (loaded from config/prompts/)
 # ============================================================
 
