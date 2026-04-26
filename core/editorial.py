@@ -31,6 +31,9 @@ def compute_article_authority(article: Article) -> float:
     Uses AUTHORITY_DOMAINS for known domains, falls back to feed priority.
     Matches against both source name and article URL.
     """
+    # Generic subdomains that should never be used as brand matchers
+    _GENERIC_BRANDS = {"blog", "news", "docs", "api", "www", "feed", "rss", "mail", "cdn"}
+
     source = article.source or ""
     source_lower = source.lower()
 
@@ -44,10 +47,9 @@ def compute_article_authority(article: Article) -> float:
         if domain in match_text:
             return weight
         # Brand name matching for domains (e.g. "openai.com" -> "openai")
-        # Only match brands >= 4 chars to avoid false positives like "blog"
         if "." in domain:
             brand = domain.split(".")[0]
-            if len(brand) >= 4 and brand in source_lower:
+            if len(brand) >= 4 and brand not in _GENERIC_BRANDS and brand in source_lower:
                 return weight
         else:
             # Non-domain keys (e.g. "机器之心") match directly against source

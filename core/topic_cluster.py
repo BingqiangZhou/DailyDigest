@@ -43,17 +43,47 @@ HIGH_SIGNAL_KEYWORDS = {
 # Source authority weight mapping (domain -> tier weight)
 # Public constant — used by core/editorial.py for article-level scoring
 AUTHORITY_DOMAINS = {
-    # Tier 1 (weight 1.0)
+    # Tier 1 (weight 1.0) — AI labs, foundational research
     "openai.com": 1.0, "anthropic.com": 1.0, "ai.google": 1.0,
-    "deepmind.google": 1.0, "ai.meta.com": 1.0, "arxiv.org": 1.0,
-    "blog.google": 1.0, "research.google": 1.0,
-    # Tier 2 (weight 0.7)
+    "deepmind.google": 1.0, "ai.meta.com": 1.0, "llama.meta.com": 1.0,
+    "arxiv.org": 1.0, "blog.google": 1.0, "research.google": 1.0,
+    "deepseek.com": 1.0, "mistral.ai": 1.0, "x.ai": 1.0,
+    "allenai.org": 1.0, "eleuther.ai": 1.0,
+    # Tier 1 — top-tier research institutions
+    "hai.stanford.edu": 1.0, "csail.mit.edu": 1.0,
+    "microsoft.com": 1.0, "nature.com": 1.0,
+    # Tier 1 — landmark individual blogs
+    "karpathy.github.io": 1.0, "lilianweng.github.io": 1.0,
+    "simonwillison.net": 1.0, "sebastianraschka.com": 1.0,
+    # Tier 2 (weight 0.85) — premium tech media & analysis
+    "stratechery.com": 0.85, "semianalysis.com": 0.85,
+    "theinformation.com": 0.85, "technologyreview.com": 1.0,
+    "quantamagazine.org": 0.85, "platformer.news": 0.85,
+    "404media.co": 0.85, "ben-evans.com": 0.85,
+    "economist.com": 0.85, "ft.com": 0.85,
+    # Tier 2 (weight 0.7) — established tech media
     "techcrunch.com": 0.7, "theverge.com": 0.7, "wired.com": 0.7,
     "arstechnica.com": 0.7, "github.com": 0.7, "huggingface.co": 0.7,
-    "venturebeat.com": 0.7, "theinformation.com": 0.7,
-    # Tier 2 Chinese
+    "venturebeat.com": 0.7, "the-decoder.com": 0.7,
+    "theregister.com": 0.7, "thenewstack.io": 0.7,
+    "reuters.com": 0.7, "paperswithcode.com": 0.7,
+    "semanticscholar.org": 0.7, "thegradient.pub": 0.7,
+    "lesswrong.com": 0.7, "alignmentforum.org": 0.7,
+    "krebsonsecurity.com": 0.7, "bleepingcomputer.com": 0.7,
+    # Tier 2 — engineering blogs from major companies
+    "blog.cloudflare.com": 0.7, "stripe.com": 0.7,
+    "vercel.com": 0.7, "supabase.com": 0.7, "cursor.com": 0.7,
+    "eng.uber.com": 0.7, "netflixtechblog.com": 0.7,
+    "shopify.engineering": 0.7, "stackoverflow.blog": 0.7,
+    "blog.langchain.dev": 0.7, "wandb.ai": 0.7,
+    # Tier 2 — Chinese media
     "36kr.com": 0.7, "jiqizhixin.com": 0.7, "机器之心": 0.7,
-    "量子位": 0.7, "infoq.cn": 0.7,
+    "量子位": 0.7, "infoq.cn": 0.7, "新智元": 0.7,
+    # Tier 3 (weight 0.55) — aggregators, product review sites
+    "producthunt.com": 0.55, "lobste.rs": 0.55, "reddit.com": 0.55,
+    "hnrss.org": 0.55, "dev.to": 0.55,
+    "appleinsider.com": 0.55, "macrumors.com": 0.55,
+    "ithome.com": 0.55, "engadget.com": 0.55,
 }
 
 # Regex for CJK characters (including extensions)

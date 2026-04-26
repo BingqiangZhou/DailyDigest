@@ -61,6 +61,81 @@ class TestComputeArticleAuthority:
         a = _make_article(source="Unknown Source", priority=3)
         assert compute_article_authority(a) == 0.4
 
+    def test_tier1_deepseek(self):
+        a = _make_article(source="DeepSeek Blog", url="https://deepseek.com/blog")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_mistral(self):
+        a = _make_article(source="Mistral AI", url="https://mistral.ai/blog")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_xai(self):
+        a = _make_article(source="xAI Blog", url="https://x.ai/blog")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_stanford_hai(self):
+        a = _make_article(source="Stanford HAI", url="https://hai.stanford.edu/news")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_mit_csail(self):
+        a = _make_article(source="MIT CSAIL", url="https://csail.mit.edu/news")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_microsoft_research(self):
+        a = _make_article(source="Microsoft Research", url="https://microsoft.com/research")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_nature(self):
+        a = _make_article(source="Nature", url="https://nature.com/articles")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier1_mit_tech_review(self):
+        a = _make_article(source="MIT Technology Review", url="https://technologyreview.com")
+        assert compute_article_authority(a) == 1.0
+
+    def test_tier085_stratechery(self):
+        a = _make_article(source="Stratechery", url="https://stratechery.com")
+        assert compute_article_authority(a) == 0.85
+
+    def test_tier085_quanta(self):
+        a = _make_article(source="Quanta Magazine", url="https://api.quantamagazine.org/feed")
+        assert compute_article_authority(a) == 0.85
+
+    def test_tier085_economist(self):
+        a = _make_article(source="The Economist", url="https://economist.com")
+        assert compute_article_authority(a) == 0.85
+
+    def test_aggregator_downgraded_appleinsider(self):
+        """Product review sites get authority 0.55, not priority-1 fallback of 0.8."""
+        a = _make_article(source="AppleInsider", url="https://appleinsider.com", priority=1)
+        assert compute_article_authority(a) == 0.55
+
+    def test_aggregator_downgraded_macrumors(self):
+        a = _make_article(source="MacRumors", url="https://macrumors.com", priority=1)
+        assert compute_article_authority(a) == 0.55
+
+    def test_aggregator_downgraded_hnrss(self):
+        a = _make_article(source="Hacker News", url="https://hnrss.org/best", priority=1)
+        assert compute_article_authority(a) == 0.55
+
+    def test_aggregator_downgraded_ithome(self):
+        a = _make_article(source="IT之家", url="https://ithome.com", priority=1)
+        assert compute_article_authority(a) == 0.55
+
+    def test_eng_blog_cloudflare(self):
+        a = _make_article(source="Cloudflare Blog", url="https://blog.cloudflare.com")
+        assert compute_article_authority(a) == 0.7
+
+    def test_eng_blog_stripe(self):
+        a = _make_article(source="Stripe Blog", url="https://stripe.com/blog")
+        assert compute_article_authority(a) == 0.7
+
+    def test_research_source_beats_product_source(self):
+        """Semantic Scholar (p3) should have higher authority than AppleInsider (p1)."""
+        research = _make_article(source="Semantic Scholar", url="https://semanticscholar.org", priority=3)
+        product = _make_article(source="AppleInsider", url="https://appleinsider.com", priority=1)
+        assert compute_article_authority(research) > compute_article_authority(product)
+
 
 class TestComputeArticleNovelty:
     def test_no_cluster_info(self):
