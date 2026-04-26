@@ -9,17 +9,15 @@ import json
 import os
 import re
 import time
-import hashlib
 import xml.etree.ElementTree as ET
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone, timedelta
-from collections import defaultdict, OrderedDict
+from collections import defaultdict
 from urllib.parse import urlparse, parse_qs, urlunparse
 
 from .article import Article
 from .config import (
     normalize_category, get_category_display,
-    CATEGORIES, CATEGORY_ORDER, LEGACY_CATEGORY_MAP,
 )
 from .http import create_ssl_context, fetch_url, fetch_url_with_retry, error_label
 from .html_utils import strip_html, strip_html_with_bs4

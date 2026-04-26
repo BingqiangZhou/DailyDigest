@@ -162,7 +162,7 @@ def _generate_source_report(source_type, data, summaries, language):
                 report_language=language,
             )
         else:
-            report = generate_tech_report(updates, summaries, trend_insight, stats=metadata, report_language=language)
+            report = generate_tech_report(updates, summaries, trend_insight_skill=trend_insight, stats=metadata, report_language=language)
 
         logger.info(f"✅ tech report generated ({len(updates)} articles)")
         return report

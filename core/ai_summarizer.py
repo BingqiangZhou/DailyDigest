@@ -5,7 +5,6 @@ AI 摘要生成模块（OpenAI API 后端）
 
 import os
 import json
-from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import get_category_display, CATEGORY_ORDER, WECHAT_STRUCTURE_PROMPT_ZH

@@ -240,7 +240,7 @@ def _render_tiered_category(name, articles, tiered, report_language):
     return "\n".join(lines)
 
 
-def generate_tech_report(updates, summary_map=None, trend_insight=None,
+def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
                          executive_summary=None, category_results=None,
                          stats=None, report_language="zh", trend_insights=None):
     """生成科技日报 Markdown 报告
@@ -252,7 +252,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
     Args:
         updates: list of Article objects（来自 rss_fetcher）
         summary_map: dict, url -> {ai_summary, category}（来自 AI 摘要，Skill 模式）
-        trend_insight: dict with "trend_insight" key（Skill 模式）
+        trend_insight_skill: dict with "trend_insight" key (Skill mode)
         executive_summary: str, 执行摘要（API 模式）
         category_results: dict, category -> {name, summary, article_count, articles}（API 模式）
         stats: dict with metadata
@@ -343,9 +343,9 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         lines.append("---")
         lines.append("")
 
-        # 趋势洞察
-        if trend_insight:
-            insight_text = trend_insight.get("trend_insight", "")
+        # 趋势洞察 (Skill mode)
+        if trend_insight_skill:
+            insight_text = trend_insight_skill.get("trend_insight", "")
             if insight_text:
                 lines.append("## " + ("今日趋势洞察" if report_language == "zh" else "Today's Trend Insights"))
                 lines.append("")

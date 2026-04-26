@@ -6,7 +6,6 @@
 
 import re
 from collections import OrderedDict
-from datetime import datetime, timezone
 
 from .config import (
     CATEGORY_ORDER, get_category_display, normalize_category,

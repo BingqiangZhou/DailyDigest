@@ -399,7 +399,6 @@ def _generate_ai_listing_tiered(ai_articles: list[Article], language: str,
             source = article.source.replace("|", "\\|")
             desc = ""
             if article.description:
-                import re
                 desc = re.sub(r'<[^>]+>', '', article.description.strip())[:120]
             lines.append(f"| {i} | [**{title}**]({url}) | *{source}* | {desc} |")
         lines.append("")
