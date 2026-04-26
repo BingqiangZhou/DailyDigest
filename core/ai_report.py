@@ -200,14 +200,16 @@ def generate_ai_report(ai_articles: list[Article], language: str = "zh",
 
     if not response:
         logger.warning("[AI Report] ⚠️ Deep analysis failed, using listing fallback")
-        return _generate_ai_listing_fallback(ai_articles, language, summary_map=summary_map)
+        return _generate_ai_listing_fallback(ai_articles, language, summary_map=summary_map,
+                                                  cluster_map=cluster_map)
 
     logger.info("[AI Report] ✅ Deep analysis generated")
     return response.strip()
 
 
 def _generate_ai_listing_fallback(ai_articles: list[Article], language: str,
-                                   summary_map: dict = None) -> str:
+                                   summary_map: dict = None,
+                                   cluster_map: dict = None) -> str:
     """Structured fallback listing when AI API is unavailable.
 
     Produces a curated, grouped report even without LLM:
@@ -220,16 +222,17 @@ def _generate_ai_listing_fallback(ai_articles: list[Article], language: str,
         return _generate_ai_listing_tiered(ai_articles, language, summary_map)
 
     from .config import get_category_display, normalize_category
-    from .topic_cluster import cluster_articles, get_cluster_map
 
     lines = []
 
-    # Try topic clustering for better grouping (non-LLM, heuristic)
-    try:
-        topic_clusters = cluster_articles(ai_articles)
-        cluster_map = get_cluster_map(topic_clusters)
-    except Exception:
-        cluster_map = {}
+    # Use provided cluster_map or fall back to heuristic clustering
+    if cluster_map is None:
+        try:
+            from .topic_cluster import cluster_articles, get_cluster_map
+            topic_clusters = cluster_articles(ai_articles)
+            cluster_map = get_cluster_map(topic_clusters)
+        except Exception:
+            cluster_map = {}
 
     # Rank articles by authority and description richness for highlights
     def _article_rank(a):

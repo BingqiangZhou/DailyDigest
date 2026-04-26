@@ -1,6 +1,6 @@
 """Tests for core/article.py — Article dataclass and properties."""
 
-from core.article import Article
+from core.article import Article, format_article_item
 
 
 class TestArticleConstruction:
@@ -70,3 +70,47 @@ class TestArticleProperties:
     def test_rank_default(self):
         a = Article(title="T", url="http://x", source="S", category="ai_ml", published="2026-01-01")
         assert a.rank == 0
+
+
+class TestFormatArticleItem:
+    def test_basic_formatting(self):
+        a = Article(title="Test Article", url="https://example.com/1",
+                    source="Example", category="ai_ml", published="2026-01-01")
+        lines = format_article_item(a, 1)
+        assert lines[0] == "1. [🇺🇸] Test Article"
+        assert "来源: Example" in lines[1]
+        assert "链接: https://example.com/1" in lines[2]
+
+    def test_engagement_data_shown(self):
+        a = Article(title="HN Post", url="https://hn.test/1",
+                    source="HN", category="ai_ml", published="2026-01-01",
+                    extra={"hn_points": 150, "hn_comments": 42})
+        lines = format_article_item(a, 1)
+        joined = "\n".join(lines)
+        assert "热度" in joined
+        assert "150赞" in joined
+        assert "42评" in joined
+
+    def test_no_engagement_when_zero(self):
+        a = Article(title="No HN", url="https://test/1",
+                    source="Test", category="ai_ml", published="2026-01-01",
+                    extra={"hn_points": 0, "hn_comments": 0})
+        lines = format_article_item(a, 1)
+        joined = "\n".join(lines)
+        assert "热度" not in joined
+
+    def test_description_included(self):
+        a = Article(title="T", url="https://test/1",
+                    source="S", category="ai_ml", published="2026-01-01",
+                    description="A long description of the article content")
+        lines = format_article_item(a, 1, desc_limit=50)
+        joined = "\n".join(lines)
+        assert "摘要" in joined
+        assert "A long description" in joined
+
+    def test_source_type_included(self):
+        a = Article(title="T", url="https://test/1",
+                    source="S", category="ai_ml", published="2026-01-01")
+        lines = format_article_item(a, 1, include_source_type=True)
+        joined = "\n".join(lines)
+        assert "来源类型" in joined
