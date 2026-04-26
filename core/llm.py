@@ -42,7 +42,7 @@ def get_llm_client():
         if not api_key:
             raise ValueError("API_KEY environment variable is required")
         base_url = os.environ.get("BASE_URL") or DEFAULT_BASE_URL
-        _client = OpenAI(api_key=api_key, base_url=base_url, timeout=120, max_retries=2)
+        _client = OpenAI(api_key=api_key, base_url=base_url, timeout=120, max_retries=0)
     return _client
 
 
@@ -51,7 +51,7 @@ def get_model():
     return os.environ.get("MODEL") or DEFAULT_MODEL
 
 
-def chat_completion(client, prompt, max_tokens=4000, max_retries=3,
+def chat_completion(client, prompt, max_tokens=4000, max_retries=2,
                     temperature=None, top_p=None):
     """Call OpenAI-compatible API with retry logic."""
     model = get_model()
@@ -79,7 +79,7 @@ def chat_completion(client, prompt, max_tokens=4000, max_retries=3,
     return None
 
 
-def chat_with_profile(client, prompt, profile_name, max_retries=3):
+def chat_with_profile(client, prompt, profile_name, max_retries=2):
     """Call chat_completion with task-specific parameters from TASK_PROFILES."""
     profile = TASK_PROFILES.get(profile_name, TASK_PROFILES["summarize"])
     return chat_completion(client, prompt,

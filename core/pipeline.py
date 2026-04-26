@@ -8,7 +8,9 @@ report_builder.py and workspace.py respectively.
 
 import json
 import os
+import time
 from datetime import datetime, timezone
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .logging_config import get_logger
 from .workspace import (
@@ -267,11 +269,12 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     from .dedup import filter_and_mark, cleanup_old_entries
     from .ai_filter import filter_ai_articles
 
+    t_start = time.time()
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
 
-    # Step 1: Fetch tech RSS
-    logger.info("\n📡 Step 1/5: Fetching tech RSS...")
+    # Step 1+2: Fetch tech RSS and WeChat in parallel
+    logger.info("\n📡 Step 1/5: Fetching tech RSS + WeChat in parallel...")
     config = load_feed_config("tech")
     feed_list = [
         {"name": f["name"], "url": f["url"], "category": c["name"],
@@ -285,33 +288,40 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.info(f"   (limit mode: first {limit} sources)")
     settings = config.get("settings", {})
 
-    if api_key:
-        from .rss_fetcher import fetch_feeds_feedparser
-        articles_by_category, tech_stats = fetch_feeds_feedparser(
-            feed_list, hours=settings.get("hours_back", hours),
-            max_per_feed=settings.get("max_articles_per_feed", 10)
-        )
-        tech_articles = [a for arts in articles_by_category.values() for a in arts]
-    else:
-        from .rss_fetcher import fetch_feeds_stdlib
-        cache, cache_path = load_http_cache(".http_cache.json")
-        updates, tech_stats, new_cache = fetch_feeds_stdlib(
-            feed_list, hours=hours, workers=20, cache=cache,
-            timeout=settings.get("timeout_seconds"),
-            max_per_source=settings.get("max_per_source", 30),
-        )
-        save_http_cache(cache_path, new_cache)
-        tech_articles = updates
+    def _fetch_tech():
+        if api_key:
+            from .rss_fetcher import fetch_feeds_feedparser
+            articles_by_category, tech_stats = fetch_feeds_feedparser(
+                feed_list, hours=settings.get("hours_back", hours),
+                max_per_feed=settings.get("max_articles_per_feed", 10)
+            )
+            return [a for arts in articles_by_category.values() for a in arts], tech_stats
+        else:
+            from .rss_fetcher import fetch_feeds_stdlib
+            cache, cache_path = load_http_cache(".http_cache.json")
+            updates, stats, new_cache = fetch_feeds_stdlib(
+                feed_list, hours=hours, workers=20, cache=cache,
+                timeout=settings.get("timeout_seconds"),
+                max_per_source=settings.get("max_per_source", 30),
+            )
+            save_http_cache(cache_path, new_cache)
+            return updates, stats
+
+    wechat_hours = min(hours, 25)
+
+    t1 = time.time()
+    tech_articles, tech_stats = [], {}
+    wechat_articles, wechat_stats = [], {}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        tech_future = pool.submit(_fetch_tech)
+        wechat_future = pool.submit(_fetch_wechat_articles, wechat_hours, limit)
+        tech_articles, tech_stats = tech_future.result()
+        wechat_articles, wechat_stats = wechat_future.result()
+    logger.info(f"⏱️ RSS fetch completed in {time.time() - t1:.1f}s "
+                f"(tech: {len(tech_articles)}, wechat: {len(wechat_articles)})")
 
     if not tech_articles:
         logger.warning("⚠️ No tech articles fetched.")
-
-    # Step 2: Fetch WeChat
-    logger.info("\n📱 Step 2/5: Fetching WeChat articles...")
-    wechat_hours = min(hours, 25)
-    wechat_articles, wechat_stats = _fetch_wechat_articles(
-        hours=wechat_hours, limit=limit
-    )
 
     # Step 3: Merge + dedup
     all_articles = tech_articles + wechat_articles
@@ -319,13 +329,14 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.warning("⚠️ No articles from any source.")
         return None
 
+    t2 = time.time()
     logger.info(f"\n🔍 Step 3/5: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
     cleanup_old_entries(days=30)
     new_articles = filter_and_mark(all_articles)
     if not new_articles:
         logger.warning("⚠️ All articles already processed.")
         return None
-    logger.info(f"✅ {len(new_articles)} new articles total")
+    logger.info(f"✅ {len(new_articles)} new articles total ({time.time() - t2:.1f}s)")
 
     def _is_wechat_article(a):
         return a.category.startswith("wechat_") or "mp.weixin.qq.com" in a.url
@@ -339,21 +350,24 @@ def run_tech_unified(hours=48, language="zh", limit=None):
 
     # Step 4: Cluster + classify + summarize
     cluster_map = {}
+    t3 = time.time()
     try:
         logger.info("🔍 Step 4/5: Clustering topics...")
         from .topic_cluster import cluster_articles, get_cluster_map
         topic_clusters = cluster_articles(new_articles)
         cluster_map = get_cluster_map(topic_clusters)
         clustered = sum(1 for c in topic_clusters if c["size"] > 1)
-        logger.info(f"✅ {len(topic_clusters)} topic clusters ({clustered} multi-article)")
+        logger.info(f"✅ {len(topic_clusters)} topic clusters ({clustered} multi-article) ({time.time() - t3:.1f}s)")
     except Exception as e:
         logger.warning(f"⚠️ Topic clustering failed (non-fatal): {e}")
 
     if api_key and os.environ.get("ENRICH_FULL_TEXT"):
         try:
+            t_enrich = time.time()
             logger.info("📖 Enriching high-importance articles...")
             from .enrich import enrich_tech_articles
             new_articles, _ = enrich_tech_articles(new_articles, cluster_map=cluster_map)
+            logger.info(f"⏱️ Enrichment completed in {time.time() - t_enrich:.1f}s")
         except Exception as e:
             logger.warning(f"⚠️ Full-text enrichment failed (non-fatal): {e}")
 
@@ -363,8 +377,9 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.info("   python main.py --source tech --finalize")
         return None
 
-    # AI / non-AI classification
-    logger.info("🤖 Step 5/5: AI classification + unified report...")
+    # AI / non-AI classification + summarization
+    t4 = time.time()
+    logger.info("🤖 Step 5/5: AI classification + summarization...")
     ai_articles, non_ai_articles = filter_ai_articles(new_articles)
 
     ai_by_category = {}
@@ -379,6 +394,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         )
     else:
         category_results, executive_summary = {}, ""
+    logger.info(f"⏱️ AI pipeline completed in {time.time() - t4:.1f}s")
 
     now = datetime.now(timezone.utc)
     report = build_unified_report(
@@ -393,6 +409,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         "tech": len(tech_new),
         "wechat": len(wechat_new),
     }
+    logger.info(f"⏱️ Total pipeline time: {time.time() - t_start:.1f}s")
     return report, combined_stats
 
 
@@ -403,6 +420,7 @@ def run_podcast(hours=24, limit=None):
     from .podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report
     from .dedup import filter_and_mark
 
+    t_start = time.time()
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
 
@@ -428,9 +446,11 @@ def run_podcast(hours=24, limit=None):
         for p in podcasts if p.get("url")
     ]
 
+    t1 = time.time()
     cache, cache_path = load_http_cache(".podcast_http_cache.json")
     raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=30, cache=cache)
     save_http_cache(cache_path, new_cache)
+    logger.info(f"⏱️ Podcast RSS fetch completed in {time.time() - t1:.1f}s")
 
     raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
@@ -444,8 +464,10 @@ def run_podcast(hours=24, limit=None):
 
     logger.info(f"✅ {len(raw_updates)} podcast updates")
 
+    t2 = time.time()
     logger.info("🔗 Step 2/3: Resolving xiaoyuzhou URLs...")
     updates = resolve_xiaoyuzhou_urls(raw_updates)
+    logger.info(f"⏱️ URL resolution completed in {time.time() - t2:.1f}s")
 
     updates_path = save_workspace_updates("podcast", updates, stats)
 
@@ -459,6 +481,7 @@ def run_podcast(hours=24, limit=None):
         report = generate_podcast_report(updates, metadata=stats)
         _log_no_api_key("podcast", updates_path)
 
+    logger.info(f"⏱️ Total podcast pipeline time: {time.time() - t_start:.1f}s")
     return report, {"total_episodes": len(updates)}
 
 

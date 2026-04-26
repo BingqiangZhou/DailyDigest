@@ -6,6 +6,7 @@ category matching, AI API classification, or keyword fallback.
 
 import json
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .article import Article
 from .llm_utils import parse_llm_json
@@ -43,43 +44,55 @@ def _keyword_filter(articles: list[Article]) -> list[Article]:
     return results
 
 
+def _classify_batch(client, batch, batch_idx, total_batches, language):
+    """Classify a single batch of articles. Returns list of AI-relevant articles."""
+    logger.info(f"[AI Filter] 🤖 batch {batch_idx + 1}/{total_batches} ({len(batch)} articles)...")
+    articles_text = "\n\n".join(
+        _article_to_filter_item(i, a) for i, a in enumerate(batch, start=1)
+    )
+    prompt_template = AI_FILTER_PROMPT_ZH if language == "zh" else AI_FILTER_PROMPT_EN
+    prompt = prompt_template.format(articles=articles_text)
+
+    response = chat_with_profile(client, prompt, "classify")
+    if not response:
+        logger.warning(f"[AI Filter] ⚠️ batch {batch_idx + 1} API failed, using keyword fallback")
+        return _keyword_filter(batch)
+
+    try:
+        classifications = parse_llm_json(response)
+        results = []
+        for i, article in enumerate(batch, start=1):
+            if classifications.get(str(i), False):
+                results.append(article)
+        ai_count = sum(1 for v in classifications.values() if v)
+        logger.info(f"[AI Filter] ✅ batch {batch_idx + 1}: {ai_count} AI articles")
+        return results
+    except (ValueError, json.JSONDecodeError):
+        logger.warning(f"[AI Filter] ⚠️ batch {batch_idx + 1} JSON parse failed, using keyword fallback")
+        return _keyword_filter(batch)
+
+
 def _api_filter(articles: list[Article], batch_size: int = 50) -> list[Article]:
-    """AI API-based batch classification for AI relevance."""
+    """AI API-based batch classification for AI relevance (concurrent batches)."""
     from .llm import get_llm_client, chat_with_profile
 
     client = get_llm_client()
     language = os.environ.get("REPORT_LANGUAGE", "zh")
 
+    batches = []
+    for i in range(0, len(articles), batch_size):
+        batches.append(articles[i:i + batch_size])
+    total_batches = len(batches)
+
     results = []
-    total_batches = (len(articles) + batch_size - 1) // batch_size
-
-    for batch_idx in range(total_batches):
-        start = batch_idx * batch_size
-        batch = articles[start:start + batch_size]
-        logger.info(f"[AI Filter] 🤖 batch {batch_idx + 1}/{total_batches} ({len(batch)} articles)...")
-
-        articles_text = "\n\n".join(
-            _article_to_filter_item(i, a) for i, a in enumerate(batch, start=1)
-        )
-        prompt_template = AI_FILTER_PROMPT_ZH if language == "zh" else AI_FILTER_PROMPT_EN
-        prompt = prompt_template.format(articles=articles_text)
-
-        response = chat_with_profile(client, prompt, "classify")
-        if not response:
-            logger.warning(f"[AI Filter] ⚠️ batch {batch_idx + 1} API failed, using keyword fallback")
-            results.extend(_keyword_filter(batch))
-            continue
-
-        try:
-            classifications = parse_llm_json(response)
-            for i, article in enumerate(batch, start=1):
-                if classifications.get(str(i), False):
-                    results.append(article)
-            ai_count = sum(1 for v in classifications.values() if v)
-            logger.info(f"[AI Filter] ✅ batch {batch_idx + 1}: {ai_count} AI articles")
-        except (ValueError, json.JSONDecodeError):
-            logger.warning(f"[AI Filter] ⚠️ batch {batch_idx + 1} JSON parse failed, using keyword fallback")
-            results.extend(_keyword_filter(batch))
+    max_workers = min(3, total_batches)
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_classify_batch, client, batch, idx, total_batches, language): idx
+            for idx, batch in enumerate(batches)
+        }
+        for future in as_completed(futures):
+            results.extend(future.result())
 
     return results
 
@@ -89,12 +102,6 @@ def filter_ai_articles(articles: list[Article]) -> tuple[list[Article], list[Art
 
     Articles in AI_DIGEST_DIRECT_CATEGORIES are always included in ai_articles.
     All other articles are classified by AI API (with keyword fallback).
-
-    Args:
-        articles: all processed articles from all sources
-
-    Returns:
-        tuple of (ai_relevant_articles, non_ai_articles)
     """
     ai_direct = []
     to_classify = []
@@ -110,13 +117,11 @@ def filter_ai_articles(articles: list[Article]) -> tuple[list[Article], list[Art
     if not to_classify:
         return ai_direct, []
 
-    # Use API classification if API_KEY is available, else keyword fallback
     if os.environ.get("API_KEY"):
         ai_classified = _api_filter(to_classify)
     else:
         ai_classified = _keyword_filter(to_classify)
 
-    # Split classified articles
     ai_urls = {a.url for a in ai_classified}
     ai_articles = ai_direct + ai_classified
     non_ai_articles = [a for a in to_classify if a.url not in ai_urls]
