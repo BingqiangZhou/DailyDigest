@@ -1,0 +1,212 @@
+"""Tests for core/ai_filter.py — relevance filter and feed noise filter."""
+
+import pytest
+from core.article import Article
+from core.ai_filter import _is_likely_ai_article, _hard_ai_relevance_check, apply_feed_noise_filter
+
+
+def _make_article(title="Test", description="", extra=None):
+    return Article(
+        title=title,
+        url="https://example.com/test",
+        source="TestSource",
+        category="ai_ml",
+        published="2026-04-27T08:00:00",
+        description=description,
+        extra=extra or {},
+    )
+
+
+class TestIsLikelyAiArticle:
+    def test_ai_title_passes(self):
+        a = _make_article(title="OpenAI announces GPT-5")
+        assert _is_likely_ai_article(a) is True
+
+    def test_ai_description_passes(self):
+        a = _make_article(description="A new machine learning model for image recognition")
+        assert _is_likely_ai_article(a) is True
+
+    def test_chinese_ai_title_passes(self):
+        a = _make_article(title="大模型推理能力新突破")
+        assert _is_likely_ai_article(a) is True
+
+    def test_wildlife_article_rejected(self):
+        a = _make_article(title="Wildlife arriving at newly created wetland")
+        assert _is_likely_ai_article(a) is False
+
+    def test_exercise_post_rejected(self):
+        a = _make_article(title="Did anyone here used to hate exercise?")
+        assert _is_likely_ai_article(a) is False
+
+    def test_ai_policy_article_passes(self):
+        a = _make_article(title="EU proposes new AI regulation framework")
+        assert _is_likely_ai_article(a) is True
+
+
+class TestHardAiRelevanceCheck:
+    def test_ai_title_passes(self):
+        a = _make_article(title="OpenAI announces GPT-5")
+        assert _hard_ai_relevance_check(a) is True
+
+    def test_wildlife_rejected(self):
+        a = _make_article(title="Wildlife arriving at newly created wetland")
+        assert _hard_ai_relevance_check(a) is False
+
+    def test_exercise_rejected(self):
+        a = _make_article(title="Did anyone here used to hate exercise?")
+        assert _hard_ai_relevance_check(a) is False
+
+    def test_wildfire_rejected(self):
+        a = _make_article(title="Series of wildfires across Scotland")
+        assert _hard_ai_relevance_check(a) is False
+
+    def test_orangutan_rejected(self):
+        a = _make_article(title="How one orangutan braved new bridge")
+        assert _hard_ai_relevance_check(a) is False
+
+    def test_ai_keyword_in_full_text_passes(self):
+        a = _make_article(
+            title="New research breakthrough",
+            description="",
+        )
+        a.full_text = "This paper introduces a novel transformer architecture for AI."
+        assert _hard_ai_relevance_check(a) is True
+
+    def test_no_text_no_ai_rejected(self):
+        a = _make_article(title="Random title", description="", extra={})
+        a.full_text = ""
+        assert _hard_ai_relevance_check(a) is False
+
+
+class TestApplyFeedNoiseFilter:
+    def test_no_filter_flag_passes_all(self):
+        articles = [
+            _make_article(title="Wildlife at wetland", extra={"_feed_meta": {}}),
+            _make_article(title="AI breakthrough", extra={"_feed_meta": {}}),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 2
+
+    def test_ai_only_filter_removes_noise(self):
+        articles = [
+            _make_article(
+                title="Wildlife arriving at newly created wetland",
+                extra={"_feed_meta": {"noise_filter": "ai_only"}},
+            ),
+            _make_article(
+                title="GPT-5 shows improved reasoning",
+                extra={"_feed_meta": {"noise_filter": "ai_only"}},
+            ),
+            _make_article(
+                title="Exercise and fitness tips",
+                extra={"_feed_meta": {"noise_filter": "ai_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        # Only the AI-related article passes both noise filter and relevance check
+        assert len(result) == 1
+        assert result[0].title == "GPT-5 shows improved reasoning"
+
+    def test_ai_content_passes_noise_filter(self):
+        articles = [
+            _make_article(
+                title="AI alignment research progress",
+                extra={"_feed_meta": {"noise_filter": "ai_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 1
+
+    def test_underscore_noise_filter_key_works(self):
+        """Verify _noise_filter (as set by feedparser path) is recognized."""
+        articles = [
+            _make_article(
+                title="Wildlife arriving at newly created wetland",
+                extra={"_feed_meta": {"_noise_filter": "ai_only"}},
+            ),
+            _make_article(
+                title="GPT-5 shows improved reasoning",
+                extra={"_feed_meta": {"_noise_filter": "ai_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 1
+        assert result[0].title == "GPT-5 shows improved reasoning"
+
+
+class TestTechOnlyNoiseFilter:
+    def test_political_news_filtered(self):
+        articles = [
+            _make_article(
+                title="Trump fires the entire National Science Board",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+            _make_article(
+                title="Apple announces new M5 chip with AI acceleration",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 1
+        assert "Apple" in result[0].title
+
+    def test_shooting_crime_filtered(self):
+        articles = [
+            _make_article(
+                title="Shooting at White House dinner injures three",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+            _make_article(
+                title="OpenAI launches new API for function calling",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 1
+        assert "OpenAI" in result[0].title
+
+    def test_stock_picks_filtered(self):
+        articles = [
+            _make_article(
+                title="Top Wall Street analysts pick these 3 dividend stocks",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+            _make_article(
+                title="NVIDIA stock rises on strong AI chip demand",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 1
+        assert "NVIDIA" in result[0].title
+
+    def test_celebrity_entertainment_filtered(self):
+        articles = [
+            _make_article(
+                title="Celebrity red carpet fashion at the Oscars",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 0
+
+    def test_tech_content_passes(self):
+        articles = [
+            _make_article(
+                title="New robotic control software avoids jamming their joints",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+            _make_article(
+                title="I tried 7 voice typing apps on Windows",
+                extra={"_feed_meta": {"noise_filter": "tech_only"}},
+            ),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 2
+
+    def test_no_filter_passes_all(self):
+        articles = [
+            _make_article(title="Some random article", extra={"_feed_meta": {}}),
+        ]
+        result = apply_feed_noise_filter(articles)
+        assert len(result) == 1

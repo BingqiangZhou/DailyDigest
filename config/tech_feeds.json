@@ -27,7 +27,8 @@
           "name": "LessWrong",
           "url": "https://www.lesswrong.com/feed.xml",
           "language": "en",
-          "priority": 1
+          "priority": 3,
+          "noise_filter": "ai_only"
         },
         {
           "name": "Lil'Log (Lilian Weng)",
@@ -113,12 +114,6 @@
           "language": "en",
           "priority": 2,
           "max_articles": 10
-        },
-        {
-          "name": "BBC Science",
-          "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
-          "language": "en",
-          "priority": 2
         },
         {
           "name": "Center for AI Safety",
@@ -213,12 +208,6 @@
         {
           "name": "NVIDIA AI Blog",
           "url": "https://blogs.nvidia.com/blog/feed/",
-          "language": "en",
-          "priority": 2
-        },
-        {
-          "name": "Nature News",
-          "url": "https://www.nature.com/nature.rss",
           "language": "en",
           "priority": 2
         },
@@ -455,6 +444,20 @@
       "display": "🌐 综合科技",
       "feeds": [
         {
+          "name": "BBC Science",
+          "url": "https://feeds.bbci.co.uk/news/science_and_environment/rss.xml",
+          "language": "en",
+          "priority": 2,
+          "noise_filter": "ai_only"
+        },
+        {
+          "name": "Nature News",
+          "url": "https://www.nature.com/nature.rss",
+          "language": "en",
+          "priority": 2,
+          "noise_filter": "ai_only"
+        },
+        {
           "name": "36氪",
           "url": "https://36kr.com/feed",
           "language": "zh",
@@ -530,13 +533,15 @@
           "name": "Axios AI",
           "url": "https://api.axios.com/feed/",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "BBC Tech",
           "url": "https://feeds.bbci.co.uk/news/technology/rss.xml",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "ByteByteGo (Alex Xu)",
@@ -548,7 +553,8 @@
           "name": "CNBC Technology",
           "url": "https://www.cnbc.com/id/100003114/device/rss/rss.html",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "DeepTech深科技",
@@ -590,19 +596,22 @@
           "name": "Reddit r/technology",
           "url": "https://www.reddit.com/r/technology/top.rss?t=day",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Rest of World",
           "url": "https://restofworld.org/feed/",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Rest of World China",
           "url": "https://restofworld.org/section/china/feed/",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Reuters Tech",
@@ -650,7 +659,8 @@
           "name": "The Guardian Tech",
           "url": "https://www.theguardian.com/technology/rss",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "The Information (Tech)",
@@ -698,7 +708,8 @@
           "name": "少数派",
           "url": "https://sspai.com/feed",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "差评",
@@ -710,7 +721,8 @@
           "name": "果壳",
           "url": "https://www.guokr.com/rss/",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "爱范儿",
@@ -746,13 +758,15 @@
           "name": "Ars Technica",
           "url": "https://feeds.arstechnica.com/arstechnica/index",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Dev.to",
           "url": "https://dev.to/feed/",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "FreeCodeCamp",
@@ -782,13 +796,15 @@
           "name": "Marginal Revolution",
           "url": "https://marginalrevolution.com/feed/",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "NPR Technology",
           "url": "https://feeds.npr.org/1019/rss.xml",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Netflix Tech Blog",
@@ -812,13 +828,15 @@
           "name": "The Verge",
           "url": "https://www.theverge.com/rss/index.xml",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "The Verge Science",
           "url": "https://www.theverge.com/rss/science/index.xml",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Uber Engineering",
@@ -830,31 +848,36 @@
           "name": "V2EX",
           "url": "https://www.v2ex.com/index.xml",
           "language": "zh",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Wired",
           "url": "https://www.wired.com/feed/rss",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Wired Business",
           "url": "https://www.wired.com/feed/tag/business/rss",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Wired Science",
           "url": "https://www.wired.com/feed/tag/science/rss",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "掘金",
           "url": "https://rsshub.app/juejin/trending/weekly",
           "language": "zh",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "阮一峰的网络日志",
@@ -1112,7 +1135,8 @@
           "name": "The Verge Reviews",
           "url": "https://www.theverge.com/rss/reviews/index.xml",
           "language": "en",
-          "priority": 1
+          "priority": 1,
+          "noise_filter": "tech_only"
         },
         {
           "name": "极客公园",
@@ -1274,7 +1298,8 @@
           "name": "The Verge Creators",
           "url": "https://www.theverge.com/rss/creators/index.xml",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "The Verge Entertainment",
@@ -1472,121 +1497,141 @@
           "name": "BBC News",
           "url": "http://feeds.bbci.co.uk/news/rss.xml",
           "language": "en",
-          "priority": 1
+          "priority": 1,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Reuters",
           "url": "https://feeds.reuters.com/reuters/topNews",
           "language": "en",
-          "priority": 1
+          "priority": 1,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Al Jazeera",
           "url": "https://www.aljazeera.com/xml/rss/all.xml",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "BBC Business",
           "url": "https://feeds.bbci.co.uk/news/business/rss.xml",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "BBC World",
           "url": "https://feeds.bbci.co.uk/news/world/rss.xml",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "CNN",
           "url": "http://rss.cnn.com/rss/edition.rss",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "NYT",
           "url": "https://rss.nytimes.com/services/xml/rss/nyt/HomePage.xml",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Nikkei Asia",
           "url": "https://asia.nikkei.com/rss/feed",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Politico",
           "url": "https://www.politico.com/rss/politics.xml",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "ProPublica",
           "url": "https://www.propublica.org/feed/",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Reuters Business",
           "url": "https://feeds.reuters.com/reuters/businessNews",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Reuters World",
           "url": "https://feeds.reuters.com/reuters/worldNews",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "South China Morning Post",
           "url": "https://www.scmp.com/rss/91/feed",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "The Atlantic",
           "url": "https://www.theatlantic.com/feed/rss/",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "The Intercept",
           "url": "https://theintercept.com/feed/?lang=en",
           "language": "en",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "南方周末",
           "url": "https://www.infzm.com/rss",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "澎湃新闻",
           "url": "https://rsshub.app/thepaper/newsDetail",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "界面新闻",
           "url": "https://www.jiemian.com/feed",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "第一财经",
           "url": "https://www.yicai.com/rss/",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "财新网",
           "url": "https://rsshub.app/caixin/latest",
           "language": "zh",
-          "priority": 2
+          "priority": 2,
+          "noise_filter": "tech_only"
         },
         {
           "name": "财新英文",
@@ -1598,25 +1643,29 @@
           "name": "Slate",
           "url": "https://slate.com/feed",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Vox",
           "url": "https://www.vox.com/rss/index.xml",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "Wired Politics",
           "url": "https://www.wired.com/feed/tag/politics/rss",
           "language": "en",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         },
         {
           "name": "经济观察报",
           "url": "https://www.eeo.com.cn/rss",
           "language": "zh",
-          "priority": 3
+          "priority": 3,
+          "noise_filter": "tech_only"
         }
       ]
     }
