@@ -292,7 +292,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
             lines.append("")
 
         # 趋势洞察 (API mode)
-        if trend_insights:
+        if trend_insights and trend_insights.strip() and len(trend_insights.strip()) > 10:
             trend_label = "📊 趋势洞察" if report_language == "zh" else "📊 Trend Insights"
             lines.append(f"### {trend_label}")
             lines.append("")

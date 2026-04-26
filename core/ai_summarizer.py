@@ -125,6 +125,11 @@ def generate_trend_insights(client, category_summaries, total_stats, report_lang
     if result is None:
         logger.warning("[AI] ⚠️ 趋势洞察生成失败")
         return ""
+
+    result = strip_code_fences(result)
+    if not result or not result.strip():
+        return ""
+
     return result
 
 
@@ -176,7 +181,7 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
                     "article_count": len(articles),
                     "articles": articles[:15],
                 }
-                category_summaries_for_exec[category_name] = summary[:200]
+                category_summaries_for_exec[category_name] = summary[:500]
                 logger.info(f"[AI] ✅ [{completed}/{total}] 「{category_name}」完成")
             else:
                 logger.error(f"[AI] ❌ [{completed}/{total}] 「{category_name}」失败")

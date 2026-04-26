@@ -7,6 +7,7 @@ import os
 import time
 
 from .logging_config import get_logger
+from .llm_utils import strip_code_fences
 
 logger = get_logger("llm")
 
@@ -123,17 +124,17 @@ def generate_with_critique(client, prompt, profile_name, critique_template, lang
 
     # Skip critique if env var is set or critique template is empty
     if os.environ.get("SKIP_CRITIQUE") or not critique_template:
-        return draft
+        return strip_code_fences(draft)
 
     # Pass 2: Critique
     critique_prompt = critique_template.format(draft=draft)
     critique = chat_with_profile(client, critique_prompt, "critique")
     if not critique:
-        return draft
+        return strip_code_fences(draft)
 
     # If critique says no changes needed, return draft as-is
     if _is_no_change_response(critique):
-        return draft
+        return strip_code_fences(draft)
 
     # Pass 3: Refine based on critique
     if language == "en":
@@ -162,4 +163,5 @@ Output only the improved version, nothing else."""
 只输出改进后的版本，不要输出其他内容。"""
 
     refined = chat_with_profile(client, refine_prompt, profile_name)
-    return refined if refined else draft
+    result = refined if refined else draft
+    return strip_code_fences(result)
