@@ -1,10 +1,19 @@
 """Tests for core/report_generator.py — table rendering and utilities."""
 
+import os
 from datetime import datetime, timezone
+from unittest.mock import patch, MagicMock
 
 from core.article import Article
 from core.report_generator import _escape_pipe, _render_hn_table, generate_tech_report, _select_non_ai_articles
 from core.report_builder import _merge_llm_summaries, build_unified_report, _generate_importance_reason
+
+
+def _no_api_key():
+    """Context manager that ensures API_KEY is unset."""
+    env = dict(os.environ)
+    env.pop("API_KEY", None)
+    return patch.dict(os.environ, env, clear=True)
 
 
 class TestEscapePipe:
@@ -271,7 +280,6 @@ class TestMultilineBlockquote:
 
 class TestUnifiedReportToc:
     def test_toc_present_in_two_part_report(self):
-        from datetime import datetime, timezone
         ai_article = Article(
             title="AI article", url="https://test/ai",
             source="TestSource", category="ai_ml",
@@ -285,18 +293,18 @@ class TestUnifiedReportToc:
             extra={},
         )
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-        report = build_unified_report(
-            [ai_article], [non_ai_article], now, "zh",
-            llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
-            executive_summary="Test summary",
-        )
+        with _no_api_key():
+            report = build_unified_report(
+                [ai_article], [non_ai_article], now, "zh",
+                llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
+                executive_summary="Test summary",
+            )
         assert "📑 快速导航" in report
         assert "AI 深度日报" in report
         assert "科技动态" in report
         assert "🔥 今日亮点" in report
 
     def test_no_toc_when_only_one_part(self):
-        from datetime import datetime, timezone
         ai_article = Article(
             title="AI article", url="https://test/ai",
             source="TestSource", category="ai_ml",
@@ -304,10 +312,11 @@ class TestUnifiedReportToc:
             extra={"editorial_tier": "noteworthy", "news_value_score": 0.5},
         )
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-        report = build_unified_report(
-            [ai_article], [], now, "zh",
-            llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
-        )
+        with _no_api_key():
+            report = build_unified_report(
+                [ai_article], [], now, "zh",
+                llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
+            )
         assert "📑" not in report
         # Highlights should still appear for articles with tier data
         assert "🔥 今日亮点" in report
@@ -320,10 +329,11 @@ class TestUnifiedReportToc:
             extra={"editorial_tier": "noteworthy", "news_value_score": 0.5},
         )
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-        report = build_unified_report(
-            [ai_article], [], now, "zh",
-            llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
-        )
+        with _no_api_key():
+            report = build_unified_report(
+                [ai_article], [], now, "zh",
+                llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
+            )
         assert "---\n---" not in report
 
 
