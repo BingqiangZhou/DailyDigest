@@ -90,7 +90,6 @@ def generate_executive_summary(client, category_summaries, total_stats, report_l
             category_summaries=json.dumps(category_summaries, ensure_ascii=False, indent=2),
         )
 
-    from .config import CATEGORY_SUMMARY_CRITIQUE
     from config.prompts.critique import get_category_summary_critique
     critique_template = get_category_summary_critique(report_language)
     summary = generate_with_critique(client, prompt, "summarize", critique_template, language=report_language)
