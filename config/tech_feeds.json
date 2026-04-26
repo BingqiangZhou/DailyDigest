@@ -110,7 +110,7 @@
         },
         {
           "name": "ArXiv ML (cs.LG)",
-          "url": "http://export.arxiv.org/rss/cs.LG",
+          "url": "https://export.arxiv.org/rss/cs.LG",
           "language": "en",
           "priority": 2,
           "max_articles": 10
@@ -285,21 +285,21 @@
         },
         {
           "name": "ArXiv CL (cs.CL)",
-          "url": "http://export.arxiv.org/rss/cs.CL",
+          "url": "https://export.arxiv.org/rss/cs.CL",
           "language": "en",
           "priority": 3,
           "max_articles": 10
         },
         {
           "name": "ArXiv CV (cs.CV)",
-          "url": "http://export.arxiv.org/rss/cs.CV",
+          "url": "https://export.arxiv.org/rss/cs.CV",
           "language": "en",
           "priority": 3,
           "max_articles": 10
         },
         {
           "name": "ArXiv RO (cs.RO)",
-          "url": "http://export.arxiv.org/rss/cs.RO",
+          "url": "https://export.arxiv.org/rss/cs.RO",
           "language": "en",
           "priority": 3,
           "max_articles": 10
@@ -378,7 +378,7 @@
         },
         {
           "name": "arXiv AI (cs.AI)",
-          "url": "http://export.arxiv.org/rss/cs.AI",
+          "url": "https://export.arxiv.org/rss/cs.AI",
           "language": "en",
           "priority": 3,
           "max_articles": 10
@@ -1495,7 +1495,7 @@
       "feeds": [
         {
           "name": "BBC News",
-          "url": "http://feeds.bbci.co.uk/news/rss.xml",
+          "url": "https://feeds.bbci.co.uk/news/rss.xml",
           "language": "en",
           "priority": 1,
           "noise_filter": "tech_only"
@@ -1523,7 +1523,7 @@
         },
         {
           "name": "CNN",
-          "url": "http://rss.cnn.com/rss/edition.rss",
+          "url": "https://rss.cnn.com/rss/edition.rss",
           "language": "en",
           "priority": 2,
           "noise_filter": "tech_only"
