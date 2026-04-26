@@ -18,6 +18,7 @@ from .config import (
     AI_FILTER_PROMPT_EN,
 )
 from .logging_config import get_logger
+from .llm import get_llm_client, chat_with_profile
 
 logger = get_logger("ai_filter")
 
@@ -74,8 +75,6 @@ def _classify_batch(client, batch, batch_idx, total_batches, language):
 
 def _api_filter(articles: list[Article], batch_size: int = 50) -> list[Article]:
     """AI API-based batch classification for AI relevance (concurrent batches)."""
-    from .llm import get_llm_client, chat_with_profile
-
     client = get_llm_client()
     language = os.environ.get("REPORT_LANGUAGE", "zh")
 
