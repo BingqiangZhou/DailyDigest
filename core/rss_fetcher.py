@@ -267,14 +267,22 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None,
 
     def check_single_feed(feed_info):
         url = feed_info["url"]
+        # Check feed health — skip consistently failing feeds
+        from .feed_health import is_healthy, record_success, record_failure
+        if not is_healthy(url):
+            return feed_info, [], "skipped_unhealthy", None
+
         body, status, feed_cache = fetch_url_with_retry(url, cache=new_cache.get(url, {}),
                                                          timeout=timeout)
         if body is None:
             if status == 304:
+                record_success(url)
                 return feed_info, [], "not_modified", feed_cache
+            record_failure(url, f"HTTP {status}")
             return feed_info, [], f"HTTP {status}", feed_cache
 
         rss_items = parse_rss_items(body)
+        record_success(url)
         articles = []
         for item in rss_items:
             if len(articles) >= feed_info.get("max_articles", max_per_source):
@@ -318,6 +326,9 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None,
                 new_cache[feed_info["url"]] = feed_cache
             if error == "not_modified":
                 stats["not_modified_count"] += 1
+            elif error == "skipped_unhealthy":
+                stats["skipped_count"] += 1
+                logger.info(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 跳过(连续失败)")
             elif error:
                 stats["error_count"] += 1
                 label = error_label(int(error.split()[-1])) if error.startswith("HTTP -") else error
@@ -421,6 +432,11 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
             3: max(1, int(max_per_feed * 0.5)),
         }.get(priority, max_per_feed)
 
+        # Check feed health — skip consistently failing feeds
+        from .feed_health import is_healthy, record_success, record_failure
+        if not is_healthy(url):
+            return name, category, language, priority, [], "skipped_unhealthy"
+
         try:
             # Use HTTP client with timeout + retry, then parse the response body
             from .http import fetch_url_with_retry, error_label
@@ -430,6 +446,7 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
             if body is None:
                 label = error_label(status)
                 logger.warning(f"  {name}: fetch failed ({label})")
+                record_failure(url, label)
                 return name, category, language, priority, [], label
             d = feedparser.parse(body)
             if not d.entries:
@@ -478,8 +495,10 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
                 articles.append(article)
                 count += 1
 
+            record_success(url)
             return name, category, language, priority, articles, None
         except Exception as e:
+            record_failure(url, str(e))
             return name, category, language, priority, [], str(e)
 
     # 并发抓取
@@ -491,7 +510,10 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
         for future in as_completed(futures):
             name, category, language, priority, articles, error = future.result()
             completed += 1
-            if error:
+            if error == "skipped_unhealthy":
+                stats["skipped"] = stats.get("skipped", 0) + 1
+                logger.info(f"  [{completed}/{total}] ⏭️  {name}: 跳过(连续失败)")
+            elif error:
                 stats["failed"] += 1
                 logger.error(f"  [{completed}/{total}] ❌ {name}: {error}")
             else:
