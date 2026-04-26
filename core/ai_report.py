@@ -52,7 +52,13 @@ def _format_articles_flat(articles: list[Article], cluster_map: dict = None) -> 
 
 
 def _format_articles_tiered(articles: list[Article], cluster_map: dict = None) -> str:
-    """Format articles grouped by editorial tier for the LLM."""
+    """Format articles grouped by editorial tier for the LLM.
+
+    Tiered formatting to control prompt size:
+    - must_read: full detail (title + desc + full_text up to 2000 chars)
+    - noteworthy: title + description only (no full text)
+    - brief: title + source only, as compact list
+    """
     must_read = [a for a in articles if a.extra.get("editorial_tier") == "must_read"]
     noteworthy = [a for a in articles if a.extra.get("editorial_tier") == "noteworthy"]
     brief = [a for a in articles if a.extra.get("editorial_tier") == "brief"]
@@ -70,14 +76,20 @@ def _format_articles_tiered(articles: list[Article], cluster_map: dict = None) -
     if noteworthy:
         sections.append("=== 📰 值得关注 (Noteworthy) — 重要更新与研究 ===")
         for article in noteworthy:
-            sections.extend(_format_single_article(article, idx, cluster_map))
+            lines = []
+            cluster_info = (cluster_map or {}).get(article.url)
+            if cluster_info and cluster_info.get("cluster_size", 1) > 1:
+                lines.append(f"[CLUSTER: {cluster_info['cluster_size']}篇关于\"{cluster_info['theme']}\"]")
+            lines.extend(format_article_item(article, idx, desc_limit=300, include_source_type=True))
+            lines.append("")
+            sections.extend(lines)
             idx += 1
         sections.append("")
 
     if brief:
-        sections.append("=== 📋 简讯 (Brief) — 常规更新 ===")
+        sections.append("=== 📋 简讯 (Brief) — 常规更新（仅列表，无需详细分析）===")
         for article in brief:
-            sections.extend(_format_single_article(article, idx, cluster_map))
+            sections.append(f"{idx}. [{article.title}]({article.url}) — {article.source}")
             idx += 1
         sections.append("")
 
