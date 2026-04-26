@@ -198,11 +198,6 @@ def ensure_dirs(*dirs):
 # AI Digest Configuration
 # ============================================================
 
-# WeChat article branding
-WECHAT_BRAND = "DailyDigest"
-WECHAT_SUBTITLE_ZH = "人工智能技术日报"
-WECHAT_SUBTITLE_EN = "AI Technology Daily"
-
 # Categories whose articles are directly included in the AI digest
 AI_DIGEST_DIRECT_CATEGORIES = {"ai_ml", "ai_tools"}
 
@@ -251,6 +246,5 @@ from config.prompts import (
     AI_FILTER_PROMPT_ZH, AI_FILTER_PROMPT_EN,
     AI_DEEP_ANALYSIS_PROMPT_ZH, AI_DEEP_ANALYSIS_PROMPT_EN,
     WECHAT_STRUCTURE_PROMPT_ZH,
-    CATEGORY_SUMMARY_CRITIQUE, DEEP_ANALYSIS_CRITIQUE,
 )
 
