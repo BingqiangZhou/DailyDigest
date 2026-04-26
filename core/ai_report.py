@@ -12,6 +12,33 @@ from .logging_config import get_logger
 logger = get_logger("ai_report")
 
 
+def _select_articles_for_analysis(articles: list[Article], max_count: int) -> list[Article]:
+    """Select articles for deep analysis, prioritizing must_read > noteworthy > brief.
+
+    Returns up to max_count articles, preserving the most editorially important ones.
+    """
+    if len(articles) <= max_count:
+        return articles
+
+    must_read = [a for a in articles if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in articles if a.extra.get("editorial_tier") == "noteworthy"]
+    brief = [a for a in articles if a.extra.get("editorial_tier") == "brief"]
+    unclassified = [a for a in articles if not a.extra.get("editorial_tier")]
+
+    # Sort each tier by news value score descending
+    for tier_list in (must_read, noteworthy, brief, unclassified):
+        tier_list.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+
+    selected = []
+    for tier in (must_read, noteworthy, unclassified, brief):
+        remaining = max_count - len(selected)
+        if remaining <= 0:
+            break
+        selected.extend(tier[:remaining])
+
+    return selected
+
+
 def _format_articles_for_deep_analysis(articles: list[Article],
                                         cluster_map: dict = None) -> str:
     """Format articles for the deep analysis prompt.
@@ -42,8 +69,14 @@ def _format_articles_flat(articles: list[Article], cluster_map: dict = None) -> 
         item_lines = format_article_item(article, i, desc_limit=300, include_source_type=True)
         lines.extend(item_lines)
 
-        full_text_len = len(article.full_text or "")
-        full_limit = 2000 if full_text_len > 500 else 500
+        # Cap full text per article to control prompt size
+        tier = article.extra.get("editorial_tier", "noteworthy")
+        if tier == "must_read":
+            full_limit = 2000
+        elif tier == "noteworthy":
+            full_limit = 800
+        else:
+            full_limit = 200
         full = (article.full_text or "")[:full_limit]
         if full:
             lines.append(f"   正文片段: {full}")
@@ -143,12 +176,19 @@ def generate_ai_report(ai_articles: list[Article], language: str = "zh",
     from .llm import get_llm_client, chat_with_profile, generate_with_critique
 
     client = get_llm_client()
-    articles_text = _format_articles_for_deep_analysis(ai_articles, cluster_map=cluster_map)
+
+    # Cap articles sent to the LLM to prevent prompt overflow / timeout.
+    # Prioritize by editorial tier: must_read > noteworthy > brief.
+    max_articles = int(os.environ.get("DEEP_ANALYSIS_MAX_ARTICLES", "50"))
+    analysis_articles = _select_articles_for_analysis(ai_articles, max_articles)
+
+    articles_text = _format_articles_for_deep_analysis(analysis_articles, cluster_map=cluster_map)
 
     prompt_template = AI_DEEP_ANALYSIS_PROMPT_ZH if language == "zh" else AI_DEEP_ANALYSIS_PROMPT_EN
     prompt = prompt_template.format(articles=articles_text)
 
-    logger.info(f"[AI Report] 🤖 Generating deep analysis for {len(ai_articles)} AI articles...")
+    logger.info(f"[AI Report] 🤖 Generating deep analysis for {len(analysis_articles)} AI articles "
+                f"(from {len(ai_articles)} total, cap={max_articles})...")
     # Use multi-pass critique for the deep analysis (most prominent section)
     from .config import DEEP_ANALYSIS_CRITIQUE
     response = generate_with_critique(client, prompt, "deep_analysis", DEEP_ANALYSIS_CRITIQUE)
@@ -163,10 +203,17 @@ def generate_ai_report(ai_articles: list[Article], language: str = "zh",
 
 def _generate_ai_listing_fallback(ai_articles: list[Article], language: str,
                                    summary_map: dict = None) -> str:
-    """Simple fallback listing when AI API is unavailable.
+    """Tiered fallback listing when AI API is unavailable.
 
-    Enriches the table with sub-agent summaries when available.
+    When editorial tier data is present, renders articles in a structured
+    format: must_read → noteworthy table → collapsed brief list.
+    Without tiers, falls back to a simple table.
     """
+    has_tiers = any(a.extra.get("editorial_tier") for a in ai_articles)
+    if has_tiers:
+        return _generate_ai_listing_tiered(ai_articles, language, summary_map)
+
+    # Simple flat table (no tier data available)
     lines = []
 
     if language == "zh":
@@ -196,6 +243,91 @@ def _generate_ai_listing_fallback(ai_articles: list[Article], language: str,
     return "\n".join(lines)
 
 
+def _generate_ai_listing_tiered(ai_articles: list[Article], language: str,
+                                 summary_map: dict = None) -> str:
+    """Render AI articles with editorial tier structure (no LLM needed)."""
+    must_read = [a for a in ai_articles if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in ai_articles if a.extra.get("editorial_tier") == "noteworthy"]
+    brief = [a for a in ai_articles if a.extra.get("editorial_tier") == "brief"]
+    # Articles without tier get treated as noteworthy
+    unclassified = [a for a in ai_articles if not a.extra.get("editorial_tier")]
+
+    lines = []
+
+    # Must Read section — prominent display
+    if must_read:
+        label = "⭐ 必读" if language == "zh" else "⭐ Must Read"
+        lines.append(f"### {label}")
+        lines.append("")
+        for i, article in enumerate(must_read, 1):
+            title = article.title.replace("|", "\\|").replace("\n", " ")
+            url = article.url.replace("|", "\\|")
+            source = article.source.replace("|", "\\|")
+            score = article.extra.get("news_value_score", 0)
+            cluster = article.extra.get("editorial_factors", {})
+            reason_parts = []
+            if cluster.get("cross_source", 0) > 0.1:
+                reason_parts.append("多源验证" if language == "zh" else "multi-source")
+            if article.hn_points and article.hn_points >= 100:
+                reason_parts.append(f"HN {article.hn_points}")
+            reason = " · ".join(reason_parts) if reason_parts else ""
+
+            lines.append(f"**{i}. [{title}]({url})**")
+            lines.append(f"> *{source}*{' | ' + reason if reason else ''}")
+            desc = (article.description or "")[:200]
+            if desc:
+                import re
+                desc = re.sub(r'<[^>]+>', '', desc)
+                lines.append(f"> {desc}")
+            lines.append("")
+
+    # Noteworthy section — table format
+    noteworthy_articles = noteworthy + unclassified
+    if noteworthy_articles:
+        label = "📰 值得关注" if language == "zh" else "📰 Noteworthy"
+        lines.append(f"### {label} ({len(noteworthy_articles)})")
+        lines.append("")
+        if language == "zh":
+            lines.append("| # | 文章 | 来源 | 摘要 |")
+            lines.append("|---:|------|------|------|")
+        else:
+            lines.append("| # | Article | Source | Summary |")
+            lines.append("|---:|------|------|------|")
+        for i, article in enumerate(noteworthy_articles, 1):
+            title = article.title.replace("|", "\\|").replace("\n", " ")
+            url = article.url.replace("|", "\\|")
+            source = article.source.replace("|", "\\|")
+            desc = ""
+            if article.description:
+                import re
+                desc = re.sub(r'<[^>]+>', '', article.description.strip())[:120]
+            lines.append(f"| {i} | [**{title}**]({url}) | *{source}* | {desc} |")
+        lines.append("")
+
+    # Brief section — collapsed
+    if brief:
+        label = "简讯" if language == "zh" else "Brief"
+        lines.append("<details>")
+        lines.append(f"<summary>📋 {label} ({len(brief)})</summary>")
+        lines.append("")
+        if language == "zh":
+            lines.append("| # | 文章 | 来源 |")
+            lines.append("|---:|------|------|")
+        else:
+            lines.append("| # | Article | Source |")
+            lines.append("|---:|------|------|")
+        for i, article in enumerate(brief, 1):
+            title = article.title.replace("|", "\\|").replace("\n", " ")
+            url = article.url.replace("|", "\\|")
+            source = article.source.replace("|", "\\|")
+            lines.append(f"| {i} | [{title}]({url}) | *{source}* |")
+        lines.append("")
+        lines.append("</details>")
+        lines.append("")
+
+    return "\n".join(lines)
+
+
 def build_ai_section(ai_articles: list[Article], language: str = "zh",
                      summary_map: dict = None, cluster_map: dict = None) -> str:
     """Build the complete Part I: AI Deep Digest section.
@@ -217,9 +349,9 @@ def build_ai_section(ai_articles: list[Article], language: str = "zh",
     count = len(ai_articles)
 
     if language == "zh":
-        header = f"# Part I: 🤖 AI 深度日报 ({count} 篇)"
+        header = f"## Part I: 🤖 AI 深度日报 ({count} 篇)"
     else:
-        header = f"# Part I: 🤖 AI Deep Digest ({count} articles)"
+        header = f"## Part I: 🤖 AI Deep Digest ({count} articles)"
 
     deep_analysis = generate_ai_report(ai_articles, language, summary_map=summary_map,
                                        cluster_map=cluster_map)

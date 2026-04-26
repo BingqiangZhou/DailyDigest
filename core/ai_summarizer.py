@@ -12,6 +12,7 @@ from .config import get_category_display, CATEGORY_ORDER, WECHAT_STRUCTURE_PROMP
 from config.prompts.summarizer import (
     CATEGORY_SUMMARY_PROMPT_ZH, CATEGORY_SUMMARY_PROMPT_EN,
     EXECUTIVE_SUMMARY_PROMPT_ZH, EXECUTIVE_SUMMARY_PROMPT_EN,
+    TREND_INSIGHTS_PROMPT_ZH, TREND_INSIGHTS_PROMPT_EN,
     PODCAST_BATCH_PROMPT, WECHAT_BATCH_PROMPT,
     TLDR_PROMPT_ZH, TLDR_PROMPT_EN,
 )
@@ -95,6 +96,35 @@ def generate_executive_summary(client, category_summaries, total_stats, report_l
         logger.error("[AI] ❌ 生成执行摘要失败")
         return ""
     return summary
+
+
+def generate_trend_insights(client, category_summaries, total_stats, report_language="zh"):
+    """Generate cross-category trend insights from category summaries."""
+    if not category_summaries:
+        return ""
+
+    summaries_text = "\n".join(
+        f"### {name}\n{summary}" for name, summary in category_summaries.items()
+    )
+
+    if report_language == "zh":
+        prompt = TREND_INSIGHTS_PROMPT_ZH.format(
+            total_articles=total_stats.get('total_articles', 0),
+            categories=total_stats.get('categories', 0),
+            category_summaries=summaries_text,
+        )
+    else:
+        prompt = TREND_INSIGHTS_PROMPT_EN.format(
+            total_articles=total_stats.get('total_articles', 0),
+            categories=total_stats.get('categories', 0),
+            category_summaries=summaries_text,
+        )
+
+    result = _chat_with_profile(client, prompt, "summarize")
+    if result is None:
+        logger.warning("[AI] ⚠️ 趋势洞察生成失败")
+        return ""
+    return result
 
 
 def summarize_all_categories(articles_by_category, report_language="zh", max_workers=5):

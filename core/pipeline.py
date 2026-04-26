@@ -279,7 +279,8 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     feed_list = [
         {"name": f["name"], "url": f["url"], "category": c["name"],
          "language": f.get("language", "en"), "priority": f.get("priority", 3),
-         **({"max_articles": f["max_articles"]} if "max_articles" in f else {})}
+         **({"max_articles": f["max_articles"]} if "max_articles" in f else {}),
+         **({"_noise_filter": f["noise_filter"]} if "noise_filter" in f else {})}
         for c in config.get("categories", [])
         for f in c.get("feeds", [])
     ]
@@ -338,15 +339,18 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         return None
     logger.info(f"✅ {len(new_articles)} new articles total ({time.time() - t2:.1f}s)")
 
+    # Feed-level noise filtering for high-noise sources
+    try:
+        from .ai_filter import apply_feed_noise_filter
+        pre_count = len(new_articles)
+        new_articles = apply_feed_noise_filter(new_articles)
+        if len(new_articles) < pre_count:
+            logger.info(f"🧹 Feed noise filter: {pre_count} → {len(new_articles)} articles")
+    except Exception as e:
+        logger.warning(f"⚠️ Feed noise filter failed (non-fatal): {e}")
+
     def _is_wechat_article(a):
         return a.category.startswith("wechat_") or "mp.weixin.qq.com" in a.url
-
-    tech_new = [a for a in new_articles if not _is_wechat_article(a)]
-    wechat_new = [a for a in new_articles if _is_wechat_article(a)]
-
-    save_workspace_updates("tech", tech_new, tech_stats)
-    if wechat_new:
-        save_workspace_updates("wechat", wechat_new, wechat_stats)
 
     # Step 4: Cluster + classify + summarize
     cluster_map = {}
@@ -367,6 +371,13 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         new_articles, editorial_stats = run_editorial_pipeline(new_articles, cluster_map)
     except Exception as e:
         logger.warning(f"⚠️ Editorial pipeline failed (non-fatal): {e}")
+
+    # Save workspace data AFTER editorial pipeline so tier data is preserved
+    tech_new = [a for a in new_articles if not _is_wechat_article(a)]
+    wechat_new = [a for a in new_articles if _is_wechat_article(a)]
+    save_workspace_updates("tech", tech_new, tech_stats)
+    if wechat_new:
+        save_workspace_updates("wechat", wechat_new, wechat_stats)
 
     if api_key and os.environ.get("ENRICH_FULL_TEXT"):
         try:
@@ -394,13 +405,23 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         cat = normalize_category(a.category)
         ai_by_category.setdefault(cat, []).append(a)
 
+    llm_category_results = None
+    executive_summary = ""
+    trend_insights = ""
     if ai_by_category:
-        from .ai_summarizer import summarize_all_categories
-        category_results, executive_summary = summarize_all_categories(
+        from .ai_summarizer import summarize_all_categories, generate_trend_insights
+        llm_category_results, executive_summary = summarize_all_categories(
             ai_by_category, language
         )
-    else:
-        category_results, executive_summary = {}, ""
+        if llm_category_results:
+            total_stats = {
+                "total_articles": len(ai_articles),
+                "categories": len(llm_category_results),
+            }
+            trend_insights = generate_trend_insights(
+                {v["name"]: v["summary"] for v in llm_category_results.values() if v.get("summary")},
+                total_stats, language,
+            )
     logger.info(f"⏱️ AI pipeline completed in {time.time() - t4:.1f}s")
 
     now = datetime.now(timezone.utc)
@@ -409,6 +430,9 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         quality_scores=None,
         summary_map=None,
         cluster_map=cluster_map,
+        llm_category_results=llm_category_results,
+        executive_summary=executive_summary,
+        trend_insights=trend_insights,
     )
 
     combined_stats = {

@@ -129,8 +129,28 @@ def build_merged_report(sections, now, language="zh"):
     return merged
 
 
+def _merge_llm_summaries(editorial_results, llm_results):
+    """Merge LLM-generated category summaries into editorial-tiered category results.
+
+    Adds the LLM summary as 'category_summary' in each category's tiered dict,
+    which is rendered as a blockquote by _render_tiered_category().
+    """
+    merged = {}
+    for cat, data in editorial_results.items():
+        merged_data = dict(data)
+        tiered = dict(data.get("tiered", {}))
+        # Find matching LLM summary
+        llm_data = llm_results.get(cat)
+        if llm_data and llm_data.get("summary"):
+            tiered["category_summary"] = llm_data["summary"]
+        merged_data["tiered"] = tiered
+        merged[cat] = merged_data
+    return merged
+
+
 def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quality_scores=None,
-                         summary_map=None, cluster_map=None):
+                         summary_map=None, cluster_map=None,
+                         llm_category_results=None, executive_summary="", trend_insights=""):
     """Build a two-part unified report: AI deep analysis + non-AI tech news."""
     from .ai_report import build_ai_section
     from .report_generator import build_non_ai_section, generate_tech_report
@@ -143,12 +163,22 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
     total = ai_count + non_ai_count
 
     if language == "zh":
+        parts_info = []
+        if ai_count:
+            parts_info.append(f"🤖 AI 深度分析 {ai_count} 篇")
+        if non_ai_count:
+            parts_info.append(f"💻 科技动态 {non_ai_count} 条")
         header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> 🤖 AI 深度分析 {ai_count} 篇 · 💻 科技动态 {non_ai_count} 条 · 共 {total} 篇\n\n"
+        header += f"> {' · '.join(parts_info)} · 共 {total} 篇\n\n"
         header += f"> ⏰ 生成时间 {time_str} UTC\n"
     else:
+        parts_info = []
+        if ai_count:
+            parts_info.append(f"🤖 AI Deep Analysis {ai_count} articles")
+        if non_ai_count:
+            parts_info.append(f"💻 Tech Updates {non_ai_count} items")
         header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> 🤖 AI Deep Analysis {ai_count} articles · 💻 Tech Updates {non_ai_count} items · Total {total}\n\n"
+        header += f"> {' · '.join(parts_info)} · Total {total}\n\n"
         header += f"> ⏰ Generated at {time_str} UTC\n"
 
     header += "\n---\n\n"
@@ -166,15 +196,21 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
         has_tiers = True
         category_results = build_category_results_from_editorial(ai_articles, cluster_map)
 
+    # Merge LLM-generated summaries into editorial category results
+    if has_tiers and category_results and llm_category_results:
+        category_results = _merge_llm_summaries(category_results, llm_category_results)
+
     if has_tiers:
         ai_section_body = generate_tech_report(
             ai_articles,
             category_results=category_results,
-            stats={"total_articles": ai_count, "categories": len(category_results)},
+            stats={"total_articles": ai_count, "categories": len(category_results) if category_results else 0},
             report_language=language,
+            executive_summary=executive_summary if executive_summary else None,
+            trend_insights=trend_insights if trend_insights else None,
         )
         part_label = "AI 深度日报" if language == "zh" else "AI Deep Digest"
-        ai_section = f"# Part I: 🤖 {part_label} ({ai_count} {'篇' if language == 'zh' else 'articles'})\n\n{ai_section_body}"
+        ai_section = f"## Part I: 🤖 {part_label} ({ai_count} {'篇' if language == 'zh' else 'articles'})\n\n{ai_section_body}"
     else:
         ai_section = build_ai_section(ai_articles, language, summary_map=summary_map,
                                       cluster_map=cluster_map)
@@ -190,7 +226,25 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
     if not parts:
         return ""
 
-    return header + "\n\n---\n\n".join(parts)
+    # Build quick-nav TOC
+    toc_entries = []
+    if ai_section:
+        ai_label = "🤖 AI 深度日报" if language == "zh" else "🤖 AI Deep Digest"
+        toc_entries.append(ai_label)
+    if non_ai_section:
+        non_label = "💻 科技动态" if language == "zh" else "💻 Tech Updates"
+        toc_entries.append(non_label)
+
+    toc = ""
+    if len(toc_entries) > 1:
+        toc_label = "📑 快速导航" if language == "zh" else "📑 Quick Navigation"
+        toc = f"## {toc_label}\n\n"
+        for entry in toc_entries:
+            anchor = make_anchor(entry)
+            toc += f"- [{entry}](#{anchor})\n"
+        toc += f"\n---\n\n"
+
+    return header + toc + "\n\n---\n\n".join(parts)
 
 
 def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh",
@@ -352,8 +406,11 @@ def _generate_importance_reason(article, cluster_map=None):
     if not parts:
         if score >= 0.6:
             parts.append("高新闻价值")
+        elif article.description:
+            desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
+            parts.append(desc)
         else:
-            parts.append(article.description[:80] if article.description else "值得关注")
+            parts.append("值得关注")
 
     return "，".join(parts)
 

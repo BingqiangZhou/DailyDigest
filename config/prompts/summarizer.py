@@ -82,6 +82,56 @@ EXECUTIVE_SUMMARY_PROMPT_EN = """You are a senior tech media editor-in-chief. Ba
 - Use English, concise and impactful news tone
 - Do not exceed 200 words"""
 
+TREND_INSIGHTS_PROMPT_ZH = """你是一位资深AI行业分析师。基于以下各分类的摘要，提炼跨分类的趋势洞察。
+
+## 今日数据
+- 总文章数: {total_articles}
+- 涉及分类: {categories}
+
+## 各分类摘要
+
+{category_summaries}
+
+## 要求
+请归纳2-3条跨分类的趋势模式，每条趋势包含：
+1. 趋势名称（加粗标题）
+2. 1-2句话说明该趋势的具体表现和证据
+3. 1句话说明对从业者的实际影响
+
+格式：
+**趋势1名称**: 分析... 对从业者意味着...
+
+注意：
+- 趋势必须是跨分类的宏观模式，而非单篇文章的摘要
+- 语调分析性而非宣传性
+- 每条趋势不超过80字
+- 使用中文输出"""
+
+TREND_INSIGHTS_PROMPT_EN = """You are a senior AI industry analyst. Based on the category summaries below, identify cross-category trend patterns.
+
+## Today's Data
+- Total articles: {total_articles}
+- Categories covered: {categories}
+
+## Category Summaries
+
+{category_summaries}
+
+## Requirements
+Identify 2-3 cross-category trend patterns. For each trend:
+1. Bold trend name
+2. 1-2 sentences describing concrete evidence
+3. 1 sentence on practical implications for practitioners
+
+Format:
+**Trend 1 Name**: Analysis... This means practitioners should...
+
+Notes:
+- Trends must be cross-category macro patterns, not single-article summaries
+- Tone: analytical, not promotional
+- Each trend under 50 words
+- Output in English"""
+
 PODCAST_BATCH_PROMPT = """你是一位播客内容编辑。请对以下播客单集进行内容分析。
 
 ## 分析步骤

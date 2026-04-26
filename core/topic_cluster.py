@@ -302,6 +302,7 @@ def get_cluster_map(clusters: list[dict]) -> dict[str, dict]:
             "score": cluster["score"],
             "cluster_size": cluster["size"],
             "cross_source": cluster["cross_source"],
+            "same_source": not cluster["cross_source"] and cluster["size"] > 1,
             "factor_scores": cluster.get("factor_scores", {}),
         }
         for article in cluster["articles"]:

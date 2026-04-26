@@ -133,13 +133,21 @@ Examples:
 
     now = datetime.now(timezone.utc)
 
-    # Try to build unified two-part report (AI deep + non-AI)
-    unified = _try_build_unified_report(sections, now, language, args.source,
-                                        output_format=args.output_format)
-    if unified:
-        report_content = unified
+    # If run_tech_unified() already built a unified report (API mode with
+    # editorial tiers + LLM analysis), use it directly.  Only rebuild from
+    # workspace data when the runner returned raw section reports (Skill mode
+    # or multi-source merge).
+    if len(sections) == 1 and args.source == "tech":
+        # run_tech_unified() returns a pre-built unified report
+        report_content = sections[0]
     else:
-        report_content = build_merged_report(sections, now, language)
+        # Try to build unified two-part report from workspace data
+        unified = _try_build_unified_report(sections, now, language, args.source,
+                                            output_format=args.output_format)
+        if unified:
+            report_content = unified
+        else:
+            report_content = build_merged_report(sections, now, language)
 
     is_wechat = args.output_format == "wechat"
     ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"

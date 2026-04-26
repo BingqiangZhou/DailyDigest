@@ -1,7 +1,8 @@
 """Tests for core/report_generator.py — table rendering and utilities."""
 
 from core.article import Article
-from core.report_generator import _escape_pipe, _render_hn_table
+from core.report_generator import _escape_pipe, _render_hn_table, generate_tech_report, _select_non_ai_articles
+from core.report_builder import _merge_llm_summaries, build_unified_report
 
 
 class TestEscapePipe:
@@ -70,3 +71,238 @@ class TestRenderHnTable:
         lines = _render_hn_table(items, "zh", "条")
         joined = "\n".join(lines)
         assert r"A\|B" in joined
+
+
+class TestMergeLlmSummaries:
+    def test_merges_summary_into_tiered(self):
+        editorial = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": [],
+                "tiered": {"must_read": [], "noteworthy": [], "brief": []},
+                "article_count": 5,
+            }
+        }
+        llm = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "summary": "GPT-5.5 released with improvements",
+                "article_count": 5,
+                "articles": [],
+            }
+        }
+        result = _merge_llm_summaries(editorial, llm)
+        assert result["ai_ml"]["tiered"]["category_summary"] == "GPT-5.5 released with improvements"
+
+    def test_no_llm_summary_no_crash(self):
+        editorial = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": [],
+                "tiered": {"must_read": [], "noteworthy": [], "brief": []},
+                "article_count": 5,
+            }
+        }
+        result = _merge_llm_summaries(editorial, {})
+        assert "category_summary" not in result["ai_ml"]["tiered"]
+
+    def test_preserves_editorial_tier_data(self):
+        editorial = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": ["a1", "a2"],
+                "tiered": {"must_read": [{"index": 1, "summary": "important"}], "noteworthy": [], "brief": []},
+                "article_count": 2,
+            }
+        }
+        llm = {
+            "ai_ml": {"name": "AI/ML", "summary": "LLM summary", "article_count": 2, "articles": []}
+        }
+        result = _merge_llm_summaries(editorial, llm)
+        assert result["ai_ml"]["tiered"]["must_read"] == [{"index": 1, "summary": "important"}]
+        assert result["ai_ml"]["tiered"]["category_summary"] == "LLM summary"
+
+
+class TestTrendInsightsInReport:
+    def _make_article(self, title="Test", category="ai_ml", tier="noteworthy"):
+        return Article(
+            title=title, url=f"https://test/{title}",
+            source="TestSource", category=category,
+            published="2026-04-27T12:00:00",
+            extra={"editorial_tier": tier, "news_value_score": 0.5},
+        )
+
+    def test_trend_insights_rendered_in_api_mode(self):
+        articles = [self._make_article()]
+        category_results = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": articles,
+                "tiered": {"must_read": [], "noteworthy": [], "brief": []},
+                "article_count": 1,
+            }
+        }
+        report = generate_tech_report(
+            articles,
+            category_results=category_results,
+            stats={"total_articles": 1, "categories": 1},
+            report_language="zh",
+            trend_insights="**多模态融合**: 各大厂商加速多模态模型迭代。",
+        )
+        assert "📊 趋势洞察" in report
+        assert "多模态融合" in report
+
+    def test_trend_insights_en_rendered(self):
+        articles = [self._make_article()]
+        category_results = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": articles,
+                "tiered": {"must_read": [], "noteworthy": [], "brief": []},
+                "article_count": 1,
+            }
+        }
+        report = generate_tech_report(
+            articles,
+            category_results=category_results,
+            stats={"total_articles": 1, "categories": 1},
+            report_language="en",
+            trend_insights="**Multi-modal convergence**: Vendors accelerate multi-modal models.",
+        )
+        assert "📊 Trend Insights" in report
+        assert "Multi-modal convergence" in report
+
+    def test_no_trend_insights_no_section(self):
+        articles = [self._make_article()]
+        category_results = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": articles,
+                "tiered": {"must_read": [], "noteworthy": [], "brief": []},
+                "article_count": 1,
+            }
+        }
+        report = generate_tech_report(
+            articles,
+            category_results=category_results,
+            stats={"total_articles": 1, "categories": 1},
+            report_language="zh",
+        )
+        assert "📊 趋势洞察" not in report
+
+
+class TestSelectNonAiArticles:
+    def _make_article(self, title, tier=None, score=0.0):
+        extra = {"news_value_score": score}
+        if tier:
+            extra["editorial_tier"] = tier
+        return Article(
+            title=title, url=f"https://test/{title}",
+            source="TestSource", category="tech_general",
+            published="2026-04-27T12:00:00",
+            extra=extra,
+        )
+
+    def test_under_limit_returns_all(self):
+        articles = [self._make_article(f"a{i}", "noteworthy", 0.5) for i in range(5)]
+        result = _select_non_ai_articles(articles, 10)
+        assert len(result) == 5
+
+    def test_must_read_always_kept(self):
+        must_reads = [self._make_article(f"must{i}", "must_read", 0.9) for i in range(8)]
+        briefs = [self._make_article(f"brief{i}", "brief", 0.2) for i in range(50)]
+        result = _select_non_ai_articles(must_reads + briefs, 10)
+        assert len(result) == 10
+        assert all(a.extra.get("editorial_tier") == "must_read" for a in result[:8])
+
+    def test_noteworthy_prioritized_over_brief(self):
+        noteworthies = [self._make_article(f"note{i}", "noteworthy", 0.5) for i in range(10)]
+        briefs = [self._make_article(f"brief{i}", "brief", 0.2) for i in range(10)]
+        result = _select_non_ai_articles(noteworthies + briefs, 12)
+        assert len(result) == 12
+        note_count = sum(1 for a in result if a.extra.get("editorial_tier") == "noteworthy")
+        assert note_count == 10  # All noteworthy kept before brief
+
+    def test_sorted_by_score_within_tier(self):
+        articles = [
+            self._make_article("low", "noteworthy", 0.3),
+            self._make_article("high", "noteworthy", 0.8),
+            self._make_article("mid", "noteworthy", 0.5),
+        ]
+        result = _select_non_ai_articles(articles, 2)
+        assert result[0].title == "high"
+        assert result[1].title == "mid"
+
+
+class TestMultilineBlockquote:
+    def _make_article(self, title="Test", category="ai_ml", tier="noteworthy"):
+        return Article(
+            title=title, url=f"https://test/{title}",
+            source="TestSource", category=category,
+            published="2026-04-27T12:00:00",
+            extra={"editorial_tier": tier, "news_value_score": 0.5},
+        )
+
+    def test_multiline_category_summary_properly_quoted(self):
+        articles = [self._make_article()]
+        category_results = {
+            "ai_ml": {
+                "name": "AI/ML",
+                "articles": articles,
+                "tiered": {
+                    "must_read": [], "noteworthy": [], "brief": [],
+                    "category_summary": "Line one\n**Line two**\n- Line three",
+                },
+                "article_count": 1,
+            }
+        }
+        report = generate_tech_report(
+            articles,
+            category_results=category_results,
+            stats={"total_articles": 1, "categories": 1},
+            report_language="zh",
+        )
+        assert "> Line one" in report
+        assert "> **Line two**" in report
+        assert "> - Line three" in report
+
+
+class TestUnifiedReportToc:
+    def test_toc_present_in_two_part_report(self):
+        from datetime import datetime, timezone
+        ai_article = Article(
+            title="AI article", url="https://test/ai",
+            source="TestSource", category="ai_ml",
+            published="2026-04-27T12:00:00",
+            extra={"editorial_tier": "noteworthy", "news_value_score": 0.5},
+        )
+        non_ai_article = Article(
+            title="Non-AI article", url="https://test/nonai",
+            source="TestSource", category="tech_general",
+            published="2026-04-27T12:00:00",
+            extra={},
+        )
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        report = build_unified_report(
+            [ai_article], [non_ai_article], now, "zh",
+            llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
+            executive_summary="Test summary",
+        )
+        assert "📑 快速导航" in report
+        assert "AI 深度日报" in report
+        assert "科技动态" in report
+
+    def test_no_toc_when_only_one_part(self):
+        from datetime import datetime, timezone
+        ai_article = Article(
+            title="AI article", url="https://test/ai",
+            source="TestSource", category="ai_ml",
+            published="2026-04-27T12:00:00",
+            extra={"editorial_tier": "noteworthy", "news_value_score": 0.5},
+        )
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        report = build_unified_report(
+            [ai_article], [], now, "zh",
+            llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
+        )
+        assert "📑" not in report

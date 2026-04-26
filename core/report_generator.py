@@ -55,7 +55,7 @@ def _render_hn_table(hn_items, report_language, count_unit, summary_map=None):
     has_summary = any(summary_map.get(item.url, {}).get("ai_summary") for item in hn_items)
 
     hn_label = "Hacker News 热门" if report_language == "zh" else "Hacker News Trending"
-    lines = [f"## {hn_label} ({len(hn_items)} {count_unit})", ""]
+    lines = [f"### {hn_label} ({len(hn_items)} {count_unit})", ""]
 
     if has_summary:
         lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'热度' if report_language == 'zh' else 'Stats'} | {'摘要' if report_language == 'zh' else 'Summary'} |")
@@ -85,6 +85,29 @@ def _render_hn_table(hn_items, report_language, count_unit, summary_map=None):
     return lines
 
 
+def _select_non_ai_articles(articles: list, max_count: int) -> list:
+    """Select up to max_count non-AI articles, prioritizing editorial tiers.
+
+    Must-read articles are always kept. Remaining slots are filled by
+    noteworthy (sorted by score), then brief (sorted by score).
+    """
+    must_read = [a for a in articles if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in articles if a.extra.get("editorial_tier") == "noteworthy"]
+    brief = [a for a in articles if a.extra.get("editorial_tier") == "brief"]
+    unclassified = [a for a in articles if not a.extra.get("editorial_tier")]
+
+    for tier_list in (noteworthy, brief, unclassified):
+        tier_list.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+
+    selected = list(must_read)
+    for tier in (noteworthy, unclassified, brief):
+        remaining = max_count - len(selected)
+        if remaining <= 0:
+            break
+        selected.extend(tier[:remaining])
+    return selected
+
+
 def _render_today_highlights(category_results, report_language):
     """Render the 🔥 Today's Highlights section from top must_reads across categories."""
     highlights = []
@@ -102,7 +125,7 @@ def _render_today_highlights(category_results, report_language):
     top = highlights[:5]
     lines = []
     label = "🔥 今日重点" if report_language == "zh" else "🔥 Today's Highlights"
-    lines.append(f"## {label}")
+    lines.append(f"### {label}")
     lines.append("")
 
     for i, (article, summary) in enumerate(top, 1):
@@ -129,13 +152,14 @@ def _render_tiered_category(name, articles, tiered, report_language):
     lines = []
     count = len(articles)
     count_unit = "篇" if report_language == "zh" else "articles"
-    lines.append(f"## {name} ({count} {count_unit})")
+    lines.append(f"### {name} ({count} {count_unit})")
     lines.append("")
 
-    # Category summary
+    # Category summary (blockquote with proper multiline support)
     cat_summary = tiered.get("category_summary", "") if tiered else ""
     if cat_summary:
-        lines.append(f"> {cat_summary}")
+        for summary_line in cat_summary.split("\n"):
+            lines.append(f"> {summary_line}" if summary_line.strip() else ">")
         lines.append("")
 
     # Partition articles into tiers
@@ -165,7 +189,7 @@ def _render_tiered_category(name, articles, tiered, report_language):
     # ⭐ Must Read section
     if must_reads:
         label = "⭐ 必读" if report_language == "zh" else "⭐ Must Read"
-        lines.append(f"### {label}")
+        lines.append(f"#### {label}")
         lines.append("")
         for i, (article, summary) in enumerate(must_reads, 1):
             title = article.title.replace("|", "\\|").replace("\n", " ")
@@ -184,7 +208,7 @@ def _render_tiered_category(name, articles, tiered, report_language):
     # 📰 Noteworthy section
     if noteworthies:
         label = "📰 值得关注" if report_language == "zh" else "📰 Noteworthy"
-        lines.append(f"### {label}")
+        lines.append(f"#### {label}")
         lines.append("")
         article_header = "文章" if report_language == "zh" else "Article"
         source_header = "来源" if report_language == "zh" else "Source"
@@ -218,7 +242,7 @@ def _render_tiered_category(name, articles, tiered, report_language):
 
 def generate_tech_report(updates, summary_map=None, trend_insight=None,
                          executive_summary=None, category_results=None,
-                         stats=None, report_language="zh"):
+                         stats=None, report_language="zh", trend_insights=None):
     """生成科技日报 Markdown 报告
 
     支持两种模式:
@@ -249,12 +273,8 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         total_categories = len(category_results)
 
         if report_language == "zh":
-            lines.append(f"# AI 科技日报 — {report_date}")
-            lines.append("")
             lines.append(f"> 📰 {total_articles} 篇文章 · {total_categories} 个分类 · 🤖 AI 智能摘要")
         else:
-            lines.append(f"# AI Tech Daily — {report_date}")
-            lines.append("")
             lines.append(f"> 📰 {total_articles} articles · {total_categories} categories · 🤖 AI-powered")
 
         lines.append("")
@@ -264,9 +284,19 @@ def generate_tech_report(updates, summary_map=None, trend_insight=None,
         # 执行摘要
         if executive_summary:
             exec_label = "📋 今日要闻" if report_language == "zh" else "📋 Today's Highlights"
-            lines.append(f"## {exec_label}")
+            lines.append(f"### {exec_label}")
             lines.append("")
             lines.append(executive_summary)
+            lines.append("")
+            lines.append("---")
+            lines.append("")
+
+        # 趋势洞察 (API mode)
+        if trend_insights:
+            trend_label = "📊 趋势洞察" if report_language == "zh" else "📊 Trend Insights"
+            lines.append(f"### {trend_label}")
+            lines.append("")
+            lines.append(trend_insights)
             lines.append("")
             lines.append("---")
             lines.append("")
@@ -477,13 +507,37 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
     if not non_ai_articles:
         return ""
 
-    count = len(non_ai_articles)
+    # Cap articles to avoid overwhelming the reader.
+    # Prioritize: must_read > noteworthy > brief, then by news_value_score.
+    original_count = len(non_ai_articles)
+    max_articles = 50
+    if len(non_ai_articles) > max_articles:
+        non_ai_articles = _select_non_ai_articles(non_ai_articles, max_articles)
+
+    total_count = len(non_ai_articles)
 
     if report_language == "zh":
-        lines = [f"# Part II: 💻 科技动态 ({count} 条)"]
+        count_label = f"{total_count} 条" if total_count == original_count else f"Top {total_count}/{original_count} 条"
+        lines = [f"## Part II: 💻 科技动态 ({count_label})"]
     else:
-        lines = [f"# Part II: 💻 Tech Updates ({count} items)"]
+        count_label = f"{total_count} items" if total_count == original_count else f"Top {total_count}/{original_count} items"
+        lines = [f"## Part II: 💻 Tech Updates ({count_label})"]
 
+    lines.append("")
+
+    # Category breakdown summary
+    cat_counts = {}
+    for a in non_ai_articles:
+        cat = normalize_category(a.category)
+        if cat == "hacker_news":
+            cat = "hacker_news"
+        cat_counts[cat] = cat_counts.get(cat, 0) + 1
+    cat_summary = " · ".join(f"{get_category_display(c)} {n}" for c, n in sorted(cat_counts.items(), key=lambda x: -x[1])[:4])
+    if cat_summary:
+        lines.append(f"> {cat_summary}")
+        lines.append("")
+
+    lines.append("---")
     lines.append("")
 
     # Check if any articles have editorial tier data
@@ -496,7 +550,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
                               and normalize_category(a.category) != "hacker_news"]
         if must_read_articles:
             if report_language == "zh":
-                lines.append("### ⭐ 重点科技新闻")
+                lines.append("#### ⭐ 重点科技新闻")
                 lines.append("")
                 for a in must_read_articles:
                     desc = ""
@@ -504,7 +558,6 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
                         desc = re.sub(r'<[^>]+>', '', a.description.strip())[:150]
                     reason = a.extra.get("editorial_factors", {})
                     reason_text = ""
-                    cluster_info = ""
                     # Try to generate a brief importance hint
                     if reason.get("cross_source", 0) > 0.1:
                         reason_text = " [多源验证]"
@@ -513,7 +566,7 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
                         lines.append(f"  > {desc}")
                     lines.append("")
             else:
-                lines.append("### ⭐ Top Tech News")
+                lines.append("#### ⭐ Top Tech News")
                 lines.append("")
                 for a in must_read_articles:
                     desc = ""
@@ -546,14 +599,16 @@ def build_non_ai_section(non_ai_articles, report_language="zh"):
             source_cat = "其他"
         groups[source_cat].append(update)
 
-    # Output category tables
+    # Output category tables (sorted by news_value_score within each category)
     count_unit = "条" if report_language == "zh" else "items"
     for cat, cat_updates in groups.items():
         if not cat_updates:
             continue
 
+        cat_updates.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+
         cat_display = get_category_display(cat)
-        lines.append(f"## {cat_display} ({len(cat_updates)} {count_unit})")
+        lines.append(f"### {cat_display} ({len(cat_updates)} {count_unit})")
         lines.append("")
 
         has_desc = any(u.description for u in cat_updates)

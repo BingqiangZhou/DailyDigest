@@ -233,7 +233,8 @@ AI_KEYWORDS_EN = [
 EDITORIAL_ENABLED = os.environ.get("EDITORIAL_ENABLED", "true").lower() != "false"
 
 # Minimum news value score to pass the initial filter
-EDITORIAL_NEWS_VALUE_THRESHOLD = float(os.environ.get("EDITORIAL_THRESHOLD", "0.15"))
+# Raised from 0.15 to 0.25 — the old threshold let nearly everything through
+EDITORIAL_NEWS_VALUE_THRESHOLD = float(os.environ.get("EDITORIAL_THRESHOLD", "0.25"))
 
 # Tier thresholds on news_value_score
 EDITORIAL_TIER_MUST_READ = float(os.environ.get("TIER_MUST_READ", "0.70"))

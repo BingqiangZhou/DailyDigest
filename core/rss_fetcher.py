@@ -459,6 +459,10 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
                     extra={
                         "author": author,
                         "priority": priority,
+                        "_feed_meta": {
+                            k: v for k, v in feed.items()
+                            if k.startswith("_") and k != "_feed_meta"
+                        },
                     },
                 )
                 articles.append(article)

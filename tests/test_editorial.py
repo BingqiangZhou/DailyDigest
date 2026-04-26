@@ -116,6 +116,28 @@ class TestComputeNewsValue:
         result = compute_news_value(a, {})
         assert result["signal"] > 0
 
+    def test_same_source_cluster_penalized(self):
+        """Same-source clusters should get much lower heat score than cross-source."""
+        a = _make_article(source="BBC Science", priority=2)
+        cross_cluster = {a.url: {"cluster_size": 5, "cross_source": True, "same_source": False}}
+        same_cluster = {a.url: {"cluster_size": 5, "cross_source": False, "same_source": True}}
+        cross_result = compute_news_value(a, cross_cluster)
+        same_result = compute_news_value(a, same_cluster)
+        # Cross-source should have significantly higher cluster_heat
+        assert cross_result["cluster_heat"] > same_result["cluster_heat"]
+        # Same-source heat should be the penalized value (0.05 * ratio)
+        assert same_result["cluster_heat"] < 0.06
+        # And the composite should be meaningfully different
+        assert cross_result["composite"] > same_result["composite"]
+
+    def test_singleton_cluster_no_same_source(self):
+        """Singleton clusters (size=1) should not trigger same_source penalty."""
+        a = _make_article(source="BBC Science", priority=2)
+        cluster_map = {a.url: {"cluster_size": 1, "cross_source": False, "same_source": False}}
+        result = compute_news_value(a, cluster_map)
+        # Should use normal heat weight (0.20) even though cross_source is False
+        assert result["cluster_heat"] < 0.05  # min(1/5, 1.0) * 0.20 = 0.04
+
 
 class TestAssignEditorialTier:
     def test_must_read(self):

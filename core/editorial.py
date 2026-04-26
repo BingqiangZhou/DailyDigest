@@ -91,31 +91,46 @@ def compute_news_value(article: Article, cluster_map: dict) -> dict:
 
     Returns dict with individual factor scores and composite.
     Weights match knowledge/content-strategy.md rubric.
+
+    Categories with lower relevance to a tech digest (general_news, etc.)
+    get a relevance penalty applied to the composite score.
     """
     cluster_info = cluster_map.get(article.url, {})
     cluster_size = cluster_info.get("cluster_size", 1)
     cross_source = cluster_info.get("cross_source", False)
 
-    # Factor 1: Source authority (weight 0.25)
+    # Factor 1: Source authority (weight 0.30) — raised to give more weight to source quality
     authority = compute_article_authority(article)
-    authority_weighted = authority * 0.25
+    authority_weighted = authority * 0.30
 
     # Factor 2: Cross-source corroboration (weight 0.25)
-    cross_score = 0.25 if cross_source else 0.05
+    cross_score = 0.25 if cross_source else 0.0
 
     # Factor 3: Cluster heat / size (weight 0.20)
-    size_score = min(cluster_size / 5.0, 1.0) * 0.20
+    # Penalize same-source clusters — 5 articles from the same source about
+    # wildlife shouldn't boost each other. Only cross-source clusters get full heat.
+    is_same_source = cluster_info.get("same_source", False)
+    heat_weight = 0.05 if is_same_source else 0.20
+    size_score = min(cluster_size / 5.0, 1.0) * heat_weight
 
     # Factor 4: Keyword signal strength (weight 0.15)
     text = f"{article.title} {article.description or ''}".lower()
     has_signal = any(kw in text for kw in HIGH_SIGNAL_KEYWORDS)
     signal_score = 0.15 if has_signal else 0.0
 
-    # Factor 5: Novelty (weight 0.15)
+    # Factor 5: Novelty (weight 0.10) — reduced, novelty alone shouldn't qualify an article
     novelty = compute_article_novelty(article, cluster_map)
-    novelty_weighted = novelty * 0.15
+    novelty_weighted = novelty * 0.10
 
     composite = authority_weighted + cross_score + size_score + signal_score + novelty_weighted
+
+    # Relevance penalty for off-topic categories in a tech/AI digest
+    from .config import normalize_category
+    cat = normalize_category(article.category)
+    low_relevance_cats = {"general_news"}
+    if cat in low_relevance_cats:
+        composite *= 0.5  # General news needs 2x the signal to be included
+
     composite = min(round(composite, 3), 1.0)
 
     return {
