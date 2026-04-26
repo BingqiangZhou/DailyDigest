@@ -91,7 +91,9 @@ def generate_executive_summary(client, category_summaries, total_stats, report_l
         )
 
     from .config import CATEGORY_SUMMARY_CRITIQUE
-    summary = generate_with_critique(client, prompt, "summarize", CATEGORY_SUMMARY_CRITIQUE)
+    from config.prompts.critique import get_category_summary_critique
+    critique_template = get_category_summary_critique(report_language)
+    summary = generate_with_critique(client, prompt, "summarize", critique_template, language=report_language)
     if summary is None:
         logger.error("[AI] ❌ 生成执行摘要失败")
         return ""
@@ -434,8 +436,8 @@ def generate_tldr(report_content, report_type="tech", language="zh"):
     }
     type_name = type_names.get(report_type, report_type)
 
-    # 截取报告内容（避免 token 超限）
-    content = report_content[:8000]
+    # 截取报告内容（避免 token 超限，15000 chars ≈ 5k tokens）
+    content = report_content[:15000]
 
     if language == "zh":
         prompt = TLDR_PROMPT_ZH.format(type_name=type_name, content=content)

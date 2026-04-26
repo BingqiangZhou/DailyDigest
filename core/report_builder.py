@@ -272,7 +272,8 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
     if has_tiers and category_results and llm_category_results:
         category_results = _merge_llm_summaries(category_results, llm_category_results)
 
-    if has_tiers:
+    if has_tiers and not os.environ.get("API_KEY"):
+        # No API key: use template renderer with tiered data
         ai_section_body = generate_tech_report(
             ai_articles,
             category_results=category_results,
@@ -284,6 +285,7 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
         part_label = "AI 深度日报" if language == "zh" else "AI Deep Digest"
         ai_section = f"## Part I: 🤖 {part_label} ({ai_count} {'篇' if language == 'zh' else 'articles'})\n\n{ai_section_body}"
     else:
+        # API key available (or no tiers): use LLM deep analysis
         ai_section = build_ai_section(ai_articles, language, summary_map=summary_map,
                                       cluster_map=cluster_map)
 

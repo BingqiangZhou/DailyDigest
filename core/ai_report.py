@@ -192,7 +192,9 @@ def generate_ai_report(ai_articles: list[Article], language: str = "zh",
                 f"(from {len(ai_articles)} total, cap={max_articles})...")
     # Use multi-pass critique for the deep analysis (most prominent section)
     from .config import DEEP_ANALYSIS_CRITIQUE
-    response = generate_with_critique(client, prompt, "deep_analysis", DEEP_ANALYSIS_CRITIQUE)
+    from config.prompts.critique import get_deep_analysis_critique
+    critique_template = get_deep_analysis_critique(language)
+    response = generate_with_critique(client, prompt, "deep_analysis", critique_template, language=language)
 
     if not response:
         logger.warning("[AI Report] ⚠️ Deep analysis failed, using listing fallback")
