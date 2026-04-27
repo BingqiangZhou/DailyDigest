@@ -7,7 +7,7 @@ import os
 import time
 
 from .logging_config import get_logger
-from .llm_utils import strip_code_fences
+from .llm_utils import sanitize_generated_text
 
 logger = get_logger("llm")
 
@@ -55,7 +55,7 @@ def get_model():
     """Get the configured model name."""
     # TODO: restore env var override after testing
     # return os.environ.get("MODEL") or DEFAULT_MODEL
-    return "minimaxai/minimax-m2.7"
+    return "moonshotai/kimi-k2.5"
 
 
 def chat_completion(client, prompt, max_tokens=4000, max_retries=2,
@@ -130,17 +130,17 @@ def generate_with_critique(client, prompt, profile_name, critique_template, lang
 
     # Skip critique if env var is set or critique template is empty
     if os.environ.get("SKIP_CRITIQUE") or not critique_template:
-        return strip_code_fences(draft)
+        return sanitize_generated_text(draft)
 
     # Pass 2: Critique
     critique_prompt = critique_template.format(draft=draft)
     critique = chat_with_profile(client, critique_prompt, "critique")
     if not critique:
-        return strip_code_fences(draft)
+        return sanitize_generated_text(draft)
 
     # If critique says no changes needed, return draft as-is
     if _is_no_change_response(critique):
-        return strip_code_fences(draft)
+        return sanitize_generated_text(draft)
 
     # Pass 3: Refine based on critique
     if language == "en":
@@ -170,4 +170,4 @@ Output only the improved version, nothing else."""
 
     refined = chat_with_profile(client, refine_prompt, profile_name)
     result = refined if refined else draft
-    return strip_code_fences(result)
+    return sanitize_generated_text(result)

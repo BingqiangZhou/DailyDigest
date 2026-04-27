@@ -26,6 +26,7 @@ def generate_wechat_article(
     summary_map=None,
     cluster_map=None,
     ai_structure=None,
+    briefing_data=None,
 ):
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M")
@@ -39,7 +40,10 @@ def generate_wechat_article(
     lines.append(_render_header(date_str, time_str, ai_count, non_ai_count, total, language))
     lines.append("")
 
-    if ai_structure:
+    if briefing_data:
+        lines.append(_render_briefing_article(briefing_data, language))
+        lines.append("")
+    elif ai_structure:
         # AI-generated structure path
         highlights = ai_structure.get("highlights", [])
         themes = ai_structure.get("themes", [])
@@ -71,6 +75,53 @@ def generate_wechat_article(
 
     lines.append(_render_footer(date_str, time_str, language))
     return "\n".join(lines)
+
+
+def _render_briefing_article(briefing_data, language):
+    """Render the shared briefing-data contract in WeChat-friendly markdown."""
+    lines = []
+    highlights = briefing_data.get("highlights", [])[:6]
+    themes = briefing_data.get("themes", [])[:8]
+    brief_items = briefing_data.get("brief_items", [])[:20]
+    trends = briefing_data.get("trends", [])
+
+    if highlights:
+        lines.append(_render_highlight_list(highlights, language))
+
+    if themes:
+        label = "新内容" if language == "zh" else "New Developments"
+        lines.extend([f"## {label}", ""])
+        numerals = ["一", "二", "三", "四", "五", "六", "七", "八"]
+        for idx, theme in enumerate(themes, 1):
+            prefix = numerals[idx - 1] if language == "zh" and idx - 1 < len(numerals) else str(idx)
+            title = theme.get("title", "")
+            summary = theme.get("summary", "")
+            lines.append(f"### {prefix}、{title}" if language == "zh" else f"### {idx}. {title}")
+            lines.append("")
+            if summary:
+                lines.append(summary)
+                lines.append("")
+            lines.append("**参考：**" if language == "zh" else "**References:**")
+            lines.append("")
+            for article in theme.get("articles", [])[:4]:
+                source = f" — *{article.source}*" if article.source else ""
+                heat = f" · HN {article.hn_points}" if article.hn_points else ""
+                lines.append(f"- [{article.title}]({article.url}){source}{heat}")
+            lines.append("")
+            if idx < len(themes):
+                lines.extend(["---", ""])
+
+    if brief_items:
+        lines.append(_render_tech_brief(brief_items, language))
+
+    if trends:
+        lines.append("## 趋势观察" if language == "zh" else "## Trend Notes")
+        lines.append("")
+        for idx, trend in enumerate(trends, 1):
+            lines.append(f"{idx}. {trend}")
+        lines.append("")
+
+    return "\n".join(lines).strip()
 
 
 # ---------------------------------------------------------------------------

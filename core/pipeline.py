@@ -32,6 +32,43 @@ def _log_no_api_key(source_type, path):
     logger.info(f"   python main.py --source {source_type} --finalize")
 
 
+def _merge_run_stats(stats_list):
+    """Merge per-source metadata into top-level digest stats."""
+    merged = {
+        "source_count": 0,
+        "candidate_count": 0,
+        "after_dedup": 0,
+        "after_editorial": 0,
+        "included_count": 0,
+        "generated_at": None,
+        "run_id": None,
+    }
+    for stats in stats_list:
+        if not stats:
+            continue
+        for key in ("source_count", "candidate_count", "after_dedup", "after_editorial", "included_count"):
+            merged[key] += int(stats.get(key, 0) or 0)
+        merged["generated_at"] = merged["generated_at"] or stats.get("generated_at")
+        merged["run_id"] = merged["run_id"] or stats.get("run_id")
+    return merged
+
+
+def _build_run_metadata(run_id, source_count, candidate_count, after_dedup, after_editorial,
+                        included_count, extra=None):
+    metadata = {
+        "run_id": run_id,
+        "source_count": source_count,
+        "candidate_count": candidate_count,
+        "after_dedup": after_dedup,
+        "after_editorial": after_editorial,
+        "included_count": included_count,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+    }
+    if extra:
+        metadata.update(extra)
+    return metadata
+
+
 # ---------------------------------------------------------------------------
 # Unified report builder (workspace → report)
 # ---------------------------------------------------------------------------
@@ -46,6 +83,7 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
 
     all_articles = []
     summaries_by_source = {}
+    source_stats = []
     for src in ("tech", "podcast", "wechat"):
         if source in (src, "all") or (source == "tech" and src == "wechat"):
             data = load_workspace_data(src)
@@ -55,7 +93,13 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
                         all_articles.append(Article(**item))
                     except TypeError:
                         continue
-                summaries_by_source[src] = merge_batch_summaries(src)
+                metadata = data.get("metadata", {})
+                summaries_by_source[src] = merge_batch_summaries(
+                    src,
+                    run_id=metadata.get("run_id"),
+                    generated_at=metadata.get("generated_at"),
+                )
+                source_stats.append(metadata)
 
     if not all_articles:
         return None
@@ -113,6 +157,7 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
             ai_articles, non_ai_articles, now, language,
             summary_map=merged_summaries if not api_key else None,
             cluster_map=cluster_map,
+            stats=_merge_run_stats(source_stats),
         )
 
     return build_unified_report(
@@ -120,6 +165,7 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
         quality_scores=None,
         summary_map=merged_summaries if not api_key else None,
         cluster_map=cluster_map,
+        stats=_merge_run_stats(source_stats),
     )
 
 
@@ -187,7 +233,12 @@ def _finalize_source(source_type, language="zh"):
     data = load_workspace_data(source_type)
     if data is None:
         return None
-    summaries = merge_batch_summaries(source_type)
+    metadata = data.get("metadata", {})
+    summaries = merge_batch_summaries(
+        source_type,
+        run_id=metadata.get("run_id"),
+        generated_at=metadata.get("generated_at"),
+    )
     return _generate_source_report(source_type, data, summaries, language)
 
 
@@ -257,6 +308,7 @@ def _fetch_wechat_articles(hours=24, limit=None):
         feed_list, hours=hours, workers=10, cache=cache
     )
     save_http_cache(cache_path, new_cache)
+    stats["source_count"] = len(feed_list)
 
     raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
@@ -284,6 +336,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     t_start = time.time()
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     # Cleanup stale feed health and dedup entries
     from .feed_health import cleanup as health_cleanup
@@ -343,6 +396,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
 
     # Step 3: Merge + dedup
     all_articles = tech_articles + wechat_articles
+    candidate_count = len(all_articles)
     if not all_articles:
         logger.warning("⚠️ No articles from any source.")
         return None
@@ -354,6 +408,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     if not new_articles:
         logger.warning("⚠️ All articles already processed.")
         return None
+    after_dedup_total = len(new_articles)
     logger.info(f"✅ {len(new_articles)} new articles total ({time.time() - t2:.1f}s)")
 
     # Feed-level noise filtering for high-noise sources
@@ -383,6 +438,8 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.warning(f"⚠️ Topic clustering failed (non-fatal): {e}")
 
     # Step 4.5: Editorial pipeline — scoring, tiering, depth allocation, filtering
+    pre_editorial_articles = list(new_articles)
+
     try:
         from .editorial import run_editorial_pipeline
         new_articles, editorial_stats = run_editorial_pipeline(new_articles, cluster_map)
@@ -392,11 +449,31 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.debug(traceback.format_exc())
 
     # Save workspace data AFTER editorial pipeline so tier data is preserved
+    tech_pre_editorial = [a for a in pre_editorial_articles if not _is_wechat_article(a)]
+    wechat_pre_editorial = [a for a in pre_editorial_articles if _is_wechat_article(a)]
     tech_new = [a for a in new_articles if not _is_wechat_article(a)]
     wechat_new = [a for a in new_articles if _is_wechat_article(a)]
-    save_workspace_updates("tech", tech_new, tech_stats)
+    tech_metadata = _build_run_metadata(
+        run_id,
+        source_count=len(feed_list),
+        candidate_count=len(tech_articles),
+        after_dedup=len(tech_pre_editorial),
+        after_editorial=len(tech_new),
+        included_count=len(tech_new),
+        extra=tech_stats,
+    )
+    save_workspace_updates("tech", tech_new, tech_metadata)
     if wechat_new:
-        save_workspace_updates("wechat", wechat_new, wechat_stats)
+        wechat_metadata = _build_run_metadata(
+            run_id,
+            source_count=wechat_stats.get("source_count", 0),
+            candidate_count=len(wechat_articles),
+            after_dedup=len(wechat_pre_editorial),
+            after_editorial=len(wechat_new),
+            included_count=len(wechat_new),
+            extra=wechat_stats,
+        )
+        save_workspace_updates("wechat", wechat_new, wechat_metadata)
 
     if api_key and os.environ.get("ENRICH_FULL_TEXT"):
         try:
@@ -414,37 +491,31 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.info("   python main.py --source tech --finalize")
         return None
 
-    # AI / non-AI classification + summarization (legacy) or story grouping (new)
     t4 = time.time()
-    logger.info("🤖 Step 6/6: Story grouping + report building...")
+    logger.info("🤖 Step 6/6: AI split + unified briefing build...")
+    from .ai_filter import filter_ai_articles
+    from .report_builder import build_unified_report
 
-    from .story_grouper import group_stories
-    from .report_builder import build_magazine_report
-
-    story_group = group_stories(new_articles, cluster_map)
-
-    # LLM narrative rendering (API mode only)
-    narrative_data = {}
-    if api_key:
-        try:
-            from .narrative_renderer import NarrativeRenderer
-            renderer = NarrativeRenderer()
-            narrative_data = renderer.render_full(story_group)
-        except Exception as e:
-            import traceback
-            logger.warning(f"⚠️ Narrative renderer failed (non-fatal): {e}")
-            logger.debug(traceback.format_exc())
-
+    ai_articles, non_ai_articles = filter_ai_articles(new_articles)
     now = datetime.now(timezone.utc)
-    date_str = now.strftime("%Y-%m-%d")
-    report = build_magazine_report(
-        story_group, date_str,
+    report = build_unified_report(
+        ai_articles,
+        non_ai_articles,
+        now,
         language=language,
-        **narrative_data,
+        cluster_map=cluster_map,
+        stats={
+            "run_id": run_id,
+            "source_count": len(feed_list) + wechat_stats.get("source_count", 0),
+            "candidate_count": candidate_count,
+            "after_dedup": after_dedup_total,
+            "after_editorial": len(new_articles),
+            "included_count": len(ai_articles) + len(non_ai_articles),
+        },
     )
 
     combined_stats = {
-        "total_articles": len(new_articles),
+        "total_articles": len(ai_articles) + len(non_ai_articles),
         "tech": len(tech_new),
         "wechat": len(wechat_new),
     }
@@ -462,6 +533,7 @@ def run_podcast(hours=24, limit=None):
     t_start = time.time()
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     logger.info("\n🎙️ Step 1/3: Checking podcast updates...")
     with open(CONFIG_DIR / "podcast_feeds.json", "r", encoding="utf-8") as f:
@@ -491,6 +563,7 @@ def run_podcast(hours=24, limit=None):
     save_http_cache(cache_path, new_cache)
     logger.info(f"⏱️ Podcast RSS fetch completed in {time.time() - t1:.1f}s")
 
+    candidate_count = len(raw_updates)
     raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
         logger.warning("⚠️ no podcast updates.")
@@ -508,7 +581,16 @@ def run_podcast(hours=24, limit=None):
     updates = resolve_xiaoyuzhou_urls(raw_updates)
     logger.info(f"⏱️ URL resolution completed in {time.time() - t2:.1f}s")
 
-    updates_path = save_workspace_updates("podcast", updates, stats)
+    podcast_metadata = _build_run_metadata(
+        run_id,
+        source_count=len(feed_list),
+        candidate_count=candidate_count,
+        after_dedup=len(updates),
+        after_editorial=len(updates),
+        included_count=len(updates),
+        extra=stats,
+    )
+    updates_path = save_workspace_updates("podcast", updates, podcast_metadata)
 
     if api_key:
         logger.info("📄 Step 3/3: AI summaries + report...")
@@ -532,6 +614,7 @@ def run_wechat(hours=24, limit=None):
 
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     logger.info("\n📱 Step 1/3: Fetching WeChat feed list...")
     feed_data = fetch_wechat_feed_list()
@@ -549,7 +632,9 @@ def run_wechat(hours=24, limit=None):
     cache, cache_path = load_http_cache(".wechat_http_cache.json")
     raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=10, cache=cache)
     save_http_cache(cache_path, new_cache)
+    stats["source_count"] = len(feed_list)
 
+    candidate_count = len(raw_updates)
     raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
         logger.warning("⚠️ no WeChat updates.")
@@ -562,7 +647,16 @@ def run_wechat(hours=24, limit=None):
         logger.info("📖 Enriching WeChat articles with full text...")
         updates = enrich_wechat_articles(updates)
 
-    updates_path = save_workspace_updates("wechat", updates, stats)
+    wechat_metadata = _build_run_metadata(
+        run_id,
+        source_count=len(feed_list),
+        candidate_count=candidate_count,
+        after_dedup=len(updates),
+        after_editorial=len(updates),
+        included_count=len(updates),
+        extra=stats,
+    )
+    updates_path = save_workspace_updates("wechat", updates, wechat_metadata)
 
     if api_key:
         logger.info("📄 Step 3/3: AI summaries + report...")

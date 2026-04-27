@@ -278,8 +278,8 @@ class TestMultilineBlockquote:
         assert "> - Line three" in report
 
 
-class TestUnifiedReportToc:
-    def test_toc_present_in_two_part_report(self):
+class TestUnifiedBriefingReport:
+    def test_briefing_sections_present(self):
         ai_article = Article(
             title="AI article", url="https://test/ai",
             source="TestSource", category="ai_ml",
@@ -299,12 +299,11 @@ class TestUnifiedReportToc:
                 llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
                 executive_summary="Test summary",
             )
-        assert "📑 快速导航" in report
-        assert "AI 深度日报" in report
-        assert "科技动态" in report
-        assert "🔥 今日亮点" in report
+        assert "## 📌 今日亮点" in report
+        assert "## 🧭 新内容" in report
+        assert "## 📝 科技简讯" in report
 
-    def test_no_toc_when_only_one_part(self):
+    def test_single_part_report_still_has_briefing_structure(self):
         ai_article = Article(
             title="AI article", url="https://test/ai",
             source="TestSource", category="ai_ml",
@@ -317,9 +316,8 @@ class TestUnifiedReportToc:
                 [ai_article], [], now, "zh",
                 llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
             )
-        assert "📑" not in report
-        # Highlights should still appear for articles with tier data
-        assert "🔥 今日亮点" in report
+        assert "## 🧭 新内容" in report
+        assert "## 📌 今日亮点" in report
 
     def test_no_double_separator_in_single_part_report(self):
         ai_article = Article(
@@ -335,6 +333,23 @@ class TestUnifiedReportToc:
                 llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
             )
         assert "---\n---" not in report
+
+    def test_header_uses_stats_source_count_not_article_count(self):
+        ai_article = Article(
+            title="AI article", url="https://test/ai",
+            source="TestSource", category="ai_ml",
+            published="2026-04-27T12:00:00",
+            extra={"editorial_tier": "must_read", "news_value_score": 0.9},
+        )
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        with _no_api_key():
+            report = build_unified_report(
+                [ai_article], [], now, "zh",
+                cluster_map={},
+                stats={"candidate_count": 12, "source_count": 5, "included_count": 1},
+            )
+        assert "扫描 12 篇候选内容" in report
+        assert "覆盖 5 个信息源" in report
 
 
 class TestImportanceReason:

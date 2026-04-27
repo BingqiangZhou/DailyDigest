@@ -16,6 +16,7 @@ from .config import (
     normalize_category,
 )
 from .logging_config import get_logger
+from .llm_utils import contains_reasoning_artifacts, sanitize_generated_text, sanitize_report_markdown
 
 logger = get_logger("report")
 
@@ -437,11 +438,18 @@ def save_report(content, filename, output_dir=None, report_type="tech", language
     Returns:
         Path: 保存的文件路径
     """
+    content = sanitize_report_markdown(content)
+
     # 尝试生成 TL;DR
     if not skip_tldr:
         tldr = _generate_tldr_if_needed(content, report_type, language)
         if tldr:
-            content = _insert_tldr(content, tldr, language)
+            content = _insert_tldr(content, sanitize_generated_text(tldr), language)
+
+    content = sanitize_report_markdown(content)
+    if contains_reasoning_artifacts(content):
+        logger.warning("[Report] ⚠️ reasoning artifacts detected after sanitization; applying fallback cleanup")
+        content = sanitize_report_markdown(content)
 
     output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)

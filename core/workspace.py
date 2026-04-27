@@ -7,6 +7,7 @@ and workspace data loading/saving for the pipeline.
 
 import json
 from dataclasses import asdict
+from datetime import datetime, timezone
 from pathlib import Path
 
 from .logging_config import get_logger
@@ -51,8 +52,10 @@ def save_workspace_updates(source_type, updates, metadata=None):
     """Save articles to workspace/{source_type}_updates.json."""
     from .config import WORKSPACE_DIR
     path = WORKSPACE_DIR / f"{source_type}_updates.json"
+    payload = dict(metadata or {})
+    payload.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
     with open(path, "w", encoding="utf-8") as f:
-        json.dump({"metadata": metadata or {}, "updates": [asdict(a) for a in updates]}, f, ensure_ascii=False, indent=2)
+        json.dump({"metadata": payload, "updates": [asdict(a) for a in updates]}, f, ensure_ascii=False, indent=2)
     return path
 
 
@@ -67,11 +70,47 @@ def load_workspace_data(source_type):
         return json.load(f)
 
 
-def merge_batch_summaries(source_type):
-    """Glob {source_type}_summary_batch_*.json and merge into a single dict."""
+def _summary_batch_paths(source_type, run_id=None, generated_at=None):
+    """Return summary batch files for a specific run, falling back cautiously."""
+    from .config import WORKSPACE_DIR
+    candidates = []
+
+    if run_id:
+        patterns = [
+            f"{source_type}_summary_batch_{run_id}_*.json",
+            f"{source_type}_summary_batch_{run_id}.json",
+        ]
+        for pattern in patterns:
+            candidates.extend(sorted(WORKSPACE_DIR.glob(pattern)))
+        if candidates:
+            return candidates
+
+    generated_date = ""
+    if generated_at:
+        try:
+            generated_date = datetime.fromisoformat(generated_at.replace("Z", "+00:00")).strftime("%Y-%m-%d")
+        except ValueError:
+            generated_date = ""
+
+    legacy = sorted(WORKSPACE_DIR.glob(f"{source_type}_summary_batch_*.json"))
+    if not legacy:
+        return []
+    if not generated_date:
+        return legacy
+
+    dated = []
+    for path in legacy:
+        modified = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc).strftime("%Y-%m-%d")
+        if modified == generated_date:
+            dated.append(path)
+    return dated or legacy
+
+
+def merge_batch_summaries(source_type, run_id=None, generated_at=None):
+    """Merge summary batch files for a single run into a dict."""
     from .config import WORKSPACE_DIR
     summary_map = {}
-    for p in sorted(WORKSPACE_DIR.glob(f"{source_type}_summary_batch_*.json")):
+    for p in _summary_batch_paths(source_type, run_id=run_id, generated_at=generated_at):
         with open(p, "r", encoding="utf-8") as f:
             batch = json.load(f)
         if source_type == "podcast":

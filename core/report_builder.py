@@ -13,6 +13,16 @@ from .logging_config import get_logger
 
 logger = get_logger("report_builder")
 
+_THEME_ORDER = [
+    "模型与平台",
+    "开源与工具",
+    "评测与实战",
+    "行业与商业",
+    "研究与方法",
+    "硬件与基础设施",
+    "产品与应用",
+]
+
 
 def demote_headings(lines, levels):
     """Add # prefix to heading lines to demote them by the given number of levels.
@@ -275,135 +285,431 @@ def _build_data_dashboard(ai_articles, non_ai_articles, cluster_map, language="z
     return dash
 
 
-def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quality_scores=None,
-                         summary_map=None, cluster_map=None,
-                         llm_category_results=None, executive_summary="", trend_insights=""):
-    """Build a two-part unified report: AI deep analysis + non-AI tech news."""
-    from .ai_report import build_ai_section
-    from .report_generator import build_non_ai_section, generate_tech_report
-
-    date_str = now.strftime("%Y-%m-%d")
-    time_str = now.strftime("%H:%M")
-
-    ai_count = len(ai_articles)
-    non_ai_count = len(non_ai_articles)
-    total = ai_count + non_ai_count
-
-    if language == "zh":
-        parts_info = []
-        if ai_count:
-            parts_info.append(f"🤖 AI 深度分析 {ai_count} 篇")
-        if non_ai_count:
-            parts_info.append(f"💻 科技动态 {non_ai_count} 条")
-        header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> {' · '.join(parts_info)} · 共 {total} 篇\n\n"
-        header += f"> ⏰ 生成时间 {time_str} UTC\n"
-    else:
-        parts_info = []
-        if ai_count:
-            parts_info.append(f"🤖 AI Deep Analysis {ai_count} articles")
-        if non_ai_count:
-            parts_info.append(f"💻 Tech Updates {non_ai_count} items")
-        header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> {' · '.join(parts_info)} · Total {total}\n\n"
-        header += f"> ⏰ Generated at {time_str} UTC\n"
-
-    header += "\n---\n\n"
-
-    # Data overview dashboard
-    dashboard = _build_data_dashboard(
-        ai_articles, non_ai_articles, cluster_map, language
+def _article_rank(article, cluster_map=None):
+    """Sort higher-signal articles first for briefing selection."""
+    cluster_info = (cluster_map or {}).get(article.url, {})
+    tier_order = {"must_read": 3, "noteworthy": 2, "brief": 1}
+    return (
+        tier_order.get(article.extra.get("editorial_tier"), 0),
+        article.extra.get("news_value_score", 0),
+        cluster_info.get("cluster_size", 1),
+        1 if cluster_info.get("cross_source") else 0,
+        article.hn_points or 0,
     )
 
-    has_tiers = False
-    category_results = None
-    if summary_map:
-        has_tiers = any(
-            isinstance(v, dict) and "tier" in v
-            for v in summary_map.values()
-        )
-        if has_tiers:
-            category_results = build_category_results_from_summaries(ai_articles, summary_map)
-    elif any(a.extra.get("editorial_tier") for a in ai_articles):
-        has_tiers = True
-        category_results = build_category_results_from_editorial(ai_articles, cluster_map, language)
 
-    # Merge LLM-generated summaries into editorial category results
-    if has_tiers and category_results and llm_category_results:
-        category_results = _merge_llm_summaries(category_results, llm_category_results)
+def _assign_briefing_theme(article):
+    """Map an article to a human-readable briefing theme."""
+    from .config import normalize_category
 
-    if has_tiers and not os.environ.get("API_KEY"):
-        # No API key: use template renderer with tiered data
-        ai_section_body = generate_tech_report(
-            ai_articles,
-            category_results=category_results,
-            stats={"total_articles": ai_count, "categories": len(category_results) if category_results else 0},
-            report_language=language,
-            executive_summary=executive_summary if executive_summary else None,
-            trend_insights=trend_insights if trend_insights else None,
-        )
-        part_label = "AI 深度日报" if language == "zh" else "AI Deep Digest"
-        ai_section = f"## Part I: 🤖 {part_label} ({ai_count} {'篇' if language == 'zh' else 'articles'})\n\n{ai_section_body}"
-    else:
-        # API key available (or no tiers): use LLM deep analysis
-        ai_section = build_ai_section(ai_articles, language, summary_map=summary_map,
-                                      cluster_map=cluster_map)
+    category = normalize_category(article.category)
+    title = (article.title or "").lower()
 
-    non_ai_section = build_non_ai_section(non_ai_articles, language)
+    if category in {"ai_ml"}:
+        if any(kw in title for kw in ("paper", "research", "study", "arxiv", "论文", "研究")):
+            return "研究与方法"
+        return "模型与平台"
+    if category in {"ai_tools", "open_source", "wechat_dev"}:
+        return "开源与工具"
+    if category in {"chips_hardware", "cloud"}:
+        return "硬件与基础设施"
+    if category in {"tech_product", "wechat_user"}:
+        return "产品与应用"
+    if category in {"hacker_news", "podcast"}:
+        return "评测与实战"
+    if category in {"tech_general", "general_news", "wechat_other", "wechat_security"}:
+        if any(kw in title for kw in ("benchmark", "test", "review", "评测", "实测", "横评")):
+            return "评测与实战"
+        return "行业与商业"
+    return "行业与商业"
 
+
+def _theme_sort_key(theme):
+    theme_order = {name: idx for idx, name in enumerate(_THEME_ORDER)}
+    return (
+        -theme.get("score", 0),
+        theme_order.get(theme.get("theme", ""), 99),
+        theme.get("title", ""),
+    )
+
+
+def _clean_theme_title(text, fallback):
+    cleaned = re.sub(r'\s+', ' ', (text or "")).strip()
+    cleaned = cleaned.strip("-:;,| ")
+    return cleaned[:72] if cleaned else fallback
+
+
+def _compose_theme_summary(theme, summary_map=None, language="zh"):
+    """Fallback theme summary from article descriptions and summary_map."""
     parts = []
-    if ai_section:
-        parts.append(ai_section)
-    if non_ai_section:
-        parts.append(non_ai_section)
+    seen = set()
+    for article in theme.get("articles", []):
+        info = (summary_map or {}).get(article.url, {})
+        summary = ""
+        if isinstance(info, dict):
+            summary = info.get("importance_reason") or info.get("ai_summary") or ""
+        elif isinstance(info, str):
+            summary = info
+        if not summary:
+            summary = re.sub(r'<[^>]+>', '', (article.description or "")).strip()
+        if not summary:
+            continue
+        summary = summary.replace("\n", " ").strip()
+        if summary and summary not in seen:
+            seen.add(summary)
+            parts.append(summary[:180])
+        if len(parts) >= 3:
+            break
 
-    if not parts:
-        return ""
+    if parts:
+        joiner = "；" if language == "zh" else " "
+        return joiner.join(parts)
 
-    # Build highlights section from top must-read articles
-    highlights = _build_highlights(ai_articles, non_ai_articles, cluster_map, language)
+    if language == "zh":
+        return "今日该主题有多篇相关更新，需结合参考条目快速浏览。"
+    return "This theme collected multiple relevant updates for quick scanning."
 
-    # Build quick-nav TOC
-    toc_entries = []
-    if ai_section:
-        ai_label = "🤖 AI 深度日报" if language == "zh" else "🤖 AI Deep Digest"
-        toc_entries.append(ai_label)
-    if non_ai_section:
-        non_label = "💻 科技动态" if language == "zh" else "💻 Tech Updates"
-        toc_entries.append(non_label)
 
-    toc = ""
-    if len(toc_entries) > 1:
-        toc_label = "📑 快速导航" if language == "zh" else "📑 Quick Navigation"
-        toc = f"## {toc_label}\n\n"
-        for entry in toc_entries:
-            anchor = make_anchor(entry)
-            toc += f"- [{entry}](#{anchor})\n"
-        toc += f"\n---\n\n"
+def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None, language="zh"):
+    """Build 4-6 concise highlight lines when no LLM highlights are available."""
+    highlights = []
+    selected = sorted(ai_articles + non_ai_articles, key=lambda a: _article_rank(a, cluster_map), reverse=True)[:6]
+    for article in selected:
+        cluster_info = (cluster_map or {}).get(article.url, {})
+        summary = re.sub(r'<[^>]+>', '', (article.description or "")).strip()
+        if summary:
+            line = summary[:90]
+        else:
+            line = article.title
+        if cluster_info.get("cross_source"):
+            line += "（多源交叉验证）" if language == "zh" else " (cross-source)"
+        highlights.append(line)
+    return highlights
 
-    body = "\n\n---\n\n".join(parts)
-    # Insert dashboard + highlights between header and TOC/body
-    if toc:
-        return header + dashboard + highlights + toc + body
-    return header + dashboard + highlights + body
+
+def _select_brief_items(non_ai_articles, max_count=20):
+    """Select compact tech brief items, preferring higher editorial weight."""
+    if not non_ai_articles:
+        return []
+
+    must_read = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "noteworthy"]
+    brief = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "brief"]
+    unclassified = [a for a in non_ai_articles if not a.extra.get("editorial_tier")]
+
+    for bucket in (must_read, noteworthy, brief, unclassified):
+        bucket.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+
+    selected = []
+    for bucket in (must_read, noteworthy, unclassified, brief):
+        remaining = max_count - len(selected)
+        if remaining <= 0:
+            break
+        selected.extend(bucket[:remaining])
+    return selected
+
+
+def _build_theme_groups(ai_articles, cluster_map=None):
+    """Group AI articles into cluster-first theme sections."""
+    cluster_map = cluster_map or {}
+    articles_by_url = {article.url: article for article in ai_articles}
+    cluster_groups = {}
+    for article in ai_articles:
+        info = cluster_map.get(article.url, {})
+        cluster_id = info.get("cluster_id")
+        if cluster_id and info.get("cluster_size", 1) > 1:
+            cluster_groups.setdefault(cluster_id, []).append(article)
+
+    themes = []
+    used_urls = set()
+    for cluster_id, members in cluster_groups.items():
+        members.sort(key=lambda a: _article_rank(a, cluster_map), reverse=True)
+        lead = members[0]
+        info = cluster_map.get(lead.url, {})
+        themes.append({
+            "id": cluster_id,
+            "theme": _assign_briefing_theme(lead),
+            "title": _clean_theme_title(lead.title, _assign_briefing_theme(lead)),
+            "articles": members[:4],
+            "score": max(a.extra.get("news_value_score", 0) for a in members),
+            "cluster_theme": info.get("theme", ""),
+            "cross_source": info.get("cross_source", False),
+        })
+        used_urls.update(a.url for a in members)
+
+    leftovers = {}
+    for article in sorted(ai_articles, key=lambda a: _article_rank(a, cluster_map), reverse=True):
+        if article.url in used_urls:
+            continue
+        theme = _assign_briefing_theme(article)
+        leftovers.setdefault(theme, []).append(article)
+
+    for theme_name, members in leftovers.items():
+        if not members:
+            continue
+        themes.append({
+            "id": f"theme-{theme_name}",
+            "theme": theme_name,
+            "title": theme_name,
+            "articles": members[:4],
+            "score": max(a.extra.get("news_value_score", 0) for a in members),
+            "cluster_theme": "",
+            "cross_source": False,
+        })
+
+    themes.sort(key=_theme_sort_key)
+    return themes[:8]
+
+
+def _combine_briefing_stats(ai_articles, non_ai_articles, stats=None, cluster_map=None):
+    """Normalize top-level report statistics."""
+    stats = dict(stats or {})
+    total_included = len(ai_articles) + len(non_ai_articles)
+    stats.setdefault("included_count", total_included)
+    stats.setdefault("after_editorial", total_included)
+    stats.setdefault("after_dedup", total_included)
+    stats.setdefault("candidate_count", total_included)
+    stats.setdefault("source_count", len({a.source for a in ai_articles + non_ai_articles if a.source}))
+    if cluster_map:
+        stats.setdefault("cluster_count", len({info.get("cluster_id") for info in cluster_map.values() if info.get("cluster_id")}))
+        stats.setdefault("cross_source_count", len({info.get("cluster_id") for info in cluster_map.values() if info.get("cross_source")}))
+    else:
+        stats.setdefault("cluster_count", 0)
+        stats.setdefault("cross_source_count", 0)
+    stats["ai_count"] = len(ai_articles)
+    stats["non_ai_count"] = len(non_ai_articles)
+    return stats
+
+
+def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_map=None,
+                        stats=None, language="zh"):
+    """Build the neutral briefing-data contract shared by markdown and wechat."""
+    cluster_map = cluster_map or {}
+    themes = _build_theme_groups(ai_articles, cluster_map=cluster_map)
+    for theme in themes:
+        theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map, language=language)
+    return {
+        "highlights": _fallback_highlights(ai_articles, non_ai_articles, cluster_map=cluster_map, language=language),
+        "themes": themes[:8],
+        "brief_items": _select_brief_items(non_ai_articles, 20),
+        "stats": _combine_briefing_stats(ai_articles, non_ai_articles, stats=stats, cluster_map=cluster_map),
+    }
+
+
+def _merge_llm_briefing(briefing_data, llm_briefing):
+    """Overlay LLM-generated highlights and theme summaries onto briefing_data."""
+    if not llm_briefing:
+        return briefing_data
+
+    merged = dict(briefing_data)
+    if llm_briefing.get("highlights"):
+        merged["highlights"] = llm_briefing["highlights"]
+
+    theme_summaries = llm_briefing.get("theme_summaries", {})
+    if theme_summaries:
+        themes = []
+        for idx, theme in enumerate(briefing_data.get("themes", []), 1):
+            summary = theme_summaries.get(theme.get("id")) or theme_summaries.get(str(idx))
+            if summary:
+                updated = dict(theme)
+                updated["summary"] = summary
+                themes.append(updated)
+            else:
+                themes.append(theme)
+        merged["themes"] = themes
+
+    if llm_briefing.get("trends"):
+        merged["trends"] = llm_briefing["trends"]
+    return merged
+
+
+def _render_briefing_markdown(briefing_data, now, language="zh"):
+    """Render briefing_data into the default markdown daily digest."""
+    date_str = now.strftime("%Y-%m-%d")
+    stats = briefing_data.get("stats", {})
+    highlights = briefing_data.get("highlights", [])[:6]
+    themes = briefing_data.get("themes", [])[:8]
+    brief_items = briefing_data.get("brief_items", [])[:20]
+    trends = briefing_data.get("trends", [])
+
+    if language == "zh":
+        lines = [
+            f"# 📰 DailyDigest — {date_str}",
+            "",
+            f"> 扫描 {stats.get('candidate_count', 0)} 篇候选内容 · 覆盖 {stats.get('source_count', 0)} 个信息源 · 纳入 {stats.get('included_count', 0)} 篇",
+            "",
+            "---",
+            "",
+        ]
+        if highlights:
+            lines.extend(["## 📌 今日亮点", ""])
+            for item in highlights:
+                lines.append(f"- {item}")
+            lines.extend(["", "---", ""])
+
+        if themes:
+            lines.extend(["## 🧭 新内容", ""])
+            numerals = ["一", "二", "三", "四", "五", "六", "七", "八"]
+            for idx, theme in enumerate(themes, 1):
+                prefix = numerals[idx - 1] if idx - 1 < len(numerals) else str(idx)
+                lines.append(f"### {prefix}、{theme.get('title', '')}")
+                lines.append("")
+                lines.append(theme.get("summary", ""))
+                lines.append("")
+                lines.append("**参考：**")
+                lines.append("")
+                for article in theme.get("articles", [])[:4]:
+                    source = f" — *{article.source}*" if article.source else ""
+                    heat = ""
+                    if article.hn_points:
+                        heat = f" · HN {article.hn_points}"
+                    lines.append(f"- [{article.title}]({article.url}){source}{heat}")
+                lines.append("")
+                if idx < len(themes):
+                    lines.extend(["---", ""])
+
+        if brief_items:
+            lines.extend(["## 📝 科技简讯", ""])
+            for article in brief_items:
+                source = f" — *{article.source}*" if article.source else ""
+                lines.append(f"- [{article.title}]({article.url}){source}")
+            lines.extend(["", "---", ""])
+
+        if trends:
+            lines.extend(["## 📈 趋势观察", ""])
+            for idx, trend in enumerate(trends, 1):
+                lines.append(f"{idx}. {trend}")
+            lines.extend(["", "---", ""])
+
+        lines.extend([
+            "## 📊 数据概览",
+            "",
+            "| 指标 | 数值 |",
+            "|------|------|",
+            f"| 候选内容 | {stats.get('candidate_count', 0)} |",
+            f"| 去重后 | {stats.get('after_dedup', 0)} |",
+            f"| 编辑筛选后 | {stats.get('after_editorial', 0)} |",
+            f"| 纳入日报 | {stats.get('included_count', 0)} |",
+            f"| AI 主题 | {stats.get('ai_count', 0)} |",
+            f"| 科技简讯 | {len(brief_items)} |",
+            f"| 信息源数量 | {stats.get('source_count', 0)} |",
+        ])
+        if stats.get("cluster_count"):
+            lines.append(f"| 主题聚类 | {stats.get('cluster_count', 0)} |")
+            lines.append(f"| 跨源话题 | {stats.get('cross_source_count', 0)} |")
+        return "\n".join(lines).strip()
+
+    lines = [
+        f"# 📰 DailyDigest — {date_str}",
+        "",
+        f"> Scanned {stats.get('candidate_count', 0)} candidate items · Covered {stats.get('source_count', 0)} sources · Included {stats.get('included_count', 0)} items",
+        "",
+        "---",
+        "",
+    ]
+    if highlights:
+        lines.extend(["## 📌 Highlights", ""])
+        for item in highlights:
+            lines.append(f"- {item}")
+        lines.extend(["", "---", ""])
+    if themes:
+        lines.extend(["## 🧭 New Developments", ""])
+        for idx, theme in enumerate(themes, 1):
+            lines.append(f"### {idx}. {theme.get('title', '')}")
+            lines.append("")
+            lines.append(theme.get("summary", ""))
+            lines.append("")
+            lines.append("**References:**")
+            lines.append("")
+            for article in theme.get("articles", [])[:4]:
+                source = f" — *{article.source}*" if article.source else ""
+                lines.append(f"- [{article.title}]({article.url}){source}")
+            lines.append("")
+            if idx < len(themes):
+                lines.extend(["---", ""])
+    if brief_items:
+        lines.extend(["## 📝 Tech Briefs", ""])
+        for article in brief_items:
+            source = f" — *{article.source}*" if article.source else ""
+            lines.append(f"- [{article.title}]({article.url}){source}")
+        lines.extend(["", "---", ""])
+    if trends:
+        lines.extend(["## 📈 Trend Notes", ""])
+        for idx, trend in enumerate(trends, 1):
+            lines.append(f"{idx}. {trend}")
+        lines.extend(["", "---", ""])
+    lines.extend([
+        "## 📊 Data Overview",
+        "",
+        "| Metric | Value |",
+        "|--------|-------|",
+        f"| Candidate items | {stats.get('candidate_count', 0)} |",
+        f"| After dedup | {stats.get('after_dedup', 0)} |",
+        f"| After editorial | {stats.get('after_editorial', 0)} |",
+        f"| Included | {stats.get('included_count', 0)} |",
+        f"| AI themes | {stats.get('ai_count', 0)} |",
+        f"| Tech briefs | {len(brief_items)} |",
+        f"| Sources covered | {stats.get('source_count', 0)} |",
+    ])
+    if stats.get("cluster_count"):
+        lines.append(f"| Topic clusters | {stats.get('cluster_count', 0)} |")
+        lines.append(f"| Cross-source topics | {stats.get('cross_source_count', 0)} |")
+    return "\n".join(lines).strip()
+
+
+def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quality_scores=None,
+                         summary_map=None, cluster_map=None,
+                         llm_category_results=None, executive_summary="", trend_insights="",
+                         stats=None, llm_briefing=None):
+    """Build the default markdown daily digest in briefing format."""
+    briefing_data = build_briefing_data(
+        ai_articles,
+        non_ai_articles,
+        cluster_map=cluster_map,
+        summary_map=summary_map,
+        stats=stats,
+        language=language,
+    )
+
+    if executive_summary:
+        highlights = [line.lstrip("- ").strip() for line in executive_summary.splitlines() if line.strip()]
+        if highlights:
+            briefing_data["highlights"] = highlights[:6]
+    if trend_insights:
+        briefing_data["trends"] = [line.strip() for line in trend_insights.splitlines() if line.strip()]
+
+    if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
+        try:
+            from .narrative_renderer import NarrativeRenderer
+            llm_briefing = NarrativeRenderer(language=language).render_briefing(briefing_data)
+        except Exception as e:
+            logger.warning(f"⚠️ Briefing narrative generation failed (non-fatal): {e}")
+
+    briefing_data = _merge_llm_briefing(briefing_data, llm_briefing)
+    return _render_briefing_markdown(briefing_data, now, language=language)
 
 
 def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh",
                                  summary_map=None, cluster_map=None,
-                                 category_results=None):
+                                 category_results=None, stats=None, llm_briefing=None):
     """Build a WeChat Official Account Markdown article."""
     from .wechat_article import generate_wechat_article
 
-    if not category_results and summary_map:
-        category_results = build_category_results_from_summaries(ai_articles, summary_map)
+    briefing_data = build_briefing_data(
+        ai_articles,
+        non_ai_articles,
+        cluster_map=cluster_map,
+        summary_map=summary_map,
+        stats=stats,
+        language=language,
+    )
 
-    ai_structure = None
-    if os.environ.get("API_KEY") and ai_articles:
+    if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            from .ai_summarizer import generate_wechat_structure
-            ai_structure = generate_wechat_structure(ai_articles, language)
+            from .narrative_renderer import NarrativeRenderer
+            llm_briefing = NarrativeRenderer(language=language).render_briefing(briefing_data)
         except Exception as e:
-            logger.warning(f"[WeChat] ⚠️ AI结构生成失败，使用分类回退: {e}")
+            logger.warning(f"[WeChat] ⚠️ Briefing narrative generation failed, using fallback: {e}")
 
     return generate_wechat_article(
         ai_articles=ai_articles,
@@ -413,7 +719,7 @@ def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh"
         category_results=category_results,
         summary_map=summary_map,
         cluster_map=cluster_map,
-        ai_structure=ai_structure,
+        briefing_data=_merge_llm_briefing(briefing_data, llm_briefing),
     )
 
 

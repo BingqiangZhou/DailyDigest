@@ -87,22 +87,70 @@ class TestStripThinkingOutput:
         from core.llm_utils import _strip_thinking_output
         return _strip_thinking_output
 
-    def test_strips_thinking_output(self):
+    def test_strips_english_thinking_before_chinese(self):
         strip = self._get_fn()
-        raw = "The user wants a summary.\nLet me think about this.\nActual content here."
-        assert strip(raw) == "Actual content here."
+        raw = (
+            "The user wants a summary for CTO readers.\n"
+            "We need to pick 3-5 items.\n"
+            "研究团队发布新模型，在多个基准上取得突破性进展。\n"
+            "该成果将推动行业技术迭代。"
+        )
+        result = strip(raw)
+        assert "研究团队发布新模型" in result
+        assert "The user wants" not in result
 
     def test_strips_c_style_thinking(self):
         strip = self._get_fn()
-        raw = "/* thinking process */\nActual output"
-        assert strip(raw) == "Actual output"
+        raw = "/* thinking process */\n这是实际输出内容，包含中文技术分析。"
+        result = strip(raw)
+        assert "这是实际输出内容" in result
 
-    def test_preserves_clean_content(self):
+    def test_preserves_clean_chinese_content(self):
         strip = self._get_fn()
-        raw = "这是一段正常的中文内容，包含 First, the researchers found 等正常表述。"
+        raw = "这是一段正常的中文内容，包含技术分析和行业洞察。内容长度足够长。"
         assert strip(raw) == raw
 
-    def test_strips_character_counting(self):
+    def test_strips_character_counting_lines(self):
         strip = self._get_fn()
-        raw = '"研"1 "究"2 "人"3 "员"4\nActual narrative text.'
-        assert strip(raw) == "Actual narrative text."
+        raw = (
+            '"研"1 "究"2 "人"3 "员"4\n'
+            "研究团队发布新论文，展示了突破性的实验结果和分析。"
+        )
+        result = strip(raw)
+        assert "研究团队发布新论文" in result
+        assert '"研"1' not in result
+
+    def test_real_minimax_output(self):
+        strip = self._get_fn()
+        raw = (
+            "The user wants a news narrative in Chinese, 200-300 characters.\n"
+            "3. If multiple sources, combine.\n"
+            "Continue with implications: results show significant improvement.\n"
+            "研究团队在arXiv发布新论文，采用强化学习激励视觉语言模型。"
+            "实验基于Qwen3-VL-2B模型，在包含数学和科学的评测集上准确率提升3.33%。\n"
+            '"研"1 "究"2\n'
+            "Count characters: 250 total."
+        )
+        result = strip(raw)
+        assert "研究团队在arXiv发布新论文" in result
+        assert "The user wants" not in result
+        assert "Count characters" not in result
+
+    def test_sanitizes_report_markdown_reasoning_lines(self):
+        from core.llm_utils import sanitize_report_markdown
+
+        raw = (
+            "# DailyDigest\n\n"
+            "## 📌 TL;DR\n\n"
+            "> <think>The user wants a TL;DR summary.\n"
+            "> - OpenAI folds Codex into GPT-5.5\n\n"
+            "## 🧭 新内容\n\n"
+            "<think>Count characters: 220\n"
+            "### 一、模型与平台\n\n"
+            "真实内容保留。\n"
+        )
+        result = sanitize_report_markdown(raw)
+        assert "<think>" not in result
+        assert "The user wants" not in result
+        assert "Count characters" not in result
+        assert "真实内容保留" in result

@@ -15,7 +15,7 @@ from config.prompts.summarizer import (
     PODCAST_BATCH_PROMPT, WECHAT_BATCH_PROMPT,
     TLDR_PROMPT_ZH, TLDR_PROMPT_EN,
 )
-from .llm_utils import parse_llm_json, strip_code_fences, _strip_thinking_output
+from .llm_utils import parse_llm_json, strip_code_fences, _strip_thinking_output, sanitize_generated_text
 from .llm import (
     get_llm_client as _get_client,
     get_model as _get_model,
@@ -125,7 +125,7 @@ def generate_trend_insights(client, category_summaries, total_stats, report_lang
         logger.warning("[AI] ⚠️ 趋势洞察生成失败")
         return ""
 
-    result = strip_code_fences(result)
+    result = sanitize_generated_text(result)
     if not result or not result.strip():
         return ""
 
@@ -450,7 +450,7 @@ def generate_tldr(report_content, report_type="tech", language="zh"):
     logger.info(f"[AI] 🤖 正在生成 TL;DR ({type_name})...")
     response = _chat_with_profile(client, prompt, "tldr")
     if response:
-        tldr = _strip_thinking_output(strip_code_fences(response))
+        tldr = sanitize_generated_text(response)
         logger.info(f"[AI] ✅ TL;DR 生成完成")
         return tldr
     else:
