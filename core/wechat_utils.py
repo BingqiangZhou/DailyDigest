@@ -7,6 +7,7 @@
 """
 
 import json
+import os
 import re
 import time
 import random
@@ -18,6 +19,9 @@ from .config import CONFIG_DIR, WORKSPACE_DIR, get_category_display
 from .http import fetch_url_with_retry
 from .html_utils import strip_html
 from .logging_config import get_logger
+from .rss_fetcher import fetch_feeds_stdlib
+from .dedup import filter_and_mark
+from .workspace import load_http_cache, save_http_cache
 
 logger = get_logger("wechat")
 
@@ -248,6 +252,48 @@ def enrich_wechat_articles(updates, min_length=500, max_articles=0, delay=2.0):
 
     logger.info(f'[WeChat] 文章补充: 获取 {fetched}, 跳过 {skipped}, 失败 {failed}')
     return updates
+
+
+# ============================================================
+# Unified pipeline helper
+# ============================================================
+
+def fetch_wechat_articles(hours=24, limit=None):
+    """Fetch, dedup, and enrich WeChat articles."""
+    api_key = os.environ.get("API_KEY")
+
+    logger.info("\n📱 Fetching WeChat feed list...")
+    feed_data = fetch_wechat_feed_list()
+    feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
+    if limit:
+        feeds = feeds[:limit]
+        logger.info(f"   (limit mode: first {limit} accounts)")
+    feed_list = [
+        {"name": f["name"], "url": f["url"], "category": f.get("category", "其他"),
+         "language": "zh", "_wechat_meta": {"index": f.get("index", 0)}}
+        for f in feeds
+    ]
+
+    logger.info("📡 Checking WeChat updates...")
+    cache, cache_path = load_http_cache(".wechat_http_cache.json")
+    raw_updates, stats, new_cache = fetch_feeds_stdlib(
+        feed_list, hours=hours, workers=10, cache=cache
+    )
+    save_http_cache(cache_path, new_cache)
+    stats["source_count"] = len(feed_list)
+
+    raw_updates = filter_and_mark(raw_updates)
+    if not raw_updates:
+        logger.info("ℹ️ No WeChat updates.")
+        return [], stats
+
+    logger.info(f"✅ {len(raw_updates)} WeChat updates")
+
+    if api_key:
+        logger.info("📖 Enriching WeChat articles with full text...")
+        raw_updates = enrich_wechat_articles(raw_updates)
+
+    return raw_updates, stats
 
 
 # ============================================================

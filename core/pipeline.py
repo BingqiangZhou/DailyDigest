@@ -282,52 +282,6 @@ def finalize_reports(source, language="zh", output_format="markdown"):
 
 
 # ---------------------------------------------------------------------------
-# Shared helpers for unified pipeline
-# ---------------------------------------------------------------------------
-
-def _fetch_wechat_articles(hours=24, limit=None):
-    """Fetch, dedup, and enrich WeChat articles."""
-    from .wechat_utils import fetch_wechat_feed_list, enrich_wechat_articles
-    from .rss_fetcher import fetch_feeds_stdlib
-    from .dedup import filter_and_mark
-
-    api_key = os.environ.get("API_KEY")
-
-    logger.info("\n📱 Fetching WeChat feed list...")
-    feed_data = fetch_wechat_feed_list()
-    feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
-    if limit:
-        feeds = feeds[:limit]
-        logger.info(f"   (limit mode: first {limit} accounts)")
-    feed_list = [
-        {"name": f["name"], "url": f["url"], "category": f.get("category", "其他"),
-         "language": "zh", "_wechat_meta": {"index": f.get("index", 0)}}
-        for f in feeds
-    ]
-
-    logger.info("📡 Checking WeChat updates...")
-    cache, cache_path = load_http_cache(".wechat_http_cache.json")
-    raw_updates, stats, new_cache = fetch_feeds_stdlib(
-        feed_list, hours=hours, workers=10, cache=cache
-    )
-    save_http_cache(cache_path, new_cache)
-    stats["source_count"] = len(feed_list)
-
-    raw_updates = filter_and_mark(raw_updates)
-    if not raw_updates:
-        logger.info("ℹ️ No WeChat updates.")
-        return [], stats
-
-    logger.info(f"✅ {len(raw_updates)} WeChat updates")
-
-    if api_key:
-        logger.info("📖 Enriching WeChat articles with full text...")
-        raw_updates = enrich_wechat_articles(raw_updates)
-
-    return raw_updates, stats
-
-
-# ---------------------------------------------------------------------------
 # Per-source pipeline runners
 # ---------------------------------------------------------------------------
 
@@ -384,11 +338,12 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     wechat_hours = min(hours, 25)
 
     t1 = time.time()
+    from .wechat_utils import fetch_wechat_articles
     tech_articles, tech_stats = [], {}
     wechat_articles, wechat_stats = [], {}
     with ThreadPoolExecutor(max_workers=2) as pool:
         tech_future = pool.submit(_fetch_tech)
-        wechat_future = pool.submit(_fetch_wechat_articles, wechat_hours, limit)
+        wechat_future = pool.submit(fetch_wechat_articles, wechat_hours, limit)
         tech_articles, tech_stats = tech_future.result()
         wechat_articles, wechat_stats = wechat_future.result()
     logger.info(f"⏱️ RSS fetch completed in {time.time() - t1:.1f}s "
