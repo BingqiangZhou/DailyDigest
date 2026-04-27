@@ -509,7 +509,7 @@ def apply_trust_tier_filter(
     Returns:
         (filtered_articles, filtered_count)
     """
-    from .topic_cluster import AUTHORITY_DOMAINS as _AUTHORITY_DOMAINS
+    from .config import AUTHORITY_DOMAINS as _AUTHORITY_DOMAINS
     authority_domains = authority_domains or _AUTHORITY_DOMAINS
 
     filtered = []

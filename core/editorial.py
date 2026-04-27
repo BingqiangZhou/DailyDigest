@@ -20,7 +20,7 @@ from .config import (
     EDITORIAL_HN_PROMOTE_THRESHOLD,
 )
 from .logging_config import get_logger
-from .topic_cluster import AUTHORITY_DOMAINS, HIGH_SIGNAL_KEYWORDS
+from .config import AUTHORITY_DOMAINS, HIGH_SIGNAL_KEYWORDS
 
 logger = get_logger("editorial")
 
