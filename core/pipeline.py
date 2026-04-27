@@ -242,28 +242,32 @@ def _finalize_source(source_type, language="zh"):
 
 
 def finalize_reports(source, language="zh", output_format="markdown"):
-    """--finalize mode: read sub-agent summaries from workspace/ and build final reports."""
+    """--finalize mode: read sub-agent summaries from workspace/ and build final reports.
+
+    Tries the unified briefing path first (preferred). Falls back to
+    per-source report merging only when the unified builder returns None.
+    """
     from .config import OUTPUT_DIR
     from .report_generator import save_report
 
     now = datetime.now(timezone.utc)
 
-    sections = []
-    for src in ("tech", "podcast", "wechat"):
-        if source in (src, "all") or (source == "tech" and src == "wechat"):
-            report = _finalize_source(src, language)
-            if report:
-                sections.append(report)
+    # Fast path: try unified report first (avoids building per-source reports)
+    merged = try_build_unified_report(source, now, language, output_format=output_format)
 
-    if not sections:
-        logger.warning("⚠️ no reports to generate.")
-        return
+    if not merged:
+        # Slow path: build individual source reports and merge
+        sections = []
+        for src in ("tech", "podcast", "wechat"):
+            if source in (src, "all") or (source == "tech" and src == "wechat"):
+                report = _finalize_source(src, language)
+                if report:
+                    sections.append(report)
 
-    unified = try_build_unified_report(source, now, language, output_format=output_format)
+        if not sections:
+            logger.warning("⚠️ no reports to generate.")
+            return
 
-    if unified:
-        merged = unified
-    else:
         merged = build_merged_report(sections, now, language)
 
     is_wechat = output_format == "wechat"
@@ -342,8 +346,8 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     health_cleanup()
     cleanup_old_entries()
 
-    # Step 1+2: Fetch tech RSS and WeChat in parallel
-    logger.info("\n📡 Step 1/5: Fetching tech RSS + WeChat in parallel...")
+    # Step 1: Fetch tech RSS and WeChat in parallel
+    logger.info("\n📡 Step 1/6: Fetching tech RSS + WeChat in parallel...")
     config = load_feed_config("tech")
     feed_list = [
         {"name": f["name"], "url": f["url"], "category": c["name"],
@@ -401,7 +405,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         return None
 
     t2 = time.time()
-    logger.info(f"\n🔍 Step 3/5: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
+    logger.info(f"\n🔍 Step 2/6: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
     new_articles = filter_and_mark(all_articles)
     if not new_articles:
         logger.warning("⚠️ All articles already processed.")
@@ -422,11 +426,11 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     def _is_wechat_article(a):
         return a.category.startswith("wechat_") or "mp.weixin.qq.com" in a.url
 
-    # Step 4: Cluster + classify + summarize
+    # Step 3: Cluster topics
     cluster_map = {}
     t3 = time.time()
     try:
-        logger.info("🔍 Step 4/6: Clustering topics...")
+        logger.info("🔍 Step 3/6: Clustering topics...")
         from .topic_cluster import cluster_articles, get_cluster_map
         topic_clusters = cluster_articles(new_articles)
         cluster_map = get_cluster_map(topic_clusters)
@@ -435,7 +439,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     except Exception as e:
         logger.warning(f"⚠️ Topic clustering failed (non-fatal): {e}")
 
-    # Step 4.5: Editorial pipeline — scoring, tiering, depth allocation, filtering
+    # Step 4: Editorial pipeline — scoring, tiering, depth allocation, filtering
     pre_editorial_articles = list(new_articles)
 
     try:
@@ -476,7 +480,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     if api_key and os.environ.get("ENRICH_FULL_TEXT"):
         try:
             t_enrich = time.time()
-            logger.info("📖 Enriching high-importance articles...")
+            logger.info("📖 Step 5/6: Enriching high-importance articles...")
             from .enrich import enrich_tech_articles
             new_articles, _ = enrich_tech_articles(new_articles, cluster_map=cluster_map)
             logger.info(f"⏱️ Enrichment completed in {time.time() - t_enrich:.1f}s")

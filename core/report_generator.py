@@ -446,8 +446,15 @@ def save_report(content, filename, output_dir=None, report_type="tech", language
     output_dir = Path(output_dir) if output_dir else OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     filepath = output_dir / filename
-    with open(filepath, "w", encoding="utf-8") as f:
-        f.write(content)
+    tmp_path = filepath.with_suffix(".tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            f.write(content)
+        tmp_path.replace(filepath)
+    except Exception:
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
     logger.info(f"[Report] ✅ 报告已保存: {filepath}")
     return filepath
 

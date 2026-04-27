@@ -1,4 +1,4 @@
-"""
+﻿"""
 Report building utilities for DailyDigest.
 
 Handles section cleanup, Markdown manipulation, merged and unified
@@ -434,30 +434,52 @@ def _compose_theme_summary(theme, summary_map=None, language="zh"):
     return "This theme collected multiple relevant updates for quick scanning."
 
 
-def _fallback_trends(themes, language="zh"):
-    """Generate heuristic trend bullets from theme data when no LLM is available."""
+def _fallback_trends(themes, language="zh", brief_items=None):
+    """Generate heuristic trend bullets from theme + brief data.
+
+    Goes beyond simple “N articles” counts by surfacing source distribution,
+    HN heat signals, and cross-source convergence.
+    """
     if not themes:
         return []
 
     trends = []
-    largest = max(themes, key=lambda t: len(t.get("articles", [])))
-    count = len(largest.get("articles", []))
-    if count >= 2:
-        title = largest.get("title", "")
-        if language == "zh":
-            trends.append(f"“{title}”主题今日有{count}篇相关报道，显示持续活跃。")
-        else:
-            trends.append(f'"{title}" shows sustained activity with {count} related reports today.')
+    all_articles = [a for t in themes for a in t.get("articles", [])]
+    all_articles += list(brief_items or [])
 
+    # 1. Source distribution insight
+    sources = {}
+    for a in all_articles:
+        if a.source:
+            sources[a.source] = sources.get(a.source, 0) + 1
+    if sources:
+        top_sources = sorted(sources.items(), key=lambda x: -x[1])[:3]
+        top_str = "、".join(f"{s}({n})" for s, n in top_sources)
+        if language == "zh":
+            trends.append(f"今日信息源分布：{top_str} 等 {len(sources)} 个来源贡献了内容。")
+        else:
+            top_str_en = ", ".join(f"{s} ({n})" for s, n in top_sources)
+            trends.append(f"Source distribution: {top_str_en} among {len(sources)} sources.")
+
+    # 2. Cross-source convergence
     cross_themes = [t for t in themes if t.get("cross_source")]
     if cross_themes:
         names = "、".join(t.get("title", "") for t in cross_themes[:2])
         if language == "zh":
             trends.append(f"多源交叉验证：{names}，值得关注后续发展。")
         else:
-            trends.append(f"Cross-source convergence observed in: {', '.join(t.get('title', '') for t in cross_themes[:2])}.")
+            trends.append(f"Cross-source convergence: {', '.join(t.get('title', '') for t in cross_themes[:2])}.")
 
-    return trends[:2]
+    # 3. HN heat signal
+    hn_hot = [a for a in all_articles if (a.hn_points or 0) >= 100]
+    if hn_hot:
+        top_hn = max(hn_hot, key=lambda a: a.hn_points or 0)
+        if language == "zh":
+            trends.append(f"HN 热议：「{top_hn.title}」获 {top_hn.hn_points} 赞。")
+        else:
+            trends.append(f"HN trending: \"{top_hn.title}\" with {top_hn.hn_points} points.")
+
+    return trends[:3]
 
 
 def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None, language="zh"):
@@ -592,6 +614,13 @@ def _combine_briefing_stats(ai_articles, non_ai_articles, stats=None, cluster_ma
     return stats
 
 
+def _select_featured_tech(non_ai_articles, max_count=5):
+    """Select non-AI must_read articles for a featured tech news section."""
+    must_read = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "must_read"]
+    must_read.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+    return must_read[:max_count]
+
+
 def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_map=None,
                         stats=None, language="zh"):
     """Build the neutral briefing-data contract shared by markdown and wechat."""
@@ -599,12 +628,14 @@ def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_
     themes = _build_theme_groups(ai_articles, cluster_map=cluster_map, language=language)
     for theme in themes:
         theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map, language=language)
+    brief_items = _select_brief_items(non_ai_articles, 20)
     return {
         "highlights": _fallback_highlights(ai_articles, non_ai_articles, cluster_map=cluster_map, language=language),
         "themes": themes[:8],
-        "brief_items": _select_brief_items(non_ai_articles, 20),
+        "featured_tech": _select_featured_tech(non_ai_articles),
+        "brief_items": brief_items,
         "stats": _combine_briefing_stats(ai_articles, non_ai_articles, stats=stats, cluster_map=cluster_map),
-        "trends": _fallback_trends(themes[:8], language=language),
+        "trends": _fallback_trends(themes[:8], language=language, brief_items=brief_items),
     }
 
 
@@ -651,6 +682,7 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
     stats = briefing_data.get("stats", {})
     highlights = briefing_data.get("highlights", [])[:6]
     themes = briefing_data.get("themes", [])[:8]
+    featured_tech = briefing_data.get("featured_tech", [])
     brief_items = briefing_data.get("brief_items", [])[:20]
     trends = briefing_data.get("trends", [])
 
@@ -689,6 +721,17 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
                 lines.append("")
                 if idx < len(themes):
                     lines.extend(["---", ""])
+
+        if featured_tech:
+            lines.extend(["## ⭐ 重点科技新闻", ""])
+            for article in featured_tech:
+                source = f" — *{article.source}*" if article.source else ""
+                desc = _clean_description_for_display(article.description, max_len=100)
+                lines.append(f"- **[{article.title}]({article.url})**{source}")
+                if desc and _is_language_compatible(desc, language):
+                    lines.append(f"  > {desc}")
+                lines.append("")
+            lines.extend(["---", ""])
 
         if brief_items:
             lines.extend(["## 📝 科技简讯", ""])
@@ -748,6 +791,16 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
             lines.append("")
             if idx < len(themes):
                 lines.extend(["---", ""])
+    if featured_tech:
+        lines.extend(["## ⭐ Featured Tech News", ""])
+        for article in featured_tech:
+            source = f" — *{article.source}*" if article.source else ""
+            desc = _clean_description_for_display(article.description, max_len=100)
+            lines.append(f"- **[{article.title}]({article.url})**{source}")
+            if desc:
+                lines.append(f"  > {desc}")
+            lines.append("")
+        lines.extend(["---", ""])
     if brief_items:
         lines.extend(["## 📝 Tech Briefs", ""])
         for article in brief_items:
@@ -766,7 +819,6 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
         "|--------|-------|",
         f"| Candidate items | {stats.get('candidate_count', 0)} |",
         f"| After dedup | {stats.get('after_dedup', 0)} |",
-        f"| After editorial | {stats.get('after_editorial', 0)} |",
         f"| Included | {stats.get('included_count', 0)} |",
         f"| AI themes | {stats.get('ai_count', 0)} |",
         f"| Tech briefs | {len(brief_items)} |",
@@ -1025,217 +1077,3 @@ def classify_from_summaries(updates, summary_map):
                 non_ai_articles.append(article)
     return ai_articles, non_ai_articles
 
-
-# ---------------------------------------------------------------------------
-# Magazine-style report builder (Phase 2)
-# ---------------------------------------------------------------------------
-
-def build_magazine_report(
-    story_group,
-    date: str,
-    headline_narratives: list[str] | None = None,
-    noteworthy_summaries: dict[str, str] | None = None,
-    trends: list[str] | None = None,
-    language: str = "zh",
-) -> str:
-    """Build a magazine-style report from a StoryGroup.
-
-    Args:
-        story_group: StoryGroup from story_grouper
-        date: Date string YYYY-MM-DD
-        headline_narratives: LLM-generated narratives (Phase 3, optional)
-        noteworthy_summaries: LLM-generated summaries by URL (Phase 3, optional)
-        trends: LLM-generated trend insights (Phase 3, optional)
-        language: Report language
-    """
-    parts = []
-    parts.append(_magazine_header(story_group, date, language))
-    parts.append(_magazine_highlights(story_group.headlines, headline_narratives, language))
-    parts.append(_magazine_headlines(story_group.headlines, headline_narratives, language))
-    parts.append(_magazine_noteworthy(story_group.noteworthy, noteworthy_summaries, language))
-    parts.append(_magazine_brief(story_group.brief, language))
-    if trends:
-        parts.append(_magazine_trends(trends, language))
-    parts.append(_magazine_stats(story_group.stats, language))
-
-    return "\n\n".join(p for p in parts if p)
-
-
-def _magazine_header(story_group, date: str, language: str) -> str:
-    """Report header with title and article counts."""
-    stats = story_group.stats
-    total = stats.included
-    if language == "zh":
-        return (
-            f"# 📰 AI 技术日报 — {date}\n\n"
-            f"> {total} 篇精选文章 · 扫描 {stats.total_scanned} 个数据源\n\n"
-            f"---"
-        )
-    return (
-        f"# 📰 AI Tech Daily — {date}\n\n"
-        f"> {total} curated articles · Scanned {stats.total_scanned} sources\n\n"
-        f"---"
-    )
-
-
-def _magazine_highlights(headlines, narratives, language: str) -> str:
-    """Top 3-5 highlights as blockquote bullets."""
-    if not headlines:
-        return ""
-    count = min(5, len(headlines))
-    if language == "zh":
-        section = "## 📌 今日要点\n\n"
-    else:
-        section = "## 📌 Highlights\n\n"
-
-    for i, h in enumerate(headlines[:count], 1):
-        title = h.main.title.replace("|", "\\|").replace("\n", " ")
-        if narratives and i - 1 < len(narratives) and narratives[i - 1]:
-            # Use first sentence of narrative as highlight
-            first_sentence = narratives[i - 1].split("。")[0].split(". ")[0]
-            section += f"> - {first_sentence}\n"
-        else:
-            desc = _clean_description_for_display(h.main.description, max_len=80)
-            if desc:
-                section += f"> - {desc}\n"
-            else:
-                section += f"> - {title}\n"
-
-    return section
-
-
-def _magazine_headlines(headlines, narratives, language: str) -> str:
-    """Headline stories with narrative or template text."""
-    if not headlines:
-        return ""
-    if language == "zh":
-        section = f"\n## 🔥 头条故事 ({len(headlines)})\n"
-    else:
-        section = f"\n## 🔥 Headlines ({len(headlines)})\n"
-
-    for i, h in enumerate(headlines, 1):
-        title = h.main.title.replace("|", "\\|").replace("\n", " ")
-        url = h.main.url
-        source = h.main.source or ""
-        theme = h.theme
-
-        # Heat indicator
-        heat = "★" * min(5, max(1, int(h.editorial_score * 5)))
-
-        if narratives and i - 1 < len(narratives) and narratives[i - 1]:
-            narrative = narratives[i - 1]
-            section += f"\n### {i}. {title}\n\n{narrative}\n"
-        else:
-            desc = _clean_description_for_display(h.main.description, max_len=200)
-            if desc:
-                section += f"\n### {i}. {title}\n\n{desc}\n"
-            else:
-                section += f"\n### {i}. [{title}]({url})\n\n"
-
-        # Source attribution
-        sources = [f"*{source}*"]
-        for r in h.related[:3]:
-            if r.source and r.source != source:
-                sources.append(f"*{r.source}*")
-        source_str = " · ".join(sources[:3])
-        section += f"\n> 来源：{source_str} | {theme} | {heat}\n"
-
-    return section
-
-
-def _magazine_noteworthy(noteworthy, summaries, language: str) -> str:
-    """Noteworthy articles grouped by theme."""
-    if not noteworthy:
-        return ""
-
-    total = sum(len(arts) for arts in noteworthy.values())
-    if language == "zh":
-        section = f"\n## 📋 关注动态 ({total} 篇)\n"
-    else:
-        section = f"\n## 📋 Noteworthy ({total})\n"
-
-    for theme in _THEME_ORDER:
-        articles = noteworthy.get(theme, [])
-        if not articles:
-            continue
-
-        section += f"\n### {theme}\n\n"
-        for article in articles:
-            title = article.title.replace("|", "\\|").replace("\n", " ")
-            url = article.url
-            source = (article.source or "").replace("|", "\\|")
-
-            # Use provided summary, or RSS description, or nothing
-            summary = None
-            if summaries and article.url in summaries:
-                summary = summaries[article.url]
-            elif article.description:
-                summary = _clean_description_for_display(article.description, max_len=120)
-
-            if summary:
-                section += f"- **[{title}]({url})** — {summary} `{source}`\n"
-            else:
-                section += f"- **[{title}]({url})** `{source}`\n"
-
-    return section
-
-
-def _magazine_brief(brief, language: str) -> str:
-    """Brief articles in compact table."""
-    if not brief:
-        return ""
-
-    if language == "zh":
-        section = f"\n## 📝 简讯 ({len(brief)} 篇)\n\n"
-        section += "| # | 标题 | 来源 |\n"
-        section += "|---:|------|------|\n"
-    else:
-        section = f"\n## 📝 Brief ({len(brief)})\n\n"
-        section += "| # | Title | Source |\n"
-        section += "|---:|-------|--------|\n"
-
-    for i, article in enumerate(brief, 1):
-        title = article.title.replace("|", "\\|").replace("\n", " ")
-        url = article.url
-        source = (article.source or "").replace("|", "\\|")
-        section += f"| {i} | [{title}]({url}) | *{source}* |\n"
-
-    return section
-
-
-def _magazine_trends(trends, language: str) -> str:
-    """Trend insights section."""
-    if not trends:
-        return ""
-    if language == "zh":
-        section = "\n## 📈 今日技术趋势\n\n"
-    else:
-        section = "\n## 📈 Tech Trends\n\n"
-    for i, trend in enumerate(trends, 1):
-        section += f"{i}. {trend}\n"
-    return section
-
-
-def _magazine_stats(stats, language: str) -> str:
-    """Data overview section."""
-    if language == "zh":
-        section = "\n## 📊 数据概览\n\n"
-        section += "| 指标 | 数值 |\n"
-        section += "|------|------|\n"
-        section += f"| 扫描文章总数 | {stats.total_scanned} |\n"
-        section += f"| 纳入日报 | {stats.included} |\n"
-        section += f"| 头条故事 | {stats.headlines_count} |\n"
-        section += f"| 关注动态 | {stats.noteworthy_count} |\n"
-        section += f"| 简讯 | {stats.brief_count} |\n"
-        section += f"| 丢弃 | {stats.discarded_count} |"
-    else:
-        section = "\n## 📊 Data Overview\n\n"
-        section += "| Metric | Value |\n"
-        section += "|--------|-------|\n"
-        section += f"| Total scanned | {stats.total_scanned} |\n"
-        section += f"| Included | {stats.included} |\n"
-        section += f"| Headlines | {stats.headlines_count} |\n"
-        section += f"| Noteworthy | {stats.noteworthy_count} |\n"
-        section += f"| Brief | {stats.brief_count} |\n"
-        section += f"| Discarded | {stats.discarded_count} |"
-    return section
