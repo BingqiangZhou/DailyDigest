@@ -439,8 +439,6 @@ def save_report(content, filename, output_dir=None, report_type="tech", language
         Path: 保存的文件路径
     """
     content = sanitize_report_markdown(content)
-
-    content = sanitize_report_markdown(content)
     if contains_reasoning_artifacts(content):
         logger.warning("[Report] ⚠️ reasoning artifacts detected after sanitization; applying fallback cleanup")
         content = sanitize_report_markdown(content)

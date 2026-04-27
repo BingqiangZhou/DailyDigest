@@ -49,13 +49,22 @@ def ensure_pipeline_dirs():
 
 
 def save_workspace_updates(source_type, updates, metadata=None):
-    """Save articles to workspace/{source_type}_updates.json."""
+    """Save articles to workspace/{source_type}_updates.json (atomic write)."""
     from .config import WORKSPACE_DIR
     path = WORKSPACE_DIR / f"{source_type}_updates.json"
+    WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
     payload = dict(metadata or {})
     payload.setdefault("generated_at", datetime.now(timezone.utc).isoformat())
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({"metadata": payload, "updates": [asdict(a) for a in updates]}, f, ensure_ascii=False, indent=2)
+    tmp_path = path.with_suffix(".tmp")
+    try:
+        with open(tmp_path, "w", encoding="utf-8") as f:
+            json.dump({"metadata": payload, "updates": [asdict(a) for a in updates]}, f, ensure_ascii=False, indent=2)
+        tmp_path.replace(path)
+    except Exception as e:
+        logger.error(f"[Workspace] save failed: {e}")
+        if tmp_path.exists():
+            tmp_path.unlink()
+        raise
     return path
 
 

@@ -239,12 +239,28 @@ EDITORIAL_TIER_NOTEWORTHY = float(os.environ.get("TIER_NOTEWORTHY", "0.40"))
 EDITORIAL_HN_PROMOTE_THRESHOLD = int(os.environ.get("HN_PROMOTE_THRESHOLD", "200"))
 
 # ============================================================
-# AI Prompt Templates (loaded from config/prompts/)
+# AI Prompt Templates (lazy-loaded from config/prompts/)
 # ============================================================
 
-from config.prompts import (
-    AI_FILTER_PROMPT_ZH, AI_FILTER_PROMPT_EN,
-    AI_DEEP_ANALYSIS_PROMPT_ZH, AI_DEEP_ANALYSIS_PROMPT_EN,
-    WECHAT_STRUCTURE_PROMPT_ZH,
-)
+# Prompts are loaded on first access to avoid crashing core.config
+# if config/prompts/ has issues.  Importers can still write:
+#   from .config import AI_FILTER_PROMPT_ZH
+# thanks to module-level __getattr__.
+
+_PROMPT_NAMES = {
+    "AI_FILTER_PROMPT_ZH",
+    "AI_FILTER_PROMPT_EN",
+    "AI_DEEP_ANALYSIS_PROMPT_ZH",
+    "AI_DEEP_ANALYSIS_PROMPT_EN",
+    "WECHAT_STRUCTURE_PROMPT_ZH",
+}
+
+def __getattr__(name):
+    if name in _PROMPT_NAMES:
+        from config import prompts as _prompts
+        value = getattr(_prompts, name)
+        # Cache on the module so __getattr__ is only called once per name
+        globals()[name] = value
+        return value
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
 

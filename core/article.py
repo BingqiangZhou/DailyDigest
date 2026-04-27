@@ -72,7 +72,7 @@ class Article:
         """Parse published string to datetime. Returns None on parse failure."""
         if not self.published:
             return None
-        from .rss_fetcher import parse_rss_date
+        from .date_utils import parse_rss_date
         return parse_rss_date(self.published)
 
     @classmethod

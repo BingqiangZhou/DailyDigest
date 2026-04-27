@@ -16,7 +16,6 @@ from .llm import get_llm_client, chat_with_profile, limit_llm_workers, should_sk
 from .llm_utils import (
     parse_llm_json,
     strip_code_fences,
-    _strip_thinking_output,
     sanitize_generated_text,
 )
 
@@ -195,7 +194,7 @@ class NarrativeRenderer:
 
                 response = chat_with_profile(self.client, prompt, "narrative", optional=True)
                 if response:
-                    narrative = _strip_thinking_output(strip_code_fences(response)).strip()
+                    narrative = sanitize_generated_text(response)
                     self._success += 1
                     logger.info(f"  📝 Headline {idx + 1}/{len(headlines)}: narrative generated ({len(narrative)} chars)")
                     return idx, narrative

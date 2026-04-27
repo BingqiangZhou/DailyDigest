@@ -64,7 +64,7 @@ class TestLLMRoutingWithAPIKey:
         assert "## 📝 科技简讯" in report
 
     def test_highlights_section_present_in_two_part_report(self):
-        """Highlights and briefing sections appear in the unified report."""
+        """Highlights section renders and falls back when zh mode receives English LLM bullets."""
         ai = _make_article("Big AI news", tier="must_read", score=0.9, hn_points=200)
         non_ai = _make_article("Tech news", category="tech_general")
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
@@ -81,7 +81,8 @@ class TestLLMRoutingWithAPIKey:
                 )
 
         assert "## 📌 今日要点" in report
-        assert "Big AI news moves into production" in report
+        assert "Big AI news moves into production" not in report
+        assert "Big AI news" in report
         assert "## 🧭 今日动态" in report
 
     def test_no_highlights_when_no_tiered_articles(self):

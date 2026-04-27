@@ -24,6 +24,19 @@ from .llm import get_llm_client, chat_with_profile, limit_llm_workers
 
 logger = get_logger("ai_filter")
 
+# Precomputed keyword matching data — built once at module load
+_ALL_KEYWORDS = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
+_SHORT_KW_PATTERNS = []  # (compiled_regex,) for keywords <= 6 chars
+_LONG_KW_LOWER = []      # lowercase strings for keywords > 6 chars
+for _kw in _ALL_KEYWORDS:
+    _kw_lower = _kw.lower()
+    if len(_kw) <= 6:
+        _SHORT_KW_PATTERNS.append(re.compile(r'\b' + re.escape(_kw_lower) + r'\b', re.ASCII))
+    else:
+        _LONG_KW_LOWER.append(_kw_lower)
+_SHORT_KW_PATTERNS = tuple(_SHORT_KW_PATTERNS)
+_LONG_KW_LOWER = tuple(_LONG_KW_LOWER)
+
 
 def _article_to_filter_item(index: int, article: Article) -> str:
     """Format a single article for the filter prompt."""
@@ -246,22 +259,17 @@ def _ai_keyword_match(text: str) -> bool:
     Short/ambiguous keywords (like 'AI', 'GPT', 'RAG') use word boundary
     matching with ASCII flag to handle mixed CJK/Latin text correctly.
     Longer keywords use substring matching.
+
+    Uses precomputed patterns from module-level _SHORT_KW_PATTERNS / _LONG_KW_LOWER.
     """
-    all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
     text_lower = text.lower()
 
-    for kw in all_keywords:
-        kw_lower = kw.lower()
-        # Short keywords (<=6 chars) require word boundaries to avoid
-        # false positives: "agent" shouldn't match "real estate agent".
-        # Use re.ASCII so \b only matches at ASCII/Latin boundaries,
-        # correctly handling mixed CJK/Latin text like "Claude降智".
-        if len(kw) <= 6:
-            if re.search(r'\b' + re.escape(kw_lower) + r'\b', text_lower, re.ASCII):
-                return True
-        else:
-            if kw_lower in text_lower:
-                return True
+    for pattern in _SHORT_KW_PATTERNS:
+        if pattern.search(text_lower):
+            return True
+    for kw_lower in _LONG_KW_LOWER:
+        if kw_lower in text_lower:
+            return True
     return False
 
 
@@ -473,18 +481,18 @@ def _extract_domain(url: str) -> str:
 
 
 def _ai_keyword_count(text: str) -> int:
-    """Count how many AI/tech keywords appear in text."""
+    """Count how many AI/tech keywords appear in text.
+
+    Uses precomputed patterns from module-level _SHORT_KW_PATTERNS / _LONG_KW_LOWER.
+    """
     text_lower = text.lower()
     count = 0
-    all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
-    for kw in all_keywords:
-        kw_lower = kw.lower()
-        if len(kw) <= 6:
-            if re.search(r'\b' + re.escape(kw_lower) + r'\b', text_lower, re.ASCII):
-                count += 1
-        else:
-            if kw_lower in text_lower:
-                count += 1
+    for pattern in _SHORT_KW_PATTERNS:
+        if pattern.search(text_lower):
+            count += 1
+    for kw_lower in _LONG_KW_LOWER:
+        if kw_lower in text_lower:
+            count += 1
     return count
 
 

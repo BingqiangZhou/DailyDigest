@@ -296,7 +296,6 @@ class TestUnifiedBriefingReport:
         with _no_api_key():
             report = build_unified_report(
                 [ai_article], [non_ai_article], now, "zh",
-                llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
                 executive_summary="Test summary",
             )
         assert "## 📌 今日要点" in report
@@ -314,7 +313,6 @@ class TestUnifiedBriefingReport:
         with _no_api_key():
             report = build_unified_report(
                 [ai_article], [], now, "zh",
-                llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
             )
         assert "## 🧭 今日动态" in report
         assert "## 📌 今日要点" in report
@@ -330,7 +328,6 @@ class TestUnifiedBriefingReport:
         with _no_api_key():
             report = build_unified_report(
                 [ai_article], [], now, "zh",
-                llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
             )
         assert "---\n---" not in report
 

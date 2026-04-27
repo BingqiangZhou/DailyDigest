@@ -181,7 +181,15 @@ def _is_obviously_incompatible_nvidia_model(model):
     lowered = (model or "").strip().lower()
     if not lowered:
         return True
-    return lowered.startswith(_INCOMPATIBLE_NVIDIA_PREFIXES)
+    # Check the full string and the basename after '/' (e.g. "z-ai/glm4.7" -> "glm4.7")
+    parts_to_check = [lowered]
+    if "/" in lowered:
+        parts_to_check.append(lowered.rsplit("/", 1)[-1])
+    return any(
+        part.startswith(prefix)
+        for part in parts_to_check
+        for prefix in _INCOMPATIBLE_NVIDIA_PREFIXES
+    )
 
 
 def get_llm_runtime_config():

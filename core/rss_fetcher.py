@@ -27,64 +27,13 @@ logger = get_logger("rss")
 
 
 # ============================================================
-# 日期解析
+# 日期解析 — canonical implementation in date_utils.py
 # ============================================================
 
-_RSS_DATE_FORMATS = [
-    "%a, %d %b %Y %H:%M:%S %z",
-    "%a, %d %b %Y %H:%M:%S GMT",
-    "%Y-%m-%dT%H:%M:%S%z",
-    "%Y-%m-%dT%H:%M:%SZ",
-    "%Y-%m-%d %H:%M:%S",
-    "%Y-%m-%d",
-]
+from .date_utils import parse_rss_date, is_within_time  # noqa: E402
 
 
-def parse_rss_date(date_str):
-    """解析 RSS 日期字符串为 datetime 对象"""
-    if not date_str:
-        return None
-    date_str = date_str.strip()
-    for fmt in _RSS_DATE_FORMATS:
-        try:
-            dt = datetime.strptime(date_str, fmt)
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return dt
-        except ValueError:
-            continue
-    # 尝试去掉时区后缀
-    for suffix in (" +0000", " -0000", " UTC", " GMT"):
-        if date_str.endswith(suffix):
-            trimmed = date_str[: -len(suffix)]
-            for fmt in _RSS_DATE_FORMATS:
-                try:
-                    dt = datetime.strptime(trimmed, fmt)
-                    if dt.tzinfo is None:
-                        dt = dt.replace(tzinfo=timezone.utc)
-                    return dt
-                except ValueError:
-                    continue
-    return None
-
-
-def is_within_time(published_time, hours_back):
-    """检查文章是否在时间范围内"""
-    if not published_time:
-        return True
-    try:
-        if isinstance(published_time, time.struct_time):
-            pub_dt = datetime(*published_time[:6], tzinfo=timezone.utc)
-        elif isinstance(published_time, datetime):
-            pub_dt = published_time
-        else:
-            pub_dt = parse_rss_date(str(published_time))
-        if pub_dt is None:
-            return True
-        cutoff = datetime.now(timezone.utc) - timedelta(hours=hours_back)
-        return pub_dt >= cutoff
-    except (ValueError, TypeError):
-        return True
+# is_within_time re-exported from date_utils above
 
 
 # ============================================================
@@ -253,11 +202,13 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None,
     cutoff_time = datetime.now(timezone.utc) - timedelta(hours=hours)
     new_cache = dict(cache) if cache else {}
     all_articles = []
+    from .feed_health import batch_health
     stats = {
         "checked_count": len(feed_list),
         "success_count": 0,
         "error_count": 0,
         "not_modified_count": 0,
+        "skipped_count": 0,
         "update_count": 0,
         "hours": hours,
         "check_time": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
@@ -313,32 +264,33 @@ def fetch_feeds_stdlib(feed_list, hours=24, workers=20, cache=None,
                 ))
         return feed_info, articles, None, feed_cache
 
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(check_single_feed, feed): feed for feed in feed_list}
-        completed = 0
-        total = len(futures)
-        for future in as_completed(futures):
-            feed_info, articles, error, feed_cache = future.result()
-            completed += 1
-            if feed_cache:
-                new_cache[feed_info["url"]] = feed_cache
-            if error == "not_modified":
-                stats["not_modified_count"] += 1
-            elif error == "skipped_unhealthy":
-                stats["skipped_count"] += 1
-                logger.info(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 跳过(连续失败)")
-            elif error:
-                stats["error_count"] += 1
-                label = error_label(int(error.split()[-1])) if error.startswith("HTTP -") else error
-                logger.error(f"  [{completed}/{total}] ❌ {feed_info.get('name', '?')}: {label}")
-            else:
-                stats["success_count"] += 1
-                if articles:
-                    logger.info(f"  [{completed}/{total}] ✅ {feed_info.get('name', '?')}: {len(articles)} 新文章")
+    with batch_health():
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(check_single_feed, feed): feed for feed in feed_list}
+            completed = 0
+            total = len(futures)
+            for future in as_completed(futures):
+                feed_info, articles, error, feed_cache = future.result()
+                completed += 1
+                if feed_cache:
+                    new_cache[feed_info["url"]] = feed_cache
+                if error == "not_modified":
+                    stats["not_modified_count"] += 1
+                elif error == "skipped_unhealthy":
+                    stats["skipped_count"] += 1
+                    logger.info(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 跳过(连续失败)")
+                elif error:
+                    stats["error_count"] += 1
+                    label = error_label(int(error.split()[-1])) if error.startswith("HTTP ") else error
+                    logger.error(f"  [{completed}/{total}] ❌ {feed_info.get('name', '?')}: {label}")
                 else:
-                    logger.info(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 无更新")
-            if articles:
-                all_articles.extend(articles)
+                    stats["success_count"] += 1
+                    if articles:
+                        logger.info(f"  [{completed}/{total}] ✅ {feed_info.get('name', '?')}: {len(articles)} 新文章")
+                    else:
+                        logger.info(f"  [{completed}/{total}] ⏭️  {feed_info.get('name', '?')}: 无更新")
+                if articles:
+                    all_articles.extend(articles)
 
     # 跨源去重：URL 标准化 + 标题相似度（使用词索引优化）
     deduped = []
@@ -409,6 +361,7 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
         return dict(articles_by_category), stats
 
     all_articles = defaultdict(list)
+    from .feed_health import batch_health as _batch_health_fp
     stats = {
         "total_feeds": len(feed_list),
         "success": 0,
@@ -503,24 +456,25 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
     workers = min(20, max(5, len(feed_list) // 10))
     completed = 0
     total = len(feed_list)
-    with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(_parse_single_feed, feed): feed for feed in feed_list}
-        for future in as_completed(futures):
-            name, category, language, priority, articles, error = future.result()
-            completed += 1
-            if error == "skipped_unhealthy":
-                stats["skipped"] = stats.get("skipped", 0) + 1
-                logger.info(f"  [{completed}/{total}] ⏭️  {name}: 跳过(连续失败)")
-            elif error:
-                stats["failed"] += 1
-                logger.error(f"  [{completed}/{total}] ❌ {name}: {error}")
-            else:
-                stats["success"] += 1
-                if articles:
-                    all_articles[category].extend(articles)
-                    stats["total_articles"] += len(articles)
-                    logger.info(f"  [{completed}/{total}] ✅ {name}: {len(articles)} 篇")
+    with _batch_health_fp():
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {executor.submit(_parse_single_feed, feed): feed for feed in feed_list}
+            for future in as_completed(futures):
+                name, category, language, priority, articles, error = future.result()
+                completed += 1
+                if error == "skipped_unhealthy":
+                    stats["skipped"] = stats.get("skipped", 0) + 1
+                    logger.info(f"  [{completed}/{total}] ⏭️  {name}: 跳过(连续失败)")
+                elif error:
+                    stats["failed"] += 1
+                    logger.error(f"  [{completed}/{total}] ❌ {name}: {error}")
                 else:
-                    logger.info(f"  [{completed}/{total}] ⏭️  {name}: 无更新")
+                    stats["success"] += 1
+                    if articles:
+                        all_articles[category].extend(articles)
+                        stats["total_articles"] += len(articles)
+                        logger.info(f"  [{completed}/{total}] ✅ {name}: {len(articles)} 篇")
+                    else:
+                        logger.info(f"  [{completed}/{total}] ⏭️  {name}: 无更新")
 
     return dict(all_articles), stats

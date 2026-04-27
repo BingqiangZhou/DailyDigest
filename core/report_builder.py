@@ -13,15 +13,17 @@ from .logging_config import get_logger
 
 logger = get_logger("report_builder")
 
-_THEME_ORDER = [
-    "模型与平台",
-    "开源与工具",
-    "评测与实战",
-    "行业与商业",
-    "研究与方法",
-    "硬件与基础设施",
-    "产品与应用",
-]
+_renderer_cache = {}
+
+
+def _get_renderer(language="zh"):
+    """Get or create a cached NarrativeRenderer for the given language."""
+    if language not in _renderer_cache:
+        from .narrative_renderer import NarrativeRenderer
+        _renderer_cache[language] = NarrativeRenderer(language=language)
+    return _renderer_cache[language]
+
+from .story_grouper import THEME_ORDER as _THEME_ORDER
 
 
 def demote_headings(lines, levels):
@@ -191,7 +193,9 @@ def _build_highlights(ai_articles, non_ai_articles, cluster_map, language="zh"):
             title = a.title.replace("|", "\\|").replace("\n", " ")
             url = a.url.replace("|", "\\|")
             source = a.source.replace("|", "\\|")
-            desc = re.sub(r'<[^>]+>', '', (a.description or "")[:100]).strip()
+            desc = _clean_description_for_display(a.description, max_len=100)
+            if desc and not _is_language_compatible(desc, language):
+                desc = ""
             engagement = ""
             if a.hn_points and a.hn_points >= 50:
                 engagement = f" (🔥HN {a.hn_points})"
@@ -205,7 +209,7 @@ def _build_highlights(ai_articles, non_ai_articles, cluster_map, language="zh"):
             title = a.title.replace("|", "\\|").replace("\n", " ")
             url = a.url.replace("|", "\\|")
             source = a.source.replace("|", "\\|")
-            desc = re.sub(r'<[^>]+>', '', (a.description or "")[:100]).strip()
+            desc = _clean_description_for_display(a.description, max_len=100)
             engagement = ""
             if a.hn_points and a.hn_points >= 50:
                 engagement = f" (🔥HN {a.hn_points})"
@@ -333,10 +337,64 @@ def _theme_sort_key(theme):
     )
 
 
-def _clean_theme_title(text, fallback):
+def _clean_theme_title(text, fallback, language="zh"):
     cleaned = re.sub(r'\s+', ' ', (text or "")).strip()
     cleaned = cleaned.strip("-:;,| ")
-    return cleaned[:72] if cleaned else fallback
+    cleaned = cleaned[:72] if cleaned else ""
+    if cleaned and language == "zh" and not _is_language_compatible(cleaned, "zh"):
+        return fallback
+    return cleaned or fallback
+
+
+_BOILERPLATE_PATTERNS = [
+    re.compile(r'（本文作者为[^）]*）\s*', re.MULTILINE),
+    re.compile(r'^\s*文\s*[|｜]\s*[^，。\n]{0,30}\n?', re.MULTILINE),
+    re.compile(r'文\s*[|｜]\s*[^，。\n]{0,30}，\s*作者\s*[|｜]\s*[^，。\n]{0,30}\n?'),
+    re.compile(r'编辑\s*[|｜]\s*[^，。\n]{0,30}\n?', re.MULTILINE),
+    re.compile(r'作者\s*[|｜]\s*[^，。\n]{0,30}\n?', re.MULTILINE),
+]
+
+
+def _clean_description_for_display(description, max_len=180):
+    """Strip byline boilerplate and HTML from article description for display."""
+    if not description:
+        return ""
+    text = re.sub(r'<[^>]+>', '', description).strip()
+    for pattern in _BOILERPLATE_PATTERNS:
+        text = pattern.sub('', text)
+    text = re.sub(r'\n{2,}', '\n', text).strip()
+    # Remove leading whitespace/newlines left after boilerplate removal
+    text = text.lstrip('\n\r\t ')
+    if len(text) > max_len:
+        text = text[:max_len].rstrip() + "..."
+    return text
+
+
+def _is_language_compatible(text, language):
+    """Check whether text is compatible with the target report language.
+
+    For zh reports, prefer content with meaningful CJK presence.
+    For non-zh reports, keep original behavior.
+    """
+    if not text:
+        return False
+
+    cleaned = text.strip()
+    if not cleaned:
+        return False
+
+    if language != "zh":
+        return True
+
+    cjk_count = len(re.findall(r'[一-鿿]', cleaned))
+    latin_count = len(re.findall(r'[A-Za-z]', cleaned))
+
+    if cjk_count == 0:
+        return False
+    if latin_count == 0:
+        return True
+
+    return cjk_count >= 4 or cjk_count >= latin_count
 
 
 def _compose_theme_summary(theme, summary_map=None, language="zh"):
@@ -351,36 +409,69 @@ def _compose_theme_summary(theme, summary_map=None, language="zh"):
         elif isinstance(info, str):
             summary = info
         if not summary:
-            summary = re.sub(r'<[^>]+>', '', (article.description or "")).strip()
+            summary = _clean_description_for_display(article.description, max_len=120)
         if not summary:
             continue
         summary = summary.replace("\n", " ").strip()
+        if not _is_language_compatible(summary, language):
+            continue
         if summary and summary not in seen:
             seen.add(summary)
-            parts.append(summary[:180])
+            parts.append(summary[:120])
         if len(parts) >= 3:
             break
 
     if parts:
         joiner = "；" if language == "zh" else " "
-        return joiner.join(parts)
+        joined = joiner.join(parts)
+        # Cap total summary length to keep themes scannable
+        if len(joined) > 300:
+            joined = joined[:300].rstrip() + "..."
+        return joined
 
     if language == "zh":
         return "今日该主题有多篇相关更新，需结合参考条目快速浏览。"
     return "This theme collected multiple relevant updates for quick scanning."
 
 
+def _fallback_trends(themes, language="zh"):
+    """Generate heuristic trend bullets from theme data when no LLM is available."""
+    if not themes:
+        return []
+
+    trends = []
+    largest = max(themes, key=lambda t: len(t.get("articles", [])))
+    count = len(largest.get("articles", []))
+    if count >= 2:
+        title = largest.get("title", "")
+        if language == "zh":
+            trends.append(f"“{title}”主题今日有{count}篇相关报道，显示持续活跃。")
+        else:
+            trends.append(f'"{title}" shows sustained activity with {count} related reports today.')
+
+    cross_themes = [t for t in themes if t.get("cross_source")]
+    if cross_themes:
+        names = "、".join(t.get("title", "") for t in cross_themes[:2])
+        if language == "zh":
+            trends.append(f"多源交叉验证：{names}，值得关注后续发展。")
+        else:
+            trends.append(f"Cross-source convergence observed in: {', '.join(t.get('title', '') for t in cross_themes[:2])}.")
+
+    return trends[:2]
+
+
 def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None, language="zh"):
-    """Build 4-6 concise highlight lines when no LLM highlights are available."""
+    """Build 4-6 concise highlight lines when no LLM highlights are available.
+
+    Uses article titles (always clean) rather than descriptions
+    (which often contain byline boilerplate).
+    """
     highlights = []
     selected = sorted(ai_articles + non_ai_articles, key=lambda a: _article_rank(a, cluster_map), reverse=True)[:6]
     for article in selected:
         cluster_info = (cluster_map or {}).get(article.url, {})
-        summary = re.sub(r'<[^>]+>', '', (article.description or "")).strip()
-        if summary:
-            line = summary[:90]
-        else:
-            line = article.title
+        # Prefer title — descriptions often have byline noise
+        line = article.title
         if cluster_info.get("cross_source"):
             line += "（多源交叉验证）" if language == "zh" else " (cross-source)"
         highlights.append(line)
@@ -388,14 +479,29 @@ def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None, languag
 
 
 def _select_brief_items(non_ai_articles, max_count=20):
-    """Select compact tech brief items, preferring higher editorial weight."""
+    """Select compact tech brief items, preferring higher editorial weight.
+
+    Filters out articles from non-tech categories (e.g. general_news,
+    podcast) to keep the brief section focused on technology.
+    """
     if not non_ai_articles:
         return []
 
-    must_read = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "must_read"]
-    noteworthy = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "noteworthy"]
-    brief = [a for a in non_ai_articles if a.extra.get("editorial_tier") == "brief"]
-    unclassified = [a for a in non_ai_articles if not a.extra.get("editorial_tier")]
+    from .config import normalize_category
+    _TECH_CATEGORIES = {
+        "ai_ml", "ai_tools", "tech_general", "tech_product",
+        "chips_hardware", "cloud", "open_source", "cybersecurity",
+        "hacker_news", "wechat_dev",
+    }
+    filtered = [a for a in non_ai_articles
+                if normalize_category(a.category) in _TECH_CATEGORIES]
+    if not filtered:
+        filtered = non_ai_articles  # fallback: keep all if nothing passes
+
+    must_read = [a for a in filtered if a.extra.get("editorial_tier") == "must_read"]
+    noteworthy = [a for a in filtered if a.extra.get("editorial_tier") == "noteworthy"]
+    brief = [a for a in filtered if a.extra.get("editorial_tier") == "brief"]
+    unclassified = [a for a in filtered if not a.extra.get("editorial_tier")]
 
     for bucket in (must_read, noteworthy, brief, unclassified):
         bucket.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
@@ -409,7 +515,7 @@ def _select_brief_items(non_ai_articles, max_count=20):
     return selected
 
 
-def _build_theme_groups(ai_articles, cluster_map=None):
+def _build_theme_groups(ai_articles, cluster_map=None, language="zh"):
     """Group AI articles into cluster-first theme sections."""
     cluster_map = cluster_map or {}
     articles_by_url = {article.url: article for article in ai_articles}
@@ -426,10 +532,15 @@ def _build_theme_groups(ai_articles, cluster_map=None):
         members.sort(key=lambda a: _article_rank(a, cluster_map), reverse=True)
         lead = members[0]
         info = cluster_map.get(lead.url, {})
+        theme_fallback = _assign_briefing_theme(lead)
+        title = _clean_theme_title(lead.title, theme_fallback, language=language)
+        # Double-check: ensure Chinese reports never show English-only titles
+        if language == "zh" and not _is_language_compatible(title, "zh"):
+            title = theme_fallback
         themes.append({
             "id": cluster_id,
-            "theme": _assign_briefing_theme(lead),
-            "title": _clean_theme_title(lead.title, _assign_briefing_theme(lead)),
+            "theme": theme_fallback,
+            "title": title,
             "articles": members[:4],
             "score": max(a.extra.get("news_value_score", 0) for a in members),
             "cluster_theme": info.get("theme", ""),
@@ -485,7 +596,7 @@ def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_
                         stats=None, language="zh"):
     """Build the neutral briefing-data contract shared by markdown and wechat."""
     cluster_map = cluster_map or {}
-    themes = _build_theme_groups(ai_articles, cluster_map=cluster_map)
+    themes = _build_theme_groups(ai_articles, cluster_map=cluster_map, language=language)
     for theme in themes:
         theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map, language=language)
     return {
@@ -493,24 +604,30 @@ def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_
         "themes": themes[:8],
         "brief_items": _select_brief_items(non_ai_articles, 20),
         "stats": _combine_briefing_stats(ai_articles, non_ai_articles, stats=stats, cluster_map=cluster_map),
+        "trends": _fallback_trends(themes[:8], language=language),
     }
 
 
-def _merge_llm_briefing(briefing_data, llm_briefing):
+def _merge_llm_briefing(briefing_data, llm_briefing, language="zh"):
     """Overlay LLM-generated highlights and theme summaries onto briefing_data."""
     if not llm_briefing:
         return briefing_data
 
     merged = dict(briefing_data)
     if llm_briefing.get("highlights"):
-        merged["highlights"] = llm_briefing["highlights"]
+        filtered_highlights = [
+            item.strip() for item in llm_briefing["highlights"]
+            if isinstance(item, str) and _is_language_compatible(item, language)
+        ]
+        if filtered_highlights:
+            merged["highlights"] = filtered_highlights
 
     theme_summaries = llm_briefing.get("theme_summaries", {})
     if theme_summaries:
         themes = []
         for idx, theme in enumerate(briefing_data.get("themes", []), 1):
             summary = theme_summaries.get(theme.get("id")) or theme_summaries.get(str(idx))
-            if summary:
+            if summary and _is_language_compatible(summary, language):
                 updated = dict(theme)
                 updated["summary"] = summary
                 themes.append(updated)
@@ -519,7 +636,12 @@ def _merge_llm_briefing(briefing_data, llm_briefing):
         merged["themes"] = themes
 
     if llm_briefing.get("trends"):
-        merged["trends"] = llm_briefing["trends"]
+        filtered_trends = [
+            item.strip() for item in llm_briefing["trends"]
+            if isinstance(item, str) and _is_language_compatible(item, language)
+        ]
+        if filtered_trends:
+            merged["trends"] = filtered_trends
     return merged
 
 
@@ -588,7 +710,6 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
             "|------|------|",
             f"| 候选内容 | {stats.get('candidate_count', 0)} |",
             f"| 去重后 | {stats.get('after_dedup', 0)} |",
-            f"| 编辑筛选后 | {stats.get('after_editorial', 0)} |",
             f"| 纳入日报 | {stats.get('included_count', 0)} |",
             f"| AI 主题 | {stats.get('ai_count', 0)} |",
             f"| 科技简讯 | {len(brief_items)} |",
@@ -657,9 +778,9 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
     return "\n".join(lines).strip()
 
 
-def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quality_scores=None,
+def build_unified_report(ai_articles, non_ai_articles, now, language="zh",
                          summary_map=None, cluster_map=None,
-                         llm_category_results=None, executive_summary="", trend_insights="",
+                         executive_summary="", trend_insights="",
                          stats=None, llm_briefing=None):
     """Build the default markdown daily digest in briefing format."""
     briefing_data = build_briefing_data(
@@ -680,12 +801,11 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh", quali
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            from .narrative_renderer import NarrativeRenderer
-            llm_briefing = NarrativeRenderer(language=language).render_briefing(briefing_data)
+            llm_briefing = _get_renderer(language).render_briefing(briefing_data)
         except Exception as e:
             logger.warning(f"⚠️ Briefing narrative generation failed (non-fatal): {e}")
 
-    briefing_data = _merge_llm_briefing(briefing_data, llm_briefing)
+    briefing_data = _merge_llm_briefing(briefing_data, llm_briefing, language=language)
     return _render_briefing_markdown(briefing_data, now, language=language)
 
 
@@ -706,8 +826,7 @@ def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh"
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            from .narrative_renderer import NarrativeRenderer
-            llm_briefing = NarrativeRenderer(language=language).render_briefing(briefing_data)
+            llm_briefing = _get_renderer(language).render_briefing(briefing_data)
         except Exception as e:
             logger.warning(f"[WeChat] ⚠️ Briefing narrative generation failed, using fallback: {e}")
 
@@ -719,7 +838,7 @@ def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh"
         category_results=category_results,
         summary_map=summary_map,
         cluster_map=cluster_map,
-        briefing_data=_merge_llm_briefing(briefing_data, llm_briefing),
+        briefing_data=_merge_llm_briefing(briefing_data, llm_briefing, language=language),
     )
 
 
@@ -850,7 +969,7 @@ def _generate_importance_reason(article, cluster_map=None, language="zh"):
         if not parts:
             # Use article description as the primary importance signal
             if article.description:
-                desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
+                desc = _clean_description_for_display(article.description, max_len=80)
                 if desc:
                     parts.append(desc)
             if not parts:
@@ -865,11 +984,11 @@ def _generate_importance_reason(article, cluster_map=None, language="zh"):
             parts.append(f"HN {article.hn_points} pts")
         if not parts:
             if article.description:
-                desc = re.sub(r'<[^>]+>', '', article.description[:80].rstrip())
+                desc = _clean_description_for_display(article.description, max_len=80)
                 if desc:
                     parts.append(desc)
-            if not parts:
-                parts.append("noteworthy")
+        if not parts:
+            parts.append("noteworthy")
         return ", ".join(parts)
 
 
@@ -976,7 +1095,7 @@ def _magazine_highlights(headlines, narratives, language: str) -> str:
             first_sentence = narratives[i - 1].split("。")[0].split(". ")[0]
             section += f"> - {first_sentence}\n"
         else:
-            desc = re.sub(r'<[^>]+>', '', (h.main.description or "")[:80]).strip()
+            desc = _clean_description_for_display(h.main.description, max_len=80)
             if desc:
                 section += f"> - {desc}\n"
             else:
@@ -1007,7 +1126,7 @@ def _magazine_headlines(headlines, narratives, language: str) -> str:
             narrative = narratives[i - 1]
             section += f"\n### {i}. {title}\n\n{narrative}\n"
         else:
-            desc = re.sub(r'<[^>]+>', '', (h.main.description or "")[:200]).strip()
+            desc = _clean_description_for_display(h.main.description, max_len=200)
             if desc:
                 section += f"\n### {i}. {title}\n\n{desc}\n"
             else:
@@ -1035,8 +1154,7 @@ def _magazine_noteworthy(noteworthy, summaries, language: str) -> str:
     else:
         section = f"\n## 📋 Noteworthy ({total})\n"
 
-    from .story_grouper import THEME_ORDER
-    for theme in THEME_ORDER:
+    for theme in _THEME_ORDER:
         articles = noteworthy.get(theme, [])
         if not articles:
             continue
@@ -1052,7 +1170,7 @@ def _magazine_noteworthy(noteworthy, summaries, language: str) -> str:
             if summaries and article.url in summaries:
                 summary = summaries[article.url]
             elif article.description:
-                summary = re.sub(r'<[^>]+>', '', article.description[:120]).strip()
+                summary = _clean_description_for_display(article.description, max_len=120)
 
             if summary:
                 section += f"- **[{title}]({url})** — {summary} `{source}`\n"

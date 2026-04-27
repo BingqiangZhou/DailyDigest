@@ -175,17 +175,37 @@ def cluster_articles(articles: list[Article], similarity_threshold: float = 0.25
     clusters: dict[int, list[str]] = {i: [a.url] for i, a in enumerate(articles)}
     url_to_article = {a.url: a for a in articles}
 
-    # Precompute pairwise similarities for efficiency
+    # Precompute pairwise similarities using inverted index for efficiency.
+    # Only article pairs sharing at least one keyword are compared,
+    # avoiding the full O(n²) sweep.
     urls = list(url_to_article.keys())
+    url_kw_sets = {u: set(article_keywords.get(u, [])) for u in urls}
+
+    # Build inverted index: keyword -> set of url indices
+    kw_to_indices: dict[str, set[int]] = {}
+    for i, u in enumerate(urls):
+        for kw in url_kw_sets[u]:
+            kw_to_indices.setdefault(kw, set()).add(i)
+
+    # Collect candidate pairs that share at least one keyword
     pair_sim = {}
-    for i in range(len(urls)):
-        for j in range(i + 1, len(urls)):
-            sim = compute_similarity(
-                article_keywords.get(urls[i], []),
-                article_keywords.get(urls[j], []),
-            )
-            if sim > similarity_threshold:
-                pair_sim[(urls[i], urls[j])] = sim
+    checked = set()
+    for indices in kw_to_indices.values():
+        indices_list = list(indices)
+        for a in range(len(indices_list)):
+            for b in range(a + 1, len(indices_list)):
+                i, j = indices_list[a], indices_list[b]
+                if i > j:
+                    i, j = j, i
+                if (i, j) in checked:
+                    continue
+                checked.add((i, j))
+                sim = compute_similarity(
+                    article_keywords.get(urls[i], []),
+                    article_keywords.get(urls[j], []),
+                )
+                if sim > similarity_threshold:
+                    pair_sim[(urls[i], urls[j])] = sim
 
     # Greedy agglomerative clustering using precomputed similarities
     url_to_cluster = {a.url: i for i, a in enumerate(articles)}

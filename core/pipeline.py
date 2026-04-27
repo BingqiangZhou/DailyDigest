@@ -162,7 +162,6 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
 
     return build_unified_report(
         ai_articles, non_ai_articles, now, language,
-        quality_scores=None,
         summary_map=merged_summaries if not api_key else None,
         cluster_map=cluster_map,
         stats=_merge_run_stats(source_stats),
@@ -403,7 +402,6 @@ def run_tech_unified(hours=48, language="zh", limit=None):
 
     t2 = time.time()
     logger.info(f"\n🔍 Step 3/5: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
-    cleanup_old_entries(days=30)
     new_articles = filter_and_mark(all_articles)
     if not new_articles:
         logger.warning("⚠️ All articles already processed.")
