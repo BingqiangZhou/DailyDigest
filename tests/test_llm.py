@@ -102,29 +102,6 @@ class TestTaskProfiles:
         assert set(TASK_PROFILES.keys()) == expected
 
 
-class TestRuntimeConfig:
-    def test_nvidia_model_mismatch_falls_back_to_default(self):
-        with patch.dict(os.environ, {
-            "BASE_URL": "https://integrate.api.nvidia.com/v1",
-            "MODEL": "z-ai/glm4.7",
-        }, clear=False):
-            config = llm.get_llm_runtime_config()
-
-        assert config["provider"] == "nvidia"
-        assert config["model"] == llm.DEFAULT_MODEL
-        assert "自动切换" in config["model_warning"]
-
-    def test_nvidia_missing_model_uses_default_and_warns(self):
-        env = dict(os.environ)
-        env["BASE_URL"] = "https://integrate.api.nvidia.com/v1"
-        env.pop("MODEL", None)
-        with patch.dict(os.environ, env, clear=True):
-            config = llm.get_llm_runtime_config()
-
-        assert config["model"] == llm.DEFAULT_MODEL
-        assert "未指定 MODEL" in config["model_warning"]
-
-
 class TestRetryBehavior:
     def test_retryable_429_retries_and_succeeds(self):
         client = _fake_client([

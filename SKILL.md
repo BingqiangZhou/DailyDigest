@@ -139,7 +139,7 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 │   ├── wechat_article.py    # 公众号文章渲染
 │   ├── topic_cluster.py     # 话题聚类与重要性评分
 │   ├── enrich.py            # 全文补充（ENRICH_FULL_TEXT=1 开启）
-│   ├── report_generator.py  # 报告生成
+│   ├── report_builder.py  # 报告生成
 │   ├── pipeline.py          # Pipeline 编排（run_tech/run_podcast/run_wechat）
 │   ├── podcast_utils.py     # 播客专有逻辑
 │   └── wechat_utils.py      # 微信专有逻辑
@@ -159,7 +159,7 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 │   ├── test_config.py       # 配置函数测试
 │   ├── test_llm_utils.py    # JSON 解析测试
 │   ├── test_wechat_article.py # 渲染函数测试
-│   └── test_report_generator.py # 报告工具函数测试
+│   └── test_report_builder.py # 报告工具函数测试
 ├── knowledge/               # 知识库
 ├── workspace/               # 运行时中间文件
 └── daily-digests/           # 报告输出

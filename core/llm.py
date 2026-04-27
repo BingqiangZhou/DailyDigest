@@ -22,7 +22,6 @@ _INCOMPATIBLE_NVIDIA_PREFIXES = (
     "anthropic/",
     "claude",
     "gpt-",
-    "glm",
 )
 
 # Task-specific LLM parameter profiles

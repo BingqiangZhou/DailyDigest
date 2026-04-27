@@ -63,7 +63,7 @@ python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘�
 │   ├── rss_fetcher.py       # RSS 抓取（feedparser + stdlib 双后端）
 │   ├── dedup.py             # 文章去重（SHA-256 + Jaccard 相似度）
 │   ├── ai_summarizer.py     # AI 摘要（OpenAI API，带重试）
-│   ├── report_generator.py  # Markdown 报告生成
+│   ├── report_builder.py  # Markdown 报告生成
 │   ├── pipeline.py          # Pipeline 编排（运行、合并、finalize）
 │   ├── podcast_utils.py     # 播客：小宇宙解析、播客报告
 │   └── wechat_utils.py      # 微信：Feed 获取、全文提取、微信报告

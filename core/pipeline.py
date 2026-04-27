@@ -192,7 +192,7 @@ def _generate_source_report(source_type, data, summaries, language):
             for v in (summaries.values() if isinstance(summaries, dict) else [])
         )
 
-        from .report_generator import generate_tech_report
+        from .report_builder import generate_tech_report
 
         if has_tiers:
             category_results = build_category_results_from_summaries(updates, summaries)
@@ -248,7 +248,7 @@ def finalize_reports(source, language="zh", output_format="markdown"):
     per-source report merging only when the unified builder returns None.
     """
     from .config import OUTPUT_DIR
-    from .report_generator import save_report
+    from .report_builder import save_report
 
     now = datetime.now(timezone.utc)
 

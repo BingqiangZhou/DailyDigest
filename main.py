@@ -129,7 +129,7 @@ Examples:
         return
 
     from core.config import OUTPUT_DIR
-    from core.report_generator import save_report
+    from core.report_builder import save_report
 
     now = datetime.now(timezone.utc)
 
