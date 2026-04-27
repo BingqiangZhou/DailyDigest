@@ -12,7 +12,7 @@ from .llm_utils import strip_code_fences
 logger = get_logger("llm")
 
 # Default model configuration
-DEFAULT_MODEL = "nvidia/llama-3.1-nemotron-70b-instruct"
+DEFAULT_MODEL = "deepseek-ai/deepseek-v4-flash"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # Task-specific LLM parameter profiles

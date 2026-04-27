@@ -8,6 +8,7 @@ and trend analysis. Falls back to template text on LLM failure.
 import json
 import os
 import re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .article import Article
 from .logging_config import get_logger
@@ -27,7 +28,7 @@ class NarrativeRenderer:
         self._failure = 0
 
     def render_headlines(self, headlines) -> list[str]:
-        """Generate narrative for each headline story.
+        """Generate narrative for each headline story in parallel.
 
         Returns list of narrative strings (same order as headlines).
         Falls back to empty string on failure (template mode in report_builder).
@@ -37,8 +38,14 @@ class NarrativeRenderer:
             HEADLINE_NARRATIVE_PROMPT_EN,
         )
 
-        narratives: list[str] = []
-        for i, h in enumerate(headlines, 1):
+        if not headlines:
+            return []
+
+        template = (HEADLINE_NARRATIVE_PROMPT_ZH if self.language == "zh"
+                    else HEADLINE_NARRATIVE_PROMPT_EN)
+
+        def _generate_one(idx_and_h):
+            idx, h = idx_and_h
             try:
                 article = h.main
                 title = article.title
@@ -51,8 +58,6 @@ class NarrativeRenderer:
                     related_parts.append(f"- [{r.title}]({r.url}) ({r.source or 'Unknown'})")
                 related = "\n".join(related_parts) if related_parts else "(无相关报道)"
 
-                template = (HEADLINE_NARRATIVE_PROMPT_ZH if self.language == "zh"
-                            else HEADLINE_NARRATIVE_PROMPT_EN)
                 prompt = template.format(
                     title=title, source=source, content=content, related=related
                 )
@@ -60,19 +65,31 @@ class NarrativeRenderer:
                 response = chat_with_profile(self.client, prompt, "narrative")
                 if response:
                     narrative = strip_code_fences(response).strip()
-                    narratives.append(narrative)
                     self._success += 1
-                    logger.info(f"  📝 Headline {i}/{len(headlines)}: narrative generated ({len(narrative)} chars)")
+                    logger.info(f"  📝 Headline {idx + 1}/{len(headlines)}: narrative generated ({len(narrative)} chars)")
+                    return idx, narrative
                 else:
-                    narratives.append("")
                     self._failure += 1
-                    logger.warning(f"  ⚠️ Headline {i}/{len(headlines)}: LLM returned empty, using template")
+                    logger.warning(f"  ⚠️ Headline {idx + 1}/{len(headlines)}: LLM returned empty, using template")
+                    return idx, ""
             except Exception as e:
-                narratives.append("")
                 self._failure += 1
-                logger.warning(f"  ⚠️ Headline {i}/{len(headlines)}: failed ({e}), using template")
+                logger.warning(f"  ⚠️ Headline {idx + 1}/{len(headlines)}: failed ({e}), using template")
+                return idx, ""
 
-        return narratives
+        # Parallel execution with ThreadPoolExecutor
+        results = [""] * len(headlines)
+        max_workers = min(len(headlines), 5)
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_generate_one, (i, h)): i
+                for i, h in enumerate(headlines)
+            }
+            for future in as_completed(futures):
+                idx, narrative = future.result()
+                results[idx] = narrative
+
+        return results
 
     def summarize_noteworthy(self, noteworthy: dict[str, list[Article]]) -> dict[str, str]:
         """Generate summaries for noteworthy articles missing RSS summaries.
