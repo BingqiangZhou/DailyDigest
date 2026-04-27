@@ -14,18 +14,9 @@ from datetime import datetime, timezone
 from .logging_config import get_logger
 from .config import OUTPUT_DIR, CATEGORY_ORDER, get_category_display, normalize_category
 from .llm_utils import contains_reasoning_artifacts, sanitize_report_markdown
+from .llm_services import render_briefing as _render_briefing
 
 logger = get_logger("report_builder")
-
-_renderer_cache = {}
-
-
-def _get_renderer(language="zh"):
-    """Get or create a cached NarrativeRenderer for the given language."""
-    if language not in _renderer_cache:
-        from .narrative_renderer import NarrativeRenderer
-        _renderer_cache[language] = NarrativeRenderer(language=language)
-    return _renderer_cache[language]
 
 _THEME_ORDER = [
     "模型与平台",
@@ -865,7 +856,7 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh",
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            llm_briefing = _get_renderer(language).render_briefing(briefing_data)
+            llm_briefing = _render_briefing(briefing_data, language=language)
         except Exception as e:
             logger.warning(f"⚠️ Briefing narrative generation failed (non-fatal): {e}")
 
@@ -890,7 +881,7 @@ def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh"
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            llm_briefing = _get_renderer(language).render_briefing(briefing_data)
+            llm_briefing = _render_briefing(briefing_data, language=language)
         except Exception as e:
             logger.warning(f"[WeChat] ⚠️ Briefing narrative generation failed, using fallback: {e}")
 

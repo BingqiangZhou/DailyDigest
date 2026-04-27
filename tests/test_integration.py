@@ -47,8 +47,8 @@ class TestLLMRoutingWithAPIKey:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
 
         with _mock_llm_env():
-            with patch("core.narrative_renderer.get_llm_client", return_value=MagicMock()), \
-                 patch("core.narrative_renderer.NarrativeRenderer.render_briefing", return_value={
+            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
+                 patch("core.llm_services.render_briefing", return_value={
                      "highlights": ["OpenAI folds Codex into GPT-5.5"],
                      "theme_summaries": {"theme-模型与平台": "GPT-5.5 is here."},
                      "trends": ["Model vendors are converging around coding workflows."],
@@ -70,8 +70,8 @@ class TestLLMRoutingWithAPIKey:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
 
         with _mock_llm_env():
-            with patch("core.narrative_renderer.get_llm_client", return_value=MagicMock()), \
-                 patch("core.narrative_renderer.NarrativeRenderer.render_briefing", return_value={
+            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
+                 patch("core.llm_services.render_briefing", return_value={
                      "highlights": ["Big AI news moves into production"],
                      "theme_summaries": {"theme-模型与平台": "Theme summary"},
                  }):
@@ -91,8 +91,8 @@ class TestLLMRoutingWithAPIKey:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
 
         with _mock_llm_env():
-            with patch("core.narrative_renderer.get_llm_client", return_value=MagicMock()), \
-                 patch("core.narrative_renderer.NarrativeRenderer.render_briefing", return_value={}):
+            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
+                 patch("core.llm_services.render_briefing", return_value={}):
                 report = build_unified_report(
                     [ai], [], now, "zh",
                     cluster_map={},
@@ -116,8 +116,8 @@ class TestLLMRoutingWithAPIKey:
             return "- Hot post carries heavy HN engagement"
 
         with _mock_llm_env():
-            with patch("core.narrative_renderer.get_llm_client", return_value=MagicMock()), \
-                 patch("core.narrative_renderer.chat_with_profile", side_effect=capture_prompt):
+            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
+                 patch("core.llm_services._chat_with_profile", side_effect=capture_prompt):
                 build_unified_report([ai], [], now, "zh", cluster_map={})
 
         assert captured_prompt, "LLM was never called"
@@ -129,8 +129,8 @@ class TestLLMRoutingWithAPIKey:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
 
         with _mock_llm_env():
-            with patch("core.narrative_renderer.get_llm_client", return_value=MagicMock()), \
-                 patch("core.narrative_renderer.NarrativeRenderer.render_briefing", return_value={
+            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
+                 patch("core.llm_services.render_briefing", return_value={
                      "highlights": ["English AI news ships today"],
                  }):
                 report = build_unified_report(

@@ -539,7 +539,7 @@ def run_podcast(hours=24, limit=None):
 
     if api_key:
         logger.info("📄 Step 3/3: AI summaries + report...")
-        from .ai_summarizer import summarize_podcast_batch
+        from .llm_services import summarize_podcast_batch
         ai_summaries = summarize_podcast_batch(updates)
         report = generate_podcast_report(updates, ai_summaries, metadata=stats)
     else:
@@ -604,7 +604,7 @@ def run_wechat(hours=24, limit=None):
 
     if api_key:
         logger.info("📄 Step 3/3: AI summaries + report...")
-        from .ai_summarizer import summarize_wechat_batch
+        from .llm_services import summarize_wechat_batch
         ai_summaries = summarize_wechat_batch(updates)
         report = generate_wechat_report(updates, ai_summaries, metadata=stats)
     else:
