@@ -299,8 +299,8 @@ class TestUnifiedBriefingReport:
                 llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
                 executive_summary="Test summary",
             )
-        assert "## 📌 今日亮点" in report
-        assert "## 🧭 新内容" in report
+        assert "## 📌 今日要点" in report
+        assert "## 🧭 今日动态" in report
         assert "## 📝 科技简讯" in report
 
     def test_single_part_report_still_has_briefing_structure(self):
@@ -316,8 +316,8 @@ class TestUnifiedBriefingReport:
                 [ai_article], [], now, "zh",
                 llm_category_results={"ai_ml": {"name": "AI/ML", "summary": "Test", "articles": [], "article_count": 1}},
             )
-        assert "## 🧭 新内容" in report
-        assert "## 📌 今日亮点" in report
+        assert "## 🧭 今日动态" in report
+        assert "## 📌 今日要点" in report
 
     def test_no_double_separator_in_single_part_report(self):
         ai_article = Article(

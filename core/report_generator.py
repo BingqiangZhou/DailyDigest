@@ -16,7 +16,7 @@ from .config import (
     normalize_category,
 )
 from .logging_config import get_logger
-from .llm_utils import contains_reasoning_artifacts, sanitize_generated_text, sanitize_report_markdown
+from .llm_utils import contains_reasoning_artifacts, sanitize_report_markdown
 
 logger = get_logger("report")
 
@@ -425,26 +425,20 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
 
 def save_report(content, filename, output_dir=None, report_type="tech", language="zh",
                 skip_tldr=False):
-    """保存报告到文件（自动生成 TL;DR 并插入头部）
+    """保存报告到文件
 
     Args:
         content: str, Markdown 内容
         filename: str, 文件名（如 tech-daily_14-30.md）
         output_dir: Path, 输出目录
-        report_type: str, 报告类型（tech/podcast/wechat），用于 TL;DR 生成
+        report_type: str, 报告类型（tech/podcast/wechat）
         language: str, 语言（zh/en）
-        skip_tldr: bool, 跳过 TL;DR 生成（用于公众号格式）
+        skip_tldr: bool, 已废弃，保留兼容
 
     Returns:
         Path: 保存的文件路径
     """
     content = sanitize_report_markdown(content)
-
-    # 尝试生成 TL;DR
-    if not skip_tldr:
-        tldr = _generate_tldr_if_needed(content, report_type, language)
-        if tldr:
-            content = _insert_tldr(content, sanitize_generated_text(tldr), language)
 
     content = sanitize_report_markdown(content)
     if contains_reasoning_artifacts(content):
@@ -458,53 +452,6 @@ def save_report(content, filename, output_dir=None, report_type="tech", language
         f.write(content)
     logger.info(f"[Report] ✅ 报告已保存: {filepath}")
     return filepath
-
-
-def _generate_tldr_if_needed(content, report_type, language):
-    """如果环境允许，调用 AI 生成 TL;DR"""
-    if not os.environ.get("API_KEY"):
-        return ""
-    try:
-        from .ai_summarizer import generate_tldr
-        return generate_tldr(content, report_type, language)
-    except Exception as e:
-        logger.warning(f"[Report] ⚠️ TL;DR 生成失败: {e}")
-        return ""
-
-
-def _insert_tldr(content, tldr, language):
-    """将 TL;DR 插入报告头部（标题之后、正文之前）"""
-    lines = content.split("\n")
-    # 找到第一个 ## 或 --- 的位置，在它之前插入 TL;DR
-    insert_idx = 0
-    for i, line in enumerate(lines):
-        stripped = line.strip()
-        if stripped.startswith("## ") or stripped == "---":
-            insert_idx = i
-            break
-        if stripped.startswith("> "):
-            insert_idx = i + 1
-    # Safety: never insert before the # title line
-    if insert_idx == 0:
-        insert_idx = 1
-
-    tldr_label = "## 📌 TL;DR"
-    # Wrap TL;DR bullets as blockquote callout
-    tldr_lines = tldr.strip().split("\n")
-    tldr_blockquote = "\n".join(f"> {line}" for line in tldr_lines)
-    tldr_block = [tldr_label, "", tldr_blockquote, "", "---", ""]
-
-    # If the line at insert_idx is already ---, skip it to avoid double ---
-    if insert_idx < len(lines) and lines[insert_idx].strip() == "---":
-        new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx + 1:]
-    else:
-        new_lines = lines[:insert_idx] + tldr_block + lines[insert_idx:]
-
-    # Clean up any remaining double --- (three or more consecutive dashes)
-    result = "\n".join(new_lines)
-    while "---\n\n---" in result:
-        result = result.replace("---\n\n---", "---")
-    return result
 
 
 def _clean_description(desc: str, max_len: int = 150) -> str:

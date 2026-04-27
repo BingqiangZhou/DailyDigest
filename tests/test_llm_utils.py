@@ -144,7 +144,7 @@ class TestStripThinkingOutput:
             "## 📌 TL;DR\n\n"
             "> <think>The user wants a TL;DR summary.\n"
             "> - OpenAI folds Codex into GPT-5.5\n\n"
-            "## 🧭 新内容\n\n"
+            "## 🧭 今日动态\n\n"
             "<think>Count characters: 220\n"
             "### 一、模型与平台\n\n"
             "真实内容保留。\n"

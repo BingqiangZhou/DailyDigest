@@ -255,7 +255,7 @@ def _generate_ai_listing_fallback(ai_articles: list[Article], language: str,
     highlights = sorted_articles[:5]
     if highlights:
         if language == "zh":
-            lines.append("### 🔥 今日亮点")
+            lines.append("### 🔥 今日要点")
         else:
             lines.append("### 🔥 Today's Highlights")
         lines.append("")

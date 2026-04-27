@@ -59,8 +59,8 @@ class TestLLMRoutingWithAPIKey:
                 )
 
         assert "GPT-5.5" in report
-        assert "## 📌 今日亮点" in report
-        assert "## 🧭 新内容" in report
+        assert "## 📌 今日要点" in report
+        assert "## 🧭 今日动态" in report
         assert "## 📝 科技简讯" in report
 
     def test_highlights_section_present_in_two_part_report(self):
@@ -80,9 +80,9 @@ class TestLLMRoutingWithAPIKey:
                     cluster_map={},
                 )
 
-        assert "## 📌 今日亮点" in report
+        assert "## 📌 今日要点" in report
         assert "Big AI news moves into production" in report
-        assert "## 🧭 新内容" in report
+        assert "## 🧭 今日动态" in report
 
     def test_no_highlights_when_no_tiered_articles(self):
         """Fallback highlights still render even when tiers are missing."""
@@ -97,7 +97,7 @@ class TestLLMRoutingWithAPIKey:
                     cluster_map={},
                 )
 
-        assert "## 📌 今日亮点" in report
+        assert "## 📌 今日要点" in report
 
     def test_engagement_data_flows_to_llm(self):
         """HN engagement data flows into the batched briefing prompts."""
@@ -153,9 +153,9 @@ class TestLLMRoutingWithAPIKey:
         finally:
             llm.reset_llm_runtime_state()
 
-        assert "## 📌 今日亮点" in report
+        assert "## 📌 今日要点" in report
         assert "Fallback AI news" in report
-        assert "## 🧭 新内容" in report
+        assert "## 🧭 今日动态" in report
 
 
 class TestSkillModeWithoutAPIKey:
@@ -175,5 +175,5 @@ class TestSkillModeWithoutAPIKey:
                 cluster_map={},
             )
 
-        assert "## 🧭 新内容" in report
+        assert "## 🧭 今日动态" in report
         assert "Template article" in report

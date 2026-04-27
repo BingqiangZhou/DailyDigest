@@ -1,7 +1,7 @@
 """
 公众号文章 Markdown 渲染模块
 
-参考 linux.do 日报格式：今日亮点（要点列表）+ 新内容（编号主题，每主题含综合摘要 + 参考文章）。
+参考 linux.do 日报格式：今日要点（要点列表）+ 今日动态（编号主题，每主题含综合摘要 + 参考文章）。
 """
 
 import re
@@ -89,7 +89,7 @@ def _render_briefing_article(briefing_data, language):
         lines.append(_render_highlight_list(highlights, language))
 
     if themes:
-        label = "新内容" if language == "zh" else "New Developments"
+        label = "今日动态" if language == "zh" else "New Developments"
         lines.extend([f"## {label}", ""])
         numerals = ["一", "二", "三", "四", "五", "六", "七", "八"]
         for idx, theme in enumerate(themes, 1):

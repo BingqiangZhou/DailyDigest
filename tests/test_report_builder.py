@@ -76,7 +76,7 @@ class TestBuildHighlights:
             _make_article("Lesser news", editorial_tier="noteworthy", news_value_score=0.5),
         ]
         result = _build_highlights(ai, [], {}, "zh")
-        assert "🔥 今日亮点" in result
+        assert "🔥 今日要点" in result
         assert "Big AI news" in result
 
     def test_en_highlights(self):

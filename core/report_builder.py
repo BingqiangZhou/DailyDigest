@@ -186,7 +186,7 @@ def _build_highlights(ai_articles, non_ai_articles, cluster_map, language="zh"):
         return ""
 
     if language == "zh":
-        section = "### 🔥 今日亮点\n\n"
+        section = "### 🔥 今日要点\n\n"
         for i, a in enumerate(highlights, 1):
             title = a.title.replace("|", "\\|").replace("\n", " ")
             url = a.url.replace("|", "\\|")
@@ -542,13 +542,13 @@ def _render_briefing_markdown(briefing_data, now, language="zh"):
             "",
         ]
         if highlights:
-            lines.extend(["## 📌 今日亮点", ""])
+            lines.extend(["## 📌 今日要点", ""])
             for item in highlights:
                 lines.append(f"- {item}")
             lines.extend(["", "---", ""])
 
         if themes:
-            lines.extend(["## 🧭 新内容", ""])
+            lines.extend(["## 🧭 今日动态", ""])
             numerals = ["一", "二", "三", "四", "五", "六", "七", "八"]
             for idx, theme in enumerate(themes, 1):
                 prefix = numerals[idx - 1] if idx - 1 < len(numerals) else str(idx)
@@ -965,7 +965,7 @@ def _magazine_highlights(headlines, narratives, language: str) -> str:
         return ""
     count = min(5, len(headlines))
     if language == "zh":
-        section = "## 📌 今日亮点\n\n"
+        section = "## 📌 今日要点\n\n"
     else:
         section = "## 📌 Highlights\n\n"
 
