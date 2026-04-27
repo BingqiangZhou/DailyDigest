@@ -109,25 +109,27 @@ def _is_obvious_non_ai(article: Article) -> bool:
     # Strong negative patterns — if any match, article is almost certainly not AI
     negative_patterns = [
         # Wildlife / nature / environment
-        r"\b(wildfires?|wetland|orangutan|wildlife|bird watching|river pollution|endangered species)\b",
+        r"\b(wildfires?|wetland|orangutan|wildlife|bird watching|river pollution|endangered species|deforestation|changing skies)\b",
         # Natural disasters (not tech-related)
         r"\b(earthquake|tsunami|volcano|hurricane|tornado|flood damage)\b",
         # Sports
-        r"\b(nfl|nba|mlb|nhl|soccer match|football game|basketball game|olympics? medal)\b",
+        r"\b(nfl|nba|mlb|nhl|soccer match|football game|basketball game|olympics? medal|tennis tournament|baseball game|world cup)\b",
         # Pure entertainment (not AI-generated content)
-        r"\b(box office|album release|concert tour|red carpet|tv series finale)\b",
+        r"\b(box office|album release|concert tour|red carpet|tv series finale|celebrity gossip|movie (review|trailer)|tv show recap)\b",
         # Lifestyle / health (not AI health applications)
-        r"\b(exercise routine|diet plan|workout|fitness tip|yoga pose|sleep better)\b",
+        r"\b(exercise routine|diet plan|workout|fitness tip|yoga pose|sleep better|weight loss|meditation guide|skincare routine|makeup tutorial)\b",
         # Crime / violence (not AI safety/ethics)
         r"\b(shooting|gunman|stabbing|homicide|armed robbery|murder suspect)\b",
         # Pure food / travel (not AI food tech)
         r"\b(recipe|restaurant review|travel guide|hotel review|tourist attraction)\b",
-        # Celebrities / gossip
-        r"\b(celebrity|gossip|red carpet|dating rumor|divorce|wedding dress)\b",
+        # Celebrities / gossip / fashion
+        r"\b(celebrity|gossip|red carpet|dating rumor|divorce|wedding dress|fashion week|lipstick|perfume review|nail art)\b",
         # Random non-tech science / nature curiosities
         r"\b(meteors?|aurora borealis|solar eclipse|dinosaur fossil|archaeology|supercomputer.*auction|royalty.*auction|your snaps)\b",
         # Finance without tech angle
         r"\b(stock (pick|tip)|dividend|earnings per share|hedge fund strategy)\b",
+        # Chinese off-topic patterns
+        r"(野火|湿地|野生动物|濒危物种|河流污染|环境污染|减肥计划|瑜伽体式|冥想指南|睡眠卫生|口红测评|护肤步骤|美妆教程|香水推荐|综艺节目|明星八卦|电视剧|演唱会|股票推荐|基金定投|期货交易)",
     ]
     for pattern in negative_patterns:
         if re.search(pattern, text, re.IGNORECASE):
@@ -352,3 +354,83 @@ def apply_feed_noise_filter(articles: list[Article]) -> list[Article]:
         logger.info(f"[Feed Filter] 🧹 Removed {' and '.join(parts)} articles from filtered feeds")
 
     return filtered
+
+
+def _extract_domain(url: str) -> str:
+    """Extract domain from URL for trust tier lookup."""
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        domain = parsed.netloc.lower()
+        if domain.startswith("www."):
+            domain = domain[4:]
+        return domain
+    except Exception:
+        return ""
+
+
+def _ai_keyword_count(text: str) -> int:
+    """Count how many AI/tech keywords appear in text."""
+    text_lower = text.lower()
+    count = 0
+    all_keywords = AI_KEYWORDS_ZH + AI_KEYWORDS_EN
+    for kw in all_keywords:
+        kw_lower = kw.lower()
+        if len(kw) <= 6:
+            if re.search(r'\b' + re.escape(kw_lower) + r'\b', text_lower, re.ASCII):
+                count += 1
+        else:
+            if kw_lower in text_lower:
+                count += 1
+    return count
+
+
+def apply_trust_tier_filter(
+    articles: list[Article],
+    authority_domains: dict | None = None,
+) -> tuple[list[Article], int]:
+    """Filter articles by source trust tier.
+
+    Tier 1-2 (score >= 0.85): high trust, pass through
+    Tier 3 (score >= 0.7): require at least 1 AI keyword
+    Tier 4 (score < 0.7) and unknown: require 2+ AI keywords
+
+    Returns:
+        (filtered_articles, filtered_count)
+    """
+    from .topic_cluster import AUTHORITY_DOMAINS as _AUTHORITY_DOMAINS
+    authority_domains = authority_domains or _AUTHORITY_DOMAINS
+
+    filtered = []
+    filtered_count = 0
+
+    for article in articles:
+        domain = _extract_domain(article.url)
+        tier_score = 0.0
+        for auth_domain, score in authority_domains.items():
+            if domain == auth_domain or domain.endswith("." + auth_domain):
+                tier_score = score
+                break
+
+        if tier_score >= 0.85:
+            # High trust (OpenAI, Anthropic, arXiv, etc.)
+            filtered.append(article)
+        elif tier_score >= 0.7:
+            # Medium trust: need at least 1 AI keyword
+            text = f"{article.title} {article.description or ''}"
+            if _ai_keyword_match(text):
+                filtered.append(article)
+            else:
+                filtered_count += 1
+        else:
+            # Low trust or unknown: need 2+ AI keywords
+            text = f"{article.title} {article.description or ''}"
+            if _ai_keyword_count(text) >= 2:
+                filtered.append(article)
+            else:
+                filtered_count += 1
+
+    if filtered_count > 0:
+        logger.info(f"[Trust Filter] 🛡️ Filtered {filtered_count} low-signal articles from lower-trust sources")
+
+    return filtered, filtered_count

@@ -280,7 +280,6 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     """Unified tech+wechat pipeline."""
     from .config import load_feed_config, OUTPUT_DIR, WORKSPACE_DIR, normalize_category
     from .dedup import filter_and_mark, cleanup_old_entries
-    from .ai_filter import filter_ai_articles
 
     t_start = time.time()
     ensure_pipeline_dirs()
@@ -415,47 +414,33 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         logger.info("   python main.py --source tech --finalize")
         return None
 
-    # AI / non-AI classification + summarization
+    # AI / non-AI classification + summarization (legacy) or story grouping (new)
     t4 = time.time()
-    logger.info("🤖 Step 6/6: AI classification + summarization...")
-    ai_articles, non_ai_articles = filter_ai_articles(new_articles)
+    logger.info("🤖 Step 6/6: Story grouping + report building...")
 
-    ai_by_category = {}
-    for a in ai_articles:
-        cat = normalize_category(a.category)
-        ai_by_category.setdefault(cat, []).append(a)
+    from .story_grouper import group_stories
+    from .report_builder import build_magazine_report
 
-    llm_category_results = None
-    executive_summary = ""
-    trend_insights = ""
-    if ai_by_category:
-        from .ai_summarizer import summarize_all_categories, generate_trend_insights
-        llm_category_results, executive_summary = summarize_all_categories(
-            ai_by_category, language
-        )
-        if llm_category_results:
-            total_stats = {
-                "total_articles": len(ai_articles),
-                "categories": len(llm_category_results),
-            }
-            from .llm import get_llm_client
-            trend_client = get_llm_client()
-            trend_insights = generate_trend_insights(
-                trend_client,
-                {v["name"]: v["summary"] for v in llm_category_results.values() if v.get("summary")},
-                total_stats, language,
-            )
-    logger.info(f"⏱️ AI pipeline completed in {time.time() - t4:.1f}s")
+    story_group = group_stories(new_articles, cluster_map)
+
+    # LLM narrative rendering (API mode only)
+    narrative_data = {}
+    if api_key:
+        try:
+            from .narrative_renderer import NarrativeRenderer
+            renderer = NarrativeRenderer()
+            narrative_data = renderer.render_full(story_group)
+        except Exception as e:
+            import traceback
+            logger.warning(f"⚠️ Narrative renderer failed (non-fatal): {e}")
+            logger.debug(traceback.format_exc())
 
     now = datetime.now(timezone.utc)
-    report = build_unified_report(
-        ai_articles, non_ai_articles, now, language,
-        quality_scores=None,
-        summary_map=None,
-        cluster_map=cluster_map,
-        llm_category_results=llm_category_results,
-        executive_summary=executive_summary,
-        trend_insights=trend_insights,
+    date_str = now.strftime("%Y-%m-%d")
+    report = build_magazine_report(
+        story_group, date_str,
+        language=language,
+        **narrative_data,
     )
 
     combined_stats = {

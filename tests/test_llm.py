@@ -54,5 +54,9 @@ class TestTaskProfiles:
         assert TASK_PROFILES["tldr"]["max_tokens"] <= 1000
 
     def test_expected_profiles_exist(self):
-        expected = {"classify", "topic_cluster", "tldr", "critique", "summarize", "deep_analysis", "wechat_structure"}
+        expected = {
+            "classify", "topic_cluster", "tldr", "critique", "summarize",
+            "deep_analysis", "wechat_structure",
+            "narrative", "brief_summary", "trends",
+        }
         assert set(TASK_PROFILES.keys()) == expected

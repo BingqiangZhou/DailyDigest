@@ -3,7 +3,7 @@ Editorial pipeline module for DailyDigest.
 
 Implements a magazine-style editorial workflow:
   1. Source assessment (authority scoring)
-  2. News value scoring (5-factor composite)
+  2. News value scoring (6-factor composite)
   3. Tier assignment (must_read / noteworthy / brief)
   4. Depth allocation (deep_analysis / summary_only / headline_only)
   5. Newsworthiness filter
@@ -23,6 +23,38 @@ from .logging_config import get_logger
 from .topic_cluster import AUTHORITY_DOMAINS, HIGH_SIGNAL_KEYWORDS
 
 logger = get_logger("editorial")
+
+# Keywords used for title relevance scoring — if a title has NONE of these,
+# it receives a 50% penalty on its composite editorial score.
+TITLE_RELEVANCE_KEYWORDS = {
+    # English — AI/tech core terms
+    "ai", "ml", "gpt", "claude", "llm", "gemini", "deepseek", "openai", "anthropic",
+    "model", "training", "inference", "gpu", "chip", "autonomous", "agent", "robot",
+    "neural", "deep learning", "transformer", "diffusion", "rag", "fine-tun",
+    "quantiz", "tokenizer", "embedding", "checkpoint", "batch size",
+    "open source", "framework", "api", "sdk", "benchmark", "deployment",
+    "codex", "copilot", "cursor", "windsurf", "claude code", "chatgpt",
+    "hugging face", "pytorch", "tensorflow", "jax", "cuda", "tpu",
+    "reasoning", "chain of thought", "prompt", "token", "context window",
+    "multimodal", "vision model", "language model", "generative",
+    # Chinese — AI/tech core terms
+    "人工智能", "大模型", "深度学习", "机器学习", "神经网络", "智能体",
+    "算力", "芯片", "自动驾驶", "机器人", "训练", "推理", "微调",
+    "开源", "框架", "部署", "编程", "代码", "算法", "模型",
+    "智能", "语音识别", "图像识别", "自然语言", "知识图谱",
+}
+
+
+def _title_relevance_score(title: str) -> float:
+    """Check if a title contains AI/tech related terms.
+
+    Returns 1.0 if at least one keyword found, 0.5 if none (50% penalty).
+    """
+    title_lower = title.lower()
+    for kw in TITLE_RELEVANCE_KEYWORDS:
+        if kw in title_lower:
+            return 1.0
+    return 0.5
 
 
 def compute_article_authority(article: Article) -> float:
@@ -89,10 +121,11 @@ def compute_article_novelty(article: Article, cluster_map: dict) -> float:
 
 
 def compute_news_value(article: Article, cluster_map: dict) -> dict:
-    """Compute 5-factor news value score for a single article.
+    """Compute 6-factor news value score for a single article.
 
     Returns dict with individual factor scores and composite.
-    Weights match knowledge/content-strategy.md rubric.
+    Weights: authority(0.27), corroboration(0.23), cluster_heat(0.18),
+    keyword_signal(0.13), novelty(0.09), title_relevance(0.10).
 
     Categories with lower relevance to a tech digest (general_news, etc.)
     get a relevance penalty applied to the composite score.
@@ -101,30 +134,34 @@ def compute_news_value(article: Article, cluster_map: dict) -> dict:
     cluster_size = cluster_info.get("cluster_size", 1)
     cross_source = cluster_info.get("cross_source", False)
 
-    # Factor 1: Source authority (weight 0.30) — raised to give more weight to source quality
+    # Factor 1: Source authority (weight 0.27)
     authority = compute_article_authority(article)
-    authority_weighted = authority * 0.30
+    authority_weighted = authority * 0.27
 
-    # Factor 2: Cross-source corroboration (weight 0.25)
-    cross_score = 0.25 if cross_source else 0.0
+    # Factor 2: Cross-source corroboration (weight 0.23)
+    cross_score = 0.23 if cross_source else 0.0
 
-    # Factor 3: Cluster heat / size (weight 0.20)
+    # Factor 3: Cluster heat / size (weight 0.18)
     # Penalize same-source clusters — 5 articles from the same source about
     # wildlife shouldn't boost each other. Only cross-source clusters get full heat.
     is_same_source = cluster_info.get("same_source", False)
-    heat_weight = 0.05 if is_same_source else 0.20
+    heat_weight = 0.05 if is_same_source else 0.18
     size_score = min(cluster_size / 5.0, 1.0) * heat_weight
 
-    # Factor 4: Keyword signal strength (weight 0.15)
+    # Factor 4: Keyword signal strength (weight 0.13)
     text = f"{article.title} {article.description or ''}".lower()
     has_signal = any(kw in text for kw in HIGH_SIGNAL_KEYWORDS)
-    signal_score = 0.15 if has_signal else 0.0
+    signal_score = 0.13 if has_signal else 0.0
 
-    # Factor 5: Novelty (weight 0.10) — reduced, novelty alone shouldn't qualify an article
+    # Factor 5: Novelty (weight 0.09) — reduced, novelty alone shouldn't qualify an article
     novelty = compute_article_novelty(article, cluster_map)
-    novelty_weighted = novelty * 0.10
+    novelty_weighted = novelty * 0.09
 
-    composite = authority_weighted + cross_score + size_score + signal_score + novelty_weighted
+    # Factor 6: Title relevance (weight 0.10) — penalty for off-topic titles
+    title_rel = _title_relevance_score(article.title)
+    title_weighted = title_rel * 0.10
+
+    composite = authority_weighted + cross_score + size_score + signal_score + novelty_weighted + title_weighted
 
     # Relevance penalty for off-topic categories in a tech/AI digest
     from .config import normalize_category
@@ -144,6 +181,7 @@ def compute_news_value(article: Article, cluster_map: dict) -> dict:
         "cluster_heat": round(size_score, 3),
         "signal": round(signal_score, 3),
         "novelty": round(novelty_weighted, 3),
+        "title_relevance": round(title_weighted, 3),
         "composite": composite,
     }
 

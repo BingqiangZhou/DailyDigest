@@ -3,6 +3,7 @@ Report building utilities for DailyDigest.
 
 Handles section cleanup, Markdown manipulation, merged and unified
 report construction, and category/tier conversion from sub-agent summaries.
+Also provides the new magazine-style report builder.
 """
 
 import os
@@ -598,3 +599,219 @@ def classify_from_summaries(updates, summary_map):
             else:
                 non_ai_articles.append(article)
     return ai_articles, non_ai_articles
+
+
+# ---------------------------------------------------------------------------
+# Magazine-style report builder (Phase 2)
+# ---------------------------------------------------------------------------
+
+def build_magazine_report(
+    story_group,
+    date: str,
+    headline_narratives: list[str] | None = None,
+    noteworthy_summaries: dict[str, str] | None = None,
+    trends: list[str] | None = None,
+    language: str = "zh",
+) -> str:
+    """Build a magazine-style report from a StoryGroup.
+
+    Args:
+        story_group: StoryGroup from story_grouper
+        date: Date string YYYY-MM-DD
+        headline_narratives: LLM-generated narratives (Phase 3, optional)
+        noteworthy_summaries: LLM-generated summaries by URL (Phase 3, optional)
+        trends: LLM-generated trend insights (Phase 3, optional)
+        language: Report language
+    """
+    parts = []
+    parts.append(_magazine_header(story_group, date, language))
+    parts.append(_magazine_highlights(story_group.headlines, headline_narratives, language))
+    parts.append(_magazine_headlines(story_group.headlines, headline_narratives, language))
+    parts.append(_magazine_noteworthy(story_group.noteworthy, noteworthy_summaries, language))
+    parts.append(_magazine_brief(story_group.brief, language))
+    if trends:
+        parts.append(_magazine_trends(trends, language))
+    parts.append(_magazine_stats(story_group.stats, language))
+
+    return "\n\n".join(p for p in parts if p)
+
+
+def _magazine_header(story_group, date: str, language: str) -> str:
+    """Report header with title and article counts."""
+    stats = story_group.stats
+    total = stats.included
+    if language == "zh":
+        return (
+            f"# 📰 AI 技术日报 — {date}\n\n"
+            f"> {total} 篇精选文章 · 扫描 {stats.total_scanned} 个数据源\n\n"
+            f"---"
+        )
+    return (
+        f"# 📰 AI Tech Daily — {date}\n\n"
+        f"> {total} curated articles · Scanned {stats.total_scanned} sources\n\n"
+        f"---"
+    )
+
+
+def _magazine_highlights(headlines, narratives, language: str) -> str:
+    """Top 3-5 highlights as blockquote bullets."""
+    if not headlines:
+        return ""
+    count = min(5, len(headlines))
+    if language == "zh":
+        section = "## 📌 今日亮点\n\n"
+    else:
+        section = "## 📌 Highlights\n\n"
+
+    for i, h in enumerate(headlines[:count], 1):
+        title = h.main.title.replace("|", "\\|").replace("\n", " ")
+        if narratives and i - 1 < len(narratives) and narratives[i - 1]:
+            # Use first sentence of narrative as highlight
+            first_sentence = narratives[i - 1].split("。")[0].split(". ")[0]
+            section += f"> - {first_sentence}\n"
+        else:
+            desc = re.sub(r'<[^>]+>', '', (h.main.description or "")[:80]).strip()
+            if desc:
+                section += f"> - {desc}\n"
+            else:
+                section += f"> - {title}\n"
+
+    return section
+
+
+def _magazine_headlines(headlines, narratives, language: str) -> str:
+    """Headline stories with narrative or template text."""
+    if not headlines:
+        return ""
+    if language == "zh":
+        section = f"\n## 🔥 头条故事 ({len(headlines)})\n"
+    else:
+        section = f"\n## 🔥 Headlines ({len(headlines)})\n"
+
+    for i, h in enumerate(headlines, 1):
+        title = h.main.title.replace("|", "\\|").replace("\n", " ")
+        url = h.main.url
+        source = h.main.source or ""
+        theme = h.theme
+
+        # Heat indicator
+        heat = "★" * min(5, max(1, int(h.editorial_score * 5)))
+
+        if narratives and i - 1 < len(narratives) and narratives[i - 1]:
+            narrative = narratives[i - 1]
+            section += f"\n### {i}. {title}\n\n{narrative}\n"
+        else:
+            desc = re.sub(r'<[^>]+>', '', (h.main.description or "")[:200]).strip()
+            if desc:
+                section += f"\n### {i}. {title}\n\n{desc}\n"
+            else:
+                section += f"\n### {i}. [{title}]({url})\n\n"
+
+        # Source attribution
+        sources = [f"*{source}*"]
+        for r in h.related[:3]:
+            if r.source and r.source != source:
+                sources.append(f"*{r.source}*")
+        source_str = " · ".join(sources[:3])
+        section += f"\n> 来源：{source_str} | {theme} | {heat}\n"
+
+    return section
+
+
+def _magazine_noteworthy(noteworthy, summaries, language: str) -> str:
+    """Noteworthy articles grouped by theme."""
+    if not noteworthy:
+        return ""
+
+    total = sum(len(arts) for arts in noteworthy.values())
+    if language == "zh":
+        section = f"\n## 📋 关注动态 ({total} 篇)\n"
+    else:
+        section = f"\n## 📋 Noteworthy ({total})\n"
+
+    from .story_grouper import THEME_ORDER
+    for theme in THEME_ORDER:
+        articles = noteworthy.get(theme, [])
+        if not articles:
+            continue
+
+        section += f"\n### {theme}\n\n"
+        for article in articles:
+            title = article.title.replace("|", "\\|").replace("\n", " ")
+            url = article.url
+            source = (article.source or "").replace("|", "\\|")
+
+            # Use provided summary, or RSS description, or nothing
+            summary = None
+            if summaries and article.url in summaries:
+                summary = summaries[article.url]
+            elif article.description:
+                summary = re.sub(r'<[^>]+>', '', article.description[:120]).strip()
+
+            if summary:
+                section += f"- **[{title}]({url})** — {summary} `{source}`\n"
+            else:
+                section += f"- **[{title}]({url})** `{source}`\n"
+
+    return section
+
+
+def _magazine_brief(brief, language: str) -> str:
+    """Brief articles in compact table."""
+    if not brief:
+        return ""
+
+    if language == "zh":
+        section = f"\n## 📝 简讯 ({len(brief)} 篇)\n\n"
+        section += "| # | 标题 | 来源 |\n"
+        section += "|---:|------|------|\n"
+    else:
+        section = f"\n## 📝 Brief ({len(brief)})\n\n"
+        section += "| # | Title | Source |\n"
+        section += "|---:|-------|--------|\n"
+
+    for i, article in enumerate(brief, 1):
+        title = article.title.replace("|", "\\|").replace("\n", " ")
+        url = article.url
+        source = (article.source or "").replace("|", "\\|")
+        section += f"| {i} | [{title}]({url}) | *{source}* |\n"
+
+    return section
+
+
+def _magazine_trends(trends, language: str) -> str:
+    """Trend insights section."""
+    if not trends:
+        return ""
+    if language == "zh":
+        section = "\n## 📈 今日技术趋势\n\n"
+    else:
+        section = "\n## 📈 Tech Trends\n\n"
+    for i, trend in enumerate(trends, 1):
+        section += f"{i}. {trend}\n"
+    return section
+
+
+def _magazine_stats(stats, language: str) -> str:
+    """Data overview section."""
+    if language == "zh":
+        section = "\n## 📊 数据概览\n\n"
+        section += "| 指标 | 数值 |\n"
+        section += "|------|------|\n"
+        section += f"| 扫描文章总数 | {stats.total_scanned} |\n"
+        section += f"| 纳入日报 | {stats.included} |\n"
+        section += f"| 头条故事 | {stats.headlines_count} |\n"
+        section += f"| 关注动态 | {stats.noteworthy_count} |\n"
+        section += f"| 简讯 | {stats.brief_count} |\n"
+        section += f"| 丢弃 | {stats.discarded_count} |"
+    else:
+        section = "\n## 📊 Data Overview\n\n"
+        section += "| Metric | Value |\n"
+        section += "|--------|-------|\n"
+        section += f"| Total scanned | {stats.total_scanned} |\n"
+        section += f"| Included | {stats.included} |\n"
+        section += f"| Headlines | {stats.headlines_count} |\n"
+        section += f"| Noteworthy | {stats.noteworthy_count} |\n"
+        section += f"| Brief | {stats.brief_count} |\n"
+        section += f"| Discarded | {stats.discarded_count} |"
+    return section
