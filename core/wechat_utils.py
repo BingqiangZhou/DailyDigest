@@ -19,9 +19,8 @@ from .config import CONFIG_DIR, WORKSPACE_DIR, get_category_display
 from .http import fetch_url_with_retry
 from .html_utils import strip_html
 from .logging_config import get_logger
-from .rss_fetcher import fetch_feeds_stdlib
+from .rss_fetcher import fetch_feeds_feedparser
 from .dedup import filter_and_mark
-from .workspace import load_http_cache, save_http_cache
 
 logger = get_logger("wechat")
 
@@ -275,11 +274,10 @@ def fetch_wechat_articles(hours=24, limit=None):
     ]
 
     logger.info("📡 Checking WeChat updates...")
-    cache, cache_path = load_http_cache(".wechat_http_cache.json")
-    raw_updates, stats, new_cache = fetch_feeds_stdlib(
-        feed_list, hours=hours, workers=10, cache=cache
+    articles_by_category, stats = fetch_feeds_feedparser(
+        feed_list, hours=hours, max_per_feed=10
     )
-    save_http_cache(cache_path, new_cache)
+    raw_updates = [a for arts in articles_by_category.values() for a in arts]
     stats["source_count"] = len(feed_list)
 
     raw_updates = filter_and_mark(raw_updates)

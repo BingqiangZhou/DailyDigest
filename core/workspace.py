@@ -1,8 +1,8 @@
 """
 Workspace and cache I/O utilities for DailyDigest.
 
-Handles HTTP cache persistence, workspace directory management,
-and workspace data loading/saving for the pipeline.
+Handles workspace directory management and workspace data
+loading/saving for the pipeline.
 """
 
 import json
@@ -13,33 +13,6 @@ from pathlib import Path
 from .logging_config import get_logger
 
 logger = get_logger("workspace")
-
-
-def load_http_cache(name):
-    """Load an HTTP cache dict from workspace/{name}.
-
-    Returns (cache_dict, cache_path).
-    """
-    from .config import WORKSPACE_DIR
-    cache_path = WORKSPACE_DIR / name
-    if cache_path.exists():
-        try:
-            with open(cache_path, "r", encoding="utf-8") as f:
-                return json.load(f), cache_path
-        except (json.JSONDecodeError, ValueError):
-            logger.warning(f"[Cache] cache file corrupted, ignoring: {cache_path}")
-    return {}, cache_path
-
-
-def save_http_cache(cache_path, cache):
-    """Save *cache* dict to *cache_path* atomically."""
-    try:
-        tmp_path = cache_path.with_suffix(".tmp")
-        with open(tmp_path, "w", encoding="utf-8") as f:
-            json.dump(cache, f)
-        tmp_path.replace(cache_path)
-    except Exception as e:
-        logger.error(f"[Cache] cache save failed: {e}")
 
 
 def ensure_pipeline_dirs():

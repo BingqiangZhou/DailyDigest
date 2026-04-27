@@ -14,7 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .logging_config import get_logger
 from .workspace import (
-    load_http_cache, save_http_cache, ensure_pipeline_dirs,
+    ensure_pipeline_dirs,
     save_workspace_updates, load_workspace_data, merge_batch_summaries,
 )
 from .report_builder import (
@@ -317,23 +317,12 @@ def run_tech_unified(hours=48, language="zh", limit=None):
     settings = config.get("settings", {})
 
     def _fetch_tech():
-        if api_key:
-            from .rss_fetcher import fetch_feeds_feedparser
-            articles_by_category, tech_stats = fetch_feeds_feedparser(
-                feed_list, hours=settings.get("hours_back", hours),
-                max_per_feed=settings.get("max_articles_per_feed", 10)
-            )
-            return [a for arts in articles_by_category.values() for a in arts], tech_stats
-        else:
-            from .rss_fetcher import fetch_feeds_stdlib
-            cache, cache_path = load_http_cache(".http_cache.json")
-            updates, stats, new_cache = fetch_feeds_stdlib(
-                feed_list, hours=hours, workers=20, cache=cache,
-                timeout=settings.get("timeout_seconds"),
-                max_per_source=settings.get("max_per_source", 30),
-            )
-            save_http_cache(cache_path, new_cache)
-            return updates, stats
+        from .rss_fetcher import fetch_feeds_feedparser
+        articles_by_category, tech_stats = fetch_feeds_feedparser(
+            feed_list, hours=settings.get("hours_back", hours),
+            max_per_feed=settings.get("max_articles_per_feed", 10)
+        )
+        return [a for arts in articles_by_category.values() for a in arts], tech_stats
 
     wechat_hours = min(hours, 25)
 
@@ -483,7 +472,7 @@ def run_tech_unified(hours=48, language="zh", limit=None):
 def run_podcast(hours=24, limit=None):
     """Podcast pipeline.  Returns (report_str, stats_dict) or None."""
     from .config import CONFIG_DIR
-    from .rss_fetcher import fetch_feeds_stdlib
+    from .rss_fetcher import fetch_feeds_feedparser
     from .podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report
     from .dedup import filter_and_mark
 
@@ -515,9 +504,8 @@ def run_podcast(hours=24, limit=None):
     ]
 
     t1 = time.time()
-    cache, cache_path = load_http_cache(".podcast_http_cache.json")
-    raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=30, cache=cache)
-    save_http_cache(cache_path, new_cache)
+    articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
+    raw_updates = [a for arts in articles_by_category.values() for a in arts]
     logger.info(f"⏱️ Podcast RSS fetch completed in {time.time() - t1:.1f}s")
 
     candidate_count = len(raw_updates)
@@ -566,7 +554,7 @@ def run_podcast(hours=24, limit=None):
 def run_wechat(hours=24, limit=None):
     """WeChat pipeline.  Returns (report_str, stats_dict) or None."""
     from .wechat_utils import fetch_wechat_feed_list, generate_wechat_report, enrich_wechat_articles
-    from .rss_fetcher import fetch_feeds_stdlib
+    from .rss_fetcher import fetch_feeds_feedparser
     from .dedup import filter_and_mark
 
     ensure_pipeline_dirs()
@@ -586,9 +574,8 @@ def run_wechat(hours=24, limit=None):
     ]
 
     logger.info("📡 Step 2/3: Checking WeChat updates...")
-    cache, cache_path = load_http_cache(".wechat_http_cache.json")
-    raw_updates, stats, new_cache = fetch_feeds_stdlib(feed_list, hours=hours, workers=10, cache=cache)
-    save_http_cache(cache_path, new_cache)
+    articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
+    raw_updates = [a for arts in articles_by_category.values() for a in arts]
     stats["source_count"] = len(feed_list)
 
     candidate_count = len(raw_updates)
