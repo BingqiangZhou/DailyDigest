@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .article import Article
 from .logging_config import get_logger
 from .llm import get_llm_client, chat_with_profile
-from .llm_utils import parse_llm_json, strip_code_fences
+from .llm_utils import parse_llm_json, strip_code_fences, _strip_thinking_output
 
 logger = get_logger("narrative_renderer")
 
@@ -64,7 +64,7 @@ class NarrativeRenderer:
 
                 response = chat_with_profile(self.client, prompt, "narrative")
                 if response:
-                    narrative = strip_code_fences(response).strip()
+                    narrative = _strip_thinking_output(strip_code_fences(response)).strip()
                     self._success += 1
                     logger.info(f"  📝 Headline {idx + 1}/{len(headlines)}: narrative generated ({len(narrative)} chars)")
                     return idx, narrative

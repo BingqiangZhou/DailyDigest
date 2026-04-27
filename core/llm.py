@@ -12,7 +12,7 @@ from .llm_utils import strip_code_fences
 logger = get_logger("llm")
 
 # Default model configuration
-DEFAULT_MODEL = "deepseek-ai/deepseek-v4-flash"
+DEFAULT_MODEL = "minimaxai/minimax-m2.7"
 DEFAULT_BASE_URL = "https://integrate.api.nvidia.com/v1"
 
 # Task-specific LLM parameter profiles
@@ -53,7 +53,9 @@ def get_llm_client():
 
 def get_model():
     """Get the configured model name."""
-    return os.environ.get("MODEL") or DEFAULT_MODEL
+    # TODO: restore env var override after testing
+    # return os.environ.get("MODEL") or DEFAULT_MODEL
+    return "minimaxai/minimax-m2.7"
 
 
 def chat_completion(client, prompt, max_tokens=4000, max_retries=2,

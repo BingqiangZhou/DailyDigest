@@ -65,7 +65,7 @@ def _strip_thinking_output(text: str) -> str:
 
 
 def strip_code_fences(response: str) -> str:
-    """Remove markdown code fences and leaked thinking from LLM response."""
+    """Remove markdown code fences from LLM response."""
     text = response.strip()
     # Find first ``` and extract content after it
     match = re.search(r'```(?:\w*)\n?', text)
@@ -78,9 +78,7 @@ def strip_code_fences(response: str) -> str:
             text = rest[:close]
         else:
             text = rest
-    text = text.strip()
-    text = _strip_thinking_output(text)
-    return text
+    return text.strip()
 
 
 def parse_llm_json(response: str) -> dict:
@@ -93,7 +91,21 @@ def parse_llm_json(response: str) -> dict:
         ValueError: If the response cannot be parsed as JSON.
     """
     cleaned = strip_code_fences(response)
+    # Strip thinking output before JSON parsing (some models leak reasoning)
+    cleaned = _strip_thinking_output(cleaned)
+    # Try direct parse first
     try:
         return json.loads(cleaned)
-    except json.JSONDecodeError as e:
-        raise ValueError(f"Failed to parse LLM JSON response: {e}") from e
+    except json.JSONDecodeError:
+        pass
+    # Fallback: extract first JSON object or array from the text
+    for start_char, end_char in [('[', ']'), ('{', '}')]:
+        start = cleaned.find(start_char)
+        if start >= 0:
+            end = cleaned.rfind(end_char)
+            if end > start:
+                try:
+                    return json.loads(cleaned[start:end + 1])
+                except json.JSONDecodeError:
+                    pass
+    raise ValueError(f"Failed to parse LLM JSON response from: {cleaned[:200]}")

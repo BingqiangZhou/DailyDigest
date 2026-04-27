@@ -81,22 +81,28 @@ class TestStripCodeFences:
         strip = _get_strip_fn()
         assert strip("  ```\nhello\n```  ") == "hello"
 
+
+class TestStripThinkingOutput:
+    def _get_fn(self):
+        from core.llm_utils import _strip_thinking_output
+        return _strip_thinking_output
+
     def test_strips_thinking_output(self):
-        strip = _get_strip_fn()
+        strip = self._get_fn()
         raw = "The user wants a summary.\nLet me think about this.\nActual content here."
         assert strip(raw) == "Actual content here."
 
     def test_strips_c_style_thinking(self):
-        strip = _get_strip_fn()
+        strip = self._get_fn()
         raw = "/* thinking process */\nActual output"
         assert strip(raw) == "Actual output"
 
     def test_preserves_clean_content(self):
-        strip = _get_strip_fn()
+        strip = self._get_fn()
         raw = "这是一段正常的中文内容，包含 First, the researchers found 等正常表述。"
         assert strip(raw) == raw
 
     def test_strips_character_counting(self):
-        strip = _get_strip_fn()
+        strip = self._get_fn()
         raw = '"研"1 "究"2 "人"3 "员"4\nActual narrative text.'
         assert strip(raw) == "Actual narrative text."
