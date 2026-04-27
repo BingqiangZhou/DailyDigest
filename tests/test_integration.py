@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from unittest.mock import patch, MagicMock
 
 from core.article import Article
+from core import llm
 from core.report_builder import build_unified_report
 
 
@@ -105,7 +106,7 @@ class TestLLMRoutingWithAPIKey:
 
         captured_prompt = []
 
-        def capture_prompt(_client, prompt, profile_name, max_retries=2):
+        def capture_prompt(_client, prompt, profile_name, max_retries=2, optional=False):
             captured_prompt.append(prompt)
             if profile_name == "trends":
                 return '["trend"]'
@@ -138,6 +139,23 @@ class TestLLMRoutingWithAPIKey:
 
         assert "## 📌 Highlights" in report
         assert "## 🧭 New Developments" in report
+
+    def test_report_falls_back_when_optional_llm_is_degraded(self):
+        """When optional LLM embellishment is degraded, the fallback briefing still renders."""
+        ai = _make_article("Fallback AI news", tier="must_read", score=0.9)
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
+        llm.reset_llm_runtime_state()
+        llm._runtime_state.degraded_mode = True
+        try:
+            with _mock_llm_env():
+                report = build_unified_report([ai], [], now, "zh", cluster_map={})
+        finally:
+            llm.reset_llm_runtime_state()
+
+        assert "## 📌 今日亮点" in report
+        assert "Fallback AI news" in report
+        assert "## 🧭 新内容" in report
 
 
 class TestSkillModeWithoutAPIKey:

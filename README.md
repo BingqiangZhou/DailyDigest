@@ -101,6 +101,21 @@ python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘�
 | `MODEL` | 否 | 模型名称，默认 llama-3.1-nemotron-70b |
 | `SUPADATA_API_KEY` | 否 | YouTube 字幕提取 API |
 
+## LLM 稳定性参数
+
+默认策略按“成功率优先”收敛，适合 NVIDIA NIM 和大多数 OpenAI 兼容后端：
+
+| Env Var | 默认值 | 作用 |
+|--------|--------|------|
+| `LLM_TIMEOUT_SECONDS` | `180` | 单次 LLM 请求超时 |
+| `LLM_MAX_RETRIES` | `4` | 可重试错误的最大重试次数 |
+| `LLM_MAX_CONCURRENCY` | `2` | 全局 LLM 并发上限 |
+| `LLM_RETRY_BASE_SECONDS` | `2` | 指数退避起始秒数 |
+| `LLM_RETRY_MAX_SECONDS` | `30` | 单次退避最大等待 |
+| `LLM_DEGRADE_AFTER_FAILURES` | `3` | 临时错误累计达到阈值后切入降级模式 |
+
+当 `BASE_URL` 指向 NVIDIA 而 `MODEL` 缺失或明显不匹配时，程序会自动切回 NVIDIA 默认模型并打印告警。运行时日志还会输出当前 provider、model、timeout、并发和是否启用 critique，方便快速定位配置错误和 rate limit 问题。
+
 ## 依赖
 
 ```bash

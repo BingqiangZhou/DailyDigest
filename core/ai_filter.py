@@ -20,7 +20,7 @@ from .config import (
     AI_FILTER_PROMPT_EN,
 )
 from .logging_config import get_logger
-from .llm import get_llm_client, chat_with_profile
+from .llm import get_llm_client, chat_with_profile, limit_llm_workers
 
 logger = get_logger("ai_filter")
 
@@ -46,6 +46,91 @@ def _keyword_filter(articles: list[Article]) -> list[Article]:
     return results
 
 
+def _coerce_bool(value):
+    """Convert loose LLM classification values into bools when possible."""
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)):
+        return bool(value)
+    if isinstance(value, str):
+        normalized = value.strip().strip('",').lower()
+        truthy = {
+            "true", "yes", "1", "relevant", "related", "ai", "ai-related",
+            "是", "相关", "ai相关", "true]", "true}",
+        }
+        falsy = {
+            "false", "no", "0", "not related", "irrelevant", "non-ai",
+            "否", "不相关", "非ai", "false]", "false}",
+        }
+        if normalized in truthy:
+            return True
+        if normalized in falsy:
+            return False
+    return None
+
+
+def _extract_classification_index(key):
+    """Extract a batch item index from loose JSON/object keys."""
+    if isinstance(key, int):
+        return key
+    if isinstance(key, str):
+        text = key.strip()
+        for pattern in (
+            r'^id[_\s-]*(\d+)$',
+            r'^\[?(\d+)\]?$',
+            r'^article[_\s-]*(\d+)$',
+        ):
+            match = re.match(pattern, text, re.IGNORECASE)
+            if match:
+                return int(match.group(1))
+    return None
+
+
+def _normalize_classification_map(payload, batch_size):
+    """Normalize parsed LLM output into {index: bool}."""
+    normalized = {}
+    if not isinstance(payload, dict):
+        return normalized
+
+    for key, value in payload.items():
+        index = _extract_classification_index(key)
+        decision = _coerce_bool(value)
+        if index is None or decision is None:
+            continue
+        if 1 <= index <= batch_size:
+            normalized[index] = decision
+    return normalized
+
+
+def _salvage_classification_pairs(response, batch_size):
+    """Recover structured decisions from malformed JSON-ish classifier output."""
+    patterns = [
+        r'["\']?(?:id[_\s-]*)?(\d+)["\']?\s*[:=]\s*(true|false|yes|no|1|0|相关|不相关|是|否)',
+        r'^\s*\[?(\d+)\]?\s*[\).:-]\s*(true|false|yes|no|1|0|相关|不相关|是|否)\b',
+    ]
+    salvaged = {}
+    for pattern in patterns:
+        for match in re.finditer(pattern, response, re.IGNORECASE | re.MULTILINE):
+            index = int(match.group(1))
+            decision = _coerce_bool(match.group(2))
+            if decision is None or not (1 <= index <= batch_size):
+                continue
+            salvaged[index] = decision
+    return salvaged
+
+
+def _parse_classification_response(response, batch_size):
+    """Parse or salvage classifier output into {index: bool}."""
+    try:
+        parsed = parse_llm_json(response)
+        normalized = _normalize_classification_map(parsed, batch_size)
+        if normalized:
+            return normalized
+    except (ValueError, json.JSONDecodeError):
+        pass
+    return _salvage_classification_pairs(response, batch_size)
+
+
 def _classify_batch(client, batch, batch_idx, total_batches, language):
     """Classify a single batch of articles. Returns list of AI-relevant articles."""
     logger.info(f"[AI Filter] 🤖 batch {batch_idx + 1}/{total_batches} ({len(batch)} articles)...")
@@ -60,21 +145,39 @@ def _classify_batch(client, batch, batch_idx, total_batches, language):
         logger.warning(f"[AI Filter] ⚠️ batch {batch_idx + 1} API failed, using keyword fallback")
         return _keyword_filter(batch)
 
-    try:
-        classifications = parse_llm_json(response)
-        results = []
-        for i, article in enumerate(batch, start=1):
-            if classifications.get(str(i), False):
-                results.append(article)
-        ai_count = sum(1 for v in classifications.values() if v)
-        logger.info(f"[AI Filter] ✅ batch {batch_idx + 1}: {ai_count} AI articles")
-        return results
-    except (ValueError, json.JSONDecodeError):
+    classifications = _parse_classification_response(response, len(batch))
+    if not classifications:
         logger.warning(f"[AI Filter] ⚠️ batch {batch_idx + 1} JSON parse failed, using keyword fallback")
         return _keyword_filter(batch)
 
+    results = []
+    missing = []
+    for i, article in enumerate(batch, start=1):
+        decision = classifications.get(i)
+        if decision is None:
+            missing.append(article)
+            continue
+        if decision:
+            results.append(article)
 
-def _api_filter(articles: list[Article], batch_size: int = 50) -> list[Article]:
+    if missing:
+        fallback_results = _keyword_filter(missing)
+        results.extend(fallback_results)
+        logger.warning(
+            f"[AI Filter] ⚠️ batch {batch_idx + 1} parsed {len(classifications)}/{len(batch)} items; "
+            f"keyword fallback used for {len(missing)} missing items"
+        )
+        fallback_ai_count = len(fallback_results)
+    else:
+        logger.info(f"[AI Filter] ✅ batch {batch_idx + 1}: parsed {len(classifications)} items")
+        fallback_ai_count = 0
+
+    ai_count = sum(1 for decision in classifications.values() if decision) + fallback_ai_count
+    logger.info(f"[AI Filter] ✅ batch {batch_idx + 1}: {ai_count} AI articles")
+    return results
+
+
+def _api_filter(articles: list[Article], batch_size: int = 25) -> list[Article]:
     """AI API-based batch classification for AI relevance (concurrent batches)."""
     client = get_llm_client()
     language = os.environ.get("REPORT_LANGUAGE", "zh")
@@ -85,7 +188,7 @@ def _api_filter(articles: list[Article], batch_size: int = 50) -> list[Article]:
     total_batches = len(batches)
 
     results = []
-    max_workers = min(3, total_batches)
+    max_workers = min(limit_llm_workers(3), total_batches)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
             executor.submit(_classify_batch, client, batch, idx, total_batches, language): idx

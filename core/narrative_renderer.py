@@ -12,7 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .article import Article
 from .logging_config import get_logger
-from .llm import get_llm_client, chat_with_profile
+from .llm import get_llm_client, chat_with_profile, limit_llm_workers, should_skip_optional_llm
 from .llm_utils import (
     parse_llm_json,
     strip_code_fences,
@@ -35,7 +35,7 @@ class NarrativeRenderer:
     def render_briefing(self, briefing_data) -> dict:
         """Generate batched highlights, theme summaries, and trends for briefing_data."""
         themes = briefing_data.get("themes", [])
-        if not themes:
+        if not themes or should_skip_optional_llm():
             return {}
 
         results = {
@@ -73,7 +73,7 @@ class NarrativeRenderer:
             )
 
         try:
-            response = chat_with_profile(self.client, prompt, "summarize")
+            response = chat_with_profile(self.client, prompt, "summarize", optional=True)
             cleaned = sanitize_generated_text(response or "")
             return [line.lstrip("- ").strip() for line in cleaned.splitlines() if line.strip().startswith("- ")]
         except Exception as e:
@@ -113,7 +113,7 @@ class NarrativeRenderer:
             )
 
         try:
-            response = chat_with_profile(self.client, prompt, "summarize")
+            response = chat_with_profile(self.client, prompt, "summarize", optional=True)
             parsed = parse_llm_json(response or "[]")
             results = {}
             if isinstance(parsed, list):
@@ -149,7 +149,7 @@ class NarrativeRenderer:
             )
 
         try:
-            response = chat_with_profile(self.client, prompt, "trends")
+            response = chat_with_profile(self.client, prompt, "trends", optional=True)
             parsed = parse_llm_json(response or "[]")
             if isinstance(parsed, list):
                 return [sanitize_generated_text(str(item)) for item in parsed if str(item).strip()]
@@ -193,7 +193,7 @@ class NarrativeRenderer:
                     title=title, source=source, content=content, related=related
                 )
 
-                response = chat_with_profile(self.client, prompt, "narrative")
+                response = chat_with_profile(self.client, prompt, "narrative", optional=True)
                 if response:
                     narrative = _strip_thinking_output(strip_code_fences(response)).strip()
                     self._success += 1
@@ -210,7 +210,7 @@ class NarrativeRenderer:
 
         # Parallel execution with ThreadPoolExecutor
         results = [""] * len(headlines)
-        max_workers = min(len(headlines), 5)
+        max_workers = min(len(headlines), limit_llm_workers(5))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
             futures = {
                 executor.submit(_generate_one, (i, h)): i
@@ -265,7 +265,7 @@ class NarrativeRenderer:
                 ], ensure_ascii=False, indent=2)
 
                 prompt = template.format(articles_json=articles_json)
-                response = chat_with_profile(self.client, prompt, "brief_summary")
+                response = chat_with_profile(self.client, prompt, "brief_summary", optional=True)
 
                 if response:
                     parsed = parse_llm_json(response)
@@ -328,7 +328,7 @@ class NarrativeRenderer:
         )
 
         try:
-            response = chat_with_profile(self.client, prompt, "trends")
+            response = chat_with_profile(self.client, prompt, "trends", optional=True)
             if response:
                 parsed = parse_llm_json(response)
                 trends = []

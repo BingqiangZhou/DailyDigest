@@ -15,14 +15,14 @@ from config.prompts.summarizer import (
     PODCAST_BATCH_PROMPT, WECHAT_BATCH_PROMPT,
     TLDR_PROMPT_ZH, TLDR_PROMPT_EN,
 )
-from .llm_utils import parse_llm_json, strip_code_fences, _strip_thinking_output, sanitize_generated_text
+from .llm_utils import parse_llm_json, sanitize_generated_text
 from .llm import (
     get_llm_client as _get_client,
     get_model as _get_model,
-    chat_completion as _chat_completion,
     chat_with_profile as _chat_with_profile,
     generate_with_critique,
-    TASK_PROFILES,
+    limit_llm_workers,
+    should_skip_optional_llm,
 )
 from .article import format_article_item
 from .logging_config import get_logger
@@ -100,7 +100,7 @@ def generate_executive_summary(client, category_summaries, total_stats, report_l
 
 def generate_trend_insights(client, category_summaries, total_stats, report_language="zh"):
     """Generate cross-category trend insights from category summaries."""
-    if not category_summaries:
+    if not category_summaries or should_skip_optional_llm():
         return ""
 
     summaries_text = "\n".join(
@@ -120,7 +120,7 @@ def generate_trend_insights(client, category_summaries, total_stats, report_lang
             category_summaries=summaries_text,
         )
 
-    result = _chat_with_profile(client, prompt, "summarize")
+    result = _chat_with_profile(client, prompt, "trends", optional=True)
     if result is None:
         logger.warning("[AI] ⚠️ 趋势洞察生成失败")
         return ""
@@ -132,16 +132,17 @@ def generate_trend_insights(client, category_summaries, total_stats, report_lang
     return result
 
 
-def summarize_all_categories(articles_by_category, report_language="zh", max_workers=5):
+def summarize_all_categories(articles_by_category, report_language="zh", max_workers=None):
     """对所有分类生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
         articles_by_category: {category: [articles]}
         report_language: 报告语言
-        max_workers: 最大并发 API 调用数（默认 3，避免 rate limit）
+        max_workers: 最大并发 API 调用数（默认跟随全局 LLM 并发门）
     """
     client = _get_client()
     model = _get_model()
+    max_workers = limit_llm_workers(max_workers or 5)
     logger.info(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
     results = {}
@@ -205,7 +206,7 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
 
 
 def _generic_batch_summarize(updates, source_name, count_unit, format_item, build_prompt,
-                             parse_response, batch_size=10, max_workers=5):
+                             parse_response, batch_size=6, max_workers=None):
     """Generic batch summarization with concurrent API calls.
 
     Args:
@@ -223,6 +224,7 @@ def _generic_batch_summarize(updates, source_name, count_unit, format_item, buil
     """
     client = _get_client()
     model = _get_model()
+    max_workers = limit_llm_workers(max_workers or 5)
     logger.info(f"[AI] 🎯 使用 OpenAI 兼容 API | 模型: {model} | 并发: {max_workers}")
 
     batches = []
@@ -264,7 +266,7 @@ def _generic_batch_summarize(updates, source_name, count_unit, format_item, buil
     return ai_summaries
 
 
-def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
+def summarize_podcast_batch(updates, batch_size=6, max_workers=None):
     """对播客更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
@@ -295,7 +297,7 @@ def summarize_podcast_batch(updates, batch_size=10, max_workers=5):
     )
 
 
-def summarize_wechat_batch(updates, batch_size=10, max_workers=5):
+def summarize_wechat_batch(updates, batch_size=6, max_workers=None):
     """对微信公众号更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
@@ -345,7 +347,7 @@ def generate_wechat_structure(ai_articles, language="zh"):
           themes: list of {title, summary, articles: [Article]}
         Returns None on failure.
     """
-    if not os.environ.get("API_KEY"):
+    if not os.environ.get("API_KEY") or should_skip_optional_llm():
         return None
 
     client = _get_client()
@@ -368,7 +370,7 @@ def generate_wechat_structure(ai_articles, language="zh"):
     prompt = WECHAT_STRUCTURE_PROMPT_ZH.format(articles=articles_text)
 
     logger.info(f"[AI] 🤖 正在生成公众号文章结构（{len(ai_articles)} 篇文章）...")
-    response = _chat_with_profile(client, prompt, "wechat_structure")
+    response = _chat_with_profile(client, prompt, "wechat_structure", optional=True)
 
     if not response:
         logger.error("[AI] ❌ 公众号文章结构生成失败")

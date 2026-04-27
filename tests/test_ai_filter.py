@@ -1,8 +1,14 @@
 """Tests for core/ai_filter.py — relevance filter and feed noise filter."""
 
-import pytest
 from core.article import Article
-from core.ai_filter import _is_likely_ai_article, _hard_ai_relevance_check, _is_obvious_non_ai, apply_feed_noise_filter
+from core.ai_filter import (
+    _is_likely_ai_article,
+    _hard_ai_relevance_check,
+    _is_obvious_non_ai,
+    _parse_classification_response,
+    _classify_batch,
+    apply_feed_noise_filter,
+)
 
 
 def _make_article(title="Test", description="", extra=None):
@@ -132,6 +138,45 @@ class TestApplyFeedNoiseFilter:
         result = apply_feed_noise_filter(articles)
         assert len(result) == 1
         assert result[0].title == "GPT-5 shows improved reasoning"
+
+
+class TestClassifierResponseParsing:
+    def test_accepts_numeric_string_keys(self):
+        response = '{"1": true, "2": false}'
+        parsed = _parse_classification_response(response, 2)
+        assert parsed == {1: True, 2: False}
+
+    def test_accepts_id_prefixed_keys(self):
+        response = '{"id_1": true, "id_2": false}'
+        parsed = _parse_classification_response(response, 2)
+        assert parsed == {1: True, 2: False}
+
+    def test_salvages_non_json_lines(self):
+        response = "1: true\n2: false\n3: 相关"
+        parsed = _parse_classification_response(response, 3)
+        assert parsed == {1: True, 2: False, 3: True}
+
+
+class TestClassifyBatchFallback:
+    def test_partial_parse_uses_keyword_fallback_only_for_missing_items(self):
+        batch = [
+            _make_article(title="OpenAI announces GPT-5"),
+            _make_article(title="General software release"),
+            _make_article(title="Anthropic launches new AI agent"),
+        ]
+
+        class _Client:
+            pass
+
+        response = '{"1": true, "2": false}'
+        from unittest.mock import patch
+        with patch("core.ai_filter.chat_with_profile", return_value=response):
+            result = _classify_batch(_Client(), batch, batch_idx=0, total_batches=1, language="zh")
+
+        titles = [article.title for article in result]
+        assert "OpenAI announces GPT-5" in titles
+        assert "Anthropic launches new AI agent" in titles
+        assert "General software release" not in titles
 
 
 class TestTechOnlyNoiseFilter:
