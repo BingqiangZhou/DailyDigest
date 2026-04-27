@@ -15,7 +15,6 @@ def sample_article():
         category="ai_ml",
         published="2026-04-06T08:00:00",
         description="A test article description",
-        language="en",
     )
 
 
@@ -29,7 +28,6 @@ def sample_article_zh():
         category="ai_ml",
         published="2026-04-06T08:00:00",
         description="测试描述",
-        language="zh",
     )
 
 
@@ -43,7 +41,6 @@ def sample_article_hn():
         category="hacker_news",
         published="2026-04-06T12:00:00",
         description="A cool project",
-        language="en",
         extra={"hn_points": 42, "hn_comments": 7, "priority": 1},
     )
 

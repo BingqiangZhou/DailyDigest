@@ -17,7 +17,6 @@ from .config import (
     AI_KEYWORDS_ZH,
     AI_KEYWORDS_EN,
     AI_FILTER_PROMPT_ZH,
-    AI_FILTER_PROMPT_EN,
 )
 from .logging_config import get_logger
 from .llm import get_llm_client, chat_with_profile, limit_llm_workers
@@ -144,14 +143,13 @@ def _parse_classification_response(response, batch_size):
     return _salvage_classification_pairs(response, batch_size)
 
 
-def _classify_batch(client, batch, batch_idx, total_batches, language):
+def _classify_batch(client, batch, batch_idx, total_batches):
     """Classify a single batch of articles. Returns list of AI-relevant articles."""
     logger.info(f"[AI Filter] 🤖 batch {batch_idx + 1}/{total_batches} ({len(batch)} articles)...")
     articles_text = "\n\n".join(
         _article_to_filter_item(i, a) for i, a in enumerate(batch, start=1)
     )
-    prompt_template = AI_FILTER_PROMPT_ZH if language == "zh" else AI_FILTER_PROMPT_EN
-    prompt = prompt_template.format(articles=articles_text)
+    prompt = AI_FILTER_PROMPT_ZH.format(articles=articles_text)
 
     response = chat_with_profile(client, prompt, "classify")
     if not response:
@@ -193,7 +191,6 @@ def _classify_batch(client, batch, batch_idx, total_batches, language):
 def _api_filter(articles: list[Article], batch_size: int = 25) -> list[Article]:
     """AI API-based batch classification for AI relevance (concurrent batches)."""
     client = get_llm_client()
-    language = os.environ.get("REPORT_LANGUAGE", "zh")
 
     batches = []
     for i in range(0, len(articles), batch_size):
@@ -204,7 +201,7 @@ def _api_filter(articles: list[Article], batch_size: int = 25) -> list[Article]:
     max_workers = min(limit_llm_workers(3), total_batches)
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_classify_batch, client, batch, idx, total_batches, language): idx
+            executor.submit(_classify_batch, client, batch, idx, total_batches): idx
             for idx, batch in enumerate(batches)
         }
         for future in as_completed(futures):

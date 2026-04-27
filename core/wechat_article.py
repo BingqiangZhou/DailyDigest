@@ -20,7 +20,6 @@ def generate_wechat_article(
     ai_articles,
     non_ai_articles,
     now,
-    language="zh",
     category_results=None,
     executive_summary="",
     summary_map=None,
@@ -37,11 +36,11 @@ def generate_wechat_article(
 
     # Render
     lines = []
-    lines.append(_render_header(date_str, time_str, ai_count, non_ai_count, total, language))
+    lines.append(_render_header(date_str, time_str, ai_count, non_ai_count, total))
     lines.append("")
 
     if briefing_data:
-        lines.append(_render_briefing_article(briefing_data, language))
+        lines.append(_render_briefing_article(briefing_data))
         lines.append("")
     elif ai_structure:
         # AI-generated structure path
@@ -49,35 +48,35 @@ def generate_wechat_article(
         themes = ai_structure.get("themes", [])
 
         if highlights:
-            lines.append(_render_ai_highlights(highlights, language))
+            lines.append(_render_ai_highlights(highlights))
             lines.append("")
 
         if themes:
-            lines.append(_render_ai_themes(themes, language))
+            lines.append(_render_ai_themes(themes))
             lines.append("")
     else:
         # Fallback: category-based structure
         all_items = _collect_items(category_results, summary_map, ai_articles)
         highlights = [it for it in all_items if it["tier"] == "must_read"]
-        themes = _group_into_themes(all_items, language)
+        themes = _group_into_themes(all_items)
 
         if highlights:
-            lines.append(_render_highlights(highlights, language))
+            lines.append(_render_highlights(highlights))
             lines.append("")
 
         if themes:
-            lines.append(_render_themes(themes, language))
+            lines.append(_render_themes(themes))
             lines.append("")
 
     if non_ai_articles:
-        lines.append(_render_tech_brief(non_ai_articles, language))
+        lines.append(_render_tech_brief(non_ai_articles))
         lines.append("")
 
-    lines.append(_render_footer(date_str, time_str, language))
+    lines.append(_render_footer(date_str, time_str))
     return "\n".join(lines)
 
 
-def _render_briefing_article(briefing_data, language):
+def _render_briefing_article(briefing_data):
     """Render the shared briefing-data contract in WeChat-friendly markdown."""
     lines = []
     highlights = briefing_data.get("highlights", [])[:6]
@@ -86,22 +85,21 @@ def _render_briefing_article(briefing_data, language):
     trends = briefing_data.get("trends", [])
 
     if highlights:
-        lines.append(_render_highlight_list(highlights, language))
+        lines.append(_render_highlight_list(highlights))
 
     if themes:
-        label = "今日动态" if language == "zh" else "New Developments"
-        lines.extend([f"## {label}", ""])
+        lines.extend(["## 今日动态", ""])
         numerals = ["一", "二", "三", "四", "五", "六", "七", "八"]
         for idx, theme in enumerate(themes, 1):
-            prefix = numerals[idx - 1] if language == "zh" and idx - 1 < len(numerals) else str(idx)
+            prefix = numerals[idx - 1] if idx - 1 < len(numerals) else str(idx)
             title = theme.get("title", "")
             summary = theme.get("summary", "")
-            lines.append(f"### {prefix}、{title}" if language == "zh" else f"### {idx}. {title}")
+            lines.append(f"### {prefix}、{title}")
             lines.append("")
             if summary:
                 lines.append(summary)
                 lines.append("")
-            lines.append("**参考：**" if language == "zh" else "**References:**")
+            lines.append("**参考：**")
             lines.append("")
             for article in theme.get("articles", [])[:4]:
                 source = f" — *{article.source}*" if article.source else ""
@@ -112,10 +110,10 @@ def _render_briefing_article(briefing_data, language):
                 lines.extend(["---", ""])
 
     if brief_items:
-        lines.append(_render_tech_brief(brief_items, language))
+        lines.append(_render_tech_brief(brief_items))
 
     if trends:
-        lines.append("## 趋势观察" if language == "zh" else "## Trend Notes")
+        lines.append("## 趋势观察")
         lines.append("")
         for idx, trend in enumerate(trends, 1):
             lines.append(f"{idx}. {trend}")
@@ -203,7 +201,7 @@ def _collect_items(category_results, summary_map, ai_articles):
 # Theme grouping
 # ---------------------------------------------------------------------------
 
-def _group_into_themes(items, language):
+def _group_into_themes(items):
     """Group items into 3-6 broad themes by category proximity.
 
     Each theme: {title, summary, refs: [article, ...]}
@@ -325,28 +323,19 @@ def _merge_small_themes(themes):
 # Rendering
 # ---------------------------------------------------------------------------
 
-def _render_header(date_str, time_str, ai_count, non_ai_count, total, language):
-    if language == "zh":
-        return "\n".join([
-            "# DailyDigest 人工智能技术日报",
-            "",
-            f"> {date_str} · 共 {total} 篇 · AI 自动生成",
-            "",
-            "---",
-        ])
+def _render_header(date_str, time_str, ai_count, non_ai_count, total):
     return "\n".join([
-        "# DailyDigest AI Technology Daily",
+        "# DailyDigest 人工智能技术日报",
         "",
-        f"> {date_str} · {total} articles · AI generated",
+        f"> {date_str} · 共 {total} 篇 · AI 自动生成",
         "",
         "---",
     ])
 
 
-def _render_highlight_list(items, language):
+def _render_highlight_list(items):
     """Render '今日要点' as a bullet list of strings."""
-    label = "今日要点" if language == "zh" else "Highlights"
-    lines = [f"## {label}", ""]
+    lines = ["## 今日要点", ""]
     for item in items:
         lines.append(f"- {item}")
     lines.append("")
@@ -355,21 +344,20 @@ def _render_highlight_list(items, language):
     return "\n".join(lines)
 
 
-def _render_highlights(highlights, language):
+def _render_highlights(highlights):
     """Render highlights from category-based items (extracts article titles)."""
     items = [it["article"].title for it in highlights]
-    return _render_highlight_list(items, language)
+    return _render_highlight_list(items)
 
 
-def _render_ai_highlights(highlights, language):
+def _render_ai_highlights(highlights):
     """Render AI-generated highlights (already strings)."""
-    return _render_highlight_list(highlights, language)
+    return _render_highlight_list(highlights)
 
 
-def _render_theme_list(themes, language, articles_key="refs"):
+def _render_theme_list(themes, articles_key="refs"):
     """Render numbered theme sections: N. Title / summary / article refs."""
-    label = "深度解读" if language == "zh" else "In Depth"
-    lines = [f"## {label}", ""]
+    lines = ["## 深度解读", ""]
 
     for i, theme in enumerate(themes, 1):
         title = theme.get("title", "")
@@ -384,8 +372,7 @@ def _render_theme_list(themes, language, articles_key="refs"):
             lines.append("")
 
         if articles:
-            ref_label = "参考" if language == "zh" else "Refs"
-            lines.append(f"**{ref_label}：**")
+            lines.append("**参考：**")
             lines.append("")
             for a in articles:
                 source = f" — *{a.source}*" if a.source else ""
@@ -399,20 +386,19 @@ def _render_theme_list(themes, language, articles_key="refs"):
     return "\n".join(lines)
 
 
-def _render_themes(themes, language):
+def _render_themes(themes):
     """Render themes with 'refs' key (fallback category-based path)."""
-    return _render_theme_list(themes, language, articles_key="refs")
+    return _render_theme_list(themes, articles_key="refs")
 
 
-def _render_ai_themes(themes, language):
+def _render_ai_themes(themes):
     """Render themes with 'articles' key (AI-generated path)."""
-    return _render_theme_list(themes, language, articles_key="articles")
+    return _render_theme_list(themes, articles_key="articles")
 
 
-def _render_tech_brief(non_ai_articles, language):
+def _render_tech_brief(non_ai_articles):
     """Compact section for non-AI tech news."""
-    label = "科技动态" if language == "zh" else "Tech Updates"
-    lines = [f"## {label}", ""]
+    lines = ["## 科技动态", ""]
 
     for a in non_ai_articles[:20]:
         source = f" — *{a.source}*" if a.source else ""
@@ -426,7 +412,5 @@ def _render_tech_brief(non_ai_articles, language):
     return "\n".join(lines)
 
 
-def _render_footer(date_str, time_str, language):
-    if language == "zh":
-        return "---\n\n*DailyDigest 人工智能技术日报 · AI 自动生成 · 每日更新*\n"
-    return "---\n\n*DailyDigest AI Technology Daily · AI generated · Daily updates*\n"
+def _render_footer(date_str, time_str):
+    return "---\n\n*DailyDigest 人工智能技术日报 · AI 自动生成 · 每日更新*\n"

@@ -171,7 +171,7 @@ class TestClassifyBatchFallback:
         response = '{"1": true, "2": false}'
         from unittest.mock import patch
         with patch("core.ai_filter.chat_with_profile", return_value=response):
-            result = _classify_batch(_Client(), batch, batch_idx=0, total_batches=1, language="zh")
+            result = _classify_batch(_Client(), batch, batch_idx=0, total_batches=1)
 
         titles = [article.title for article in result]
         assert "OpenAI announces GPT-5" in titles

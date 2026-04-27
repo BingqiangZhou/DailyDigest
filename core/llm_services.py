@@ -7,11 +7,11 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .config import get_category_display, CATEGORY_ORDER, WECHAT_STRUCTURE_PROMPT_ZH
 from config.prompts.summarizer import (
-    CATEGORY_SUMMARY_PROMPT_ZH, CATEGORY_SUMMARY_PROMPT_EN,
-    EXECUTIVE_SUMMARY_PROMPT_ZH, EXECUTIVE_SUMMARY_PROMPT_EN,
-    TREND_INSIGHTS_PROMPT_ZH, TREND_INSIGHTS_PROMPT_EN,
+    CATEGORY_SUMMARY_PROMPT_ZH,
+    EXECUTIVE_SUMMARY_PROMPT_ZH,
+    TREND_INSIGHTS_PROMPT_ZH,
     PODCAST_BATCH_PROMPT, WECHAT_BATCH_PROMPT,
-    TLDR_PROMPT_ZH, TLDR_PROMPT_EN,
+    TLDR_PROMPT_ZH,
 )
 from .llm_utils import parse_llm_json, sanitize_generated_text
 from .llm import (
@@ -51,7 +51,7 @@ def _format_articles_for_prompt(articles, max_per_category=15):
     return "\n".join(lines)
 
 
-def summarize_category(client, category, articles, report_language="zh"):
+def summarize_category(client, category, articles):
     """对单个分类的文章生成 AI 摘要"""
     if not articles:
         return None
@@ -59,14 +59,9 @@ def summarize_category(client, category, articles, report_language="zh"):
     category_name = get_category_display(category)
     articles_text = _format_articles_for_prompt(articles)
 
-    if report_language == "zh":
-        prompt = CATEGORY_SUMMARY_PROMPT_ZH.format(
-            category_name=category_name, articles_text=articles_text,
-        )
-    else:
-        prompt = CATEGORY_SUMMARY_PROMPT_EN.format(
-            category_name=category_name, articles_text=articles_text,
-        )
+    prompt = CATEGORY_SUMMARY_PROMPT_ZH.format(
+        category_name=category_name, articles_text=articles_text,
+    )
 
     summary = _chat_with_profile(client, prompt, "summarize")
     if summary is None:
@@ -74,34 +69,27 @@ def summarize_category(client, category, articles, report_language="zh"):
     return summary
 
 
-def generate_executive_summary(client, category_summaries, total_stats, report_language="zh"):
+def generate_executive_summary(client, category_summaries, total_stats):
     """生成整体执行摘要"""
     if not category_summaries:
         return ""
 
-    if report_language == "zh":
-        prompt = EXECUTIVE_SUMMARY_PROMPT_ZH.format(
-            total_articles=total_stats.get('total_articles', 0),
-            categories=total_stats.get('categories', 0),
-            category_summaries=json.dumps(category_summaries, ensure_ascii=False, indent=2),
-        )
-    else:
-        prompt = EXECUTIVE_SUMMARY_PROMPT_EN.format(
-            total_articles=total_stats.get('total_articles', 0),
-            categories=total_stats.get('categories', 0),
-            category_summaries=json.dumps(category_summaries, ensure_ascii=False, indent=2),
-        )
+    prompt = EXECUTIVE_SUMMARY_PROMPT_ZH.format(
+        total_articles=total_stats.get('total_articles', 0),
+        categories=total_stats.get('categories', 0),
+        category_summaries=json.dumps(category_summaries, ensure_ascii=False, indent=2),
+    )
 
     from config.prompts.critique import get_category_summary_critique
-    critique_template = get_category_summary_critique(report_language)
-    summary = generate_with_critique(client, prompt, "summarize", critique_template, language=report_language)
+    critique_template = get_category_summary_critique("zh")
+    summary = generate_with_critique(client, prompt, "summarize", critique_template, language="zh")
     if summary is None:
         logger.error("[AI] ❌ 生成执行摘要失败")
         return ""
     return summary
 
 
-def generate_trend_insights(client, category_summaries, total_stats, report_language="zh"):
+def generate_trend_insights(client, category_summaries, total_stats):
     """Generate cross-category trend insights from category summaries."""
     if not category_summaries or should_skip_optional_llm():
         return ""
@@ -110,18 +98,11 @@ def generate_trend_insights(client, category_summaries, total_stats, report_lang
         f"### {name}\n{summary}" for name, summary in category_summaries.items()
     )
 
-    if report_language == "zh":
-        prompt = TREND_INSIGHTS_PROMPT_ZH.format(
-            total_articles=total_stats.get('total_articles', 0),
-            categories=total_stats.get('categories', 0),
-            category_summaries=summaries_text,
-        )
-    else:
-        prompt = TREND_INSIGHTS_PROMPT_EN.format(
-            total_articles=total_stats.get('total_articles', 0),
-            categories=total_stats.get('categories', 0),
-            category_summaries=summaries_text,
-        )
+    prompt = TREND_INSIGHTS_PROMPT_ZH.format(
+        total_articles=total_stats.get('total_articles', 0),
+        categories=total_stats.get('categories', 0),
+        category_summaries=summaries_text,
+    )
 
     result = _chat_with_profile(client, prompt, "trends", optional=True)
     if result is None:
@@ -135,12 +116,11 @@ def generate_trend_insights(client, category_summaries, total_stats, report_lang
     return result
 
 
-def summarize_all_categories(articles_by_category, report_language="zh", max_workers=None):
+def summarize_all_categories(articles_by_category, max_workers=None):
     """对所有分类生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
         articles_by_category: {category: [articles]}
-        report_language: 报告语言
         max_workers: 最大并发 API 调用数（默认跟随全局 LLM 并发门）
     """
     client = _get_client()
@@ -168,7 +148,7 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
         articles = articles_by_category[category]
         category_name = get_category_display(category)
         logger.info(f"[AI] 🤖 开始「{category_name}」({len(articles)} 篇)...")
-        summary = summarize_category(client, category, articles, report_language)
+        summary = summarize_category(client, category, articles)
         return category, category_name, articles, summary
 
     completed = 0
@@ -198,7 +178,7 @@ def summarize_all_categories(articles_by_category, report_language="zh", max_wor
     if results:
         logger.info(f"[AI] 🤖 正在生成执行摘要...")
         executive_summary = generate_executive_summary(
-            client, category_summaries_for_exec, total_stats, report_language
+            client, category_summaries_for_exec, total_stats
         )
     else:
         logger.warning(f"[AI] ⚠️ 所有分类摘要均失败，跳过执行摘要")
@@ -337,12 +317,11 @@ def summarize_wechat_batch(updates, batch_size=6, max_workers=None):
     )
 
 
-def generate_wechat_structure(ai_articles, language="zh"):
+def generate_wechat_structure(ai_articles):
     """Generate AI-powered structure for WeChat article: highlights + themed summaries.
 
     Args:
         ai_articles: list of Article objects (AI-relevant, already curated)
-        language: "zh" or "en"
 
     Returns:
         dict with keys:
@@ -417,13 +396,12 @@ def generate_wechat_structure(ai_articles, language="zh"):
         return None
 
 
-def generate_tldr(report_content, report_type="tech", language="zh"):
+def generate_tldr(report_content, report_type="tech"):
     """根据完整报告生成 TL;DR（太长不看版）
 
     Args:
         report_content: str, 完整的 Markdown 报告
         report_type: str, 报告类型（tech/podcast/wechat）
-        language: str, 语言（zh/en）
 
     Returns:
         str: TL;DR 文本，失败返回空字符串
@@ -436,21 +414,13 @@ def generate_tldr(report_content, report_type="tech", language="zh"):
     except ValueError:
         return ""
 
-    type_names = {
-        "tech": "科技日报" if language == "zh" else "Tech Daily",
-        "podcast": "播客日报" if language == "zh" else "Podcast Daily",
-        "wechat": "微信日报" if language == "zh" else "WeChat Daily",
-        "digest": "每日摘要" if language == "zh" else "Daily Digest",
-    }
+    type_names = {"tech": "科技日报", "podcast": "播客日报", "wechat": "微信日报", "digest": "每日摘要"}
     type_name = type_names.get(report_type, report_type)
 
     # 截取报告内容（避免 token 超限，15000 chars ≈ 5k tokens）
     content = report_content[:15000]
 
-    if language == "zh":
-        prompt = TLDR_PROMPT_ZH.format(type_name=type_name, content=content)
-    else:
-        prompt = TLDR_PROMPT_EN.format(type_name=type_name, content=content)
+    prompt = TLDR_PROMPT_ZH.format(type_name=type_name, content=content)
 
     logger.info(f"[AI] 🤖 正在生成 TL;DR ({type_name})...")
     response = _chat_with_profile(client, prompt, "tldr")
@@ -467,23 +437,23 @@ def generate_tldr(report_content, report_type="tech", language="zh"):
 # Flattened functions from narrative_renderer.py (NarrativeRenderer class)
 # ---------------------------------------------------------------------------
 
-def render_briefing(briefing_data, language="zh"):
+def render_briefing(briefing_data):
     """Generate batched highlights, theme summaries, and trends for briefing_data."""
     themes = briefing_data.get("themes", [])
     if not themes or should_skip_optional_llm():
         return {}
 
     results = {
-        "highlights": generate_briefing_highlights(themes, language),
-        "theme_summaries": generate_theme_summaries(themes, language),
+        "highlights": generate_briefing_highlights(themes),
+        "theme_summaries": generate_theme_summaries(themes),
     }
-    trends = generate_briefing_trends(themes, briefing_data.get("brief_items", []), language)
+    trends = generate_briefing_trends(themes, briefing_data.get("brief_items", []))
     if trends:
         results["trends"] = trends
     return results
 
 
-def generate_briefing_highlights(themes, language="zh"):
+def generate_briefing_highlights(themes):
     """Generate one-line daily highlights from themed article material."""
     client = _get_client()
 
@@ -497,19 +467,12 @@ def generate_briefing_highlights(themes, language="zh"):
         lines.extend(refs)
         lines.append("")
 
-    if language == "zh":
-        prompt = (
-            "你是一位科技日报编辑。基于下面的主题材料，输出 4-6 条“今日要点”。\n"
-            "要求：每条一行，以 '- ' 开头；只写事实，不写分析过程；不要输出 JSON；"
-            "不要出现 思考和规则说明、字符计数。\n\n"
-            + "\n".join(lines)
-        )
-    else:
-        prompt = (
-            "Write 4-6 one-line daily highlights from the material below.\n"
-            "Return only bullet lines starting with '- '. Do not explain your process.\n\n"
-            + "\n".join(lines)
-        )
+    prompt = (
+        "你是一位科技日报编辑。基于下面的主题材料，输出 4-6 条“今日要点”。\n"
+        "要求：每条一行，以 '- ' 开头；只写事实，不写分析过程；不要输出 JSON；"
+        "不要出现 思考和规则说明、字符计数。\n\n"
+        + "\n".join(lines)
+    )
 
     try:
         response = _chat_with_profile(client, prompt, "summarize", optional=True)
@@ -520,7 +483,7 @@ def generate_briefing_highlights(themes, language="zh"):
         return []
 
 
-def generate_theme_summaries(themes, language="zh"):
+def generate_theme_summaries(themes):
     """Generate concise briefing summary for each theme."""
     client = _get_client()
 
@@ -542,18 +505,11 @@ def generate_theme_summaries(themes, language="zh"):
             "refs": refs,
         })
 
-    if language == "zh":
-        prompt = (
-            "你是一位 AI 技术日报编辑。请基于以下主题材料，为每个主题写一段 120-220 字的简报综述。"
-            "输出 JSON 数组，每项包含 index 和 summary。只输出 JSON。不要输出思考过程。\n\n"
-            + json.dumps(payload, ensure_ascii=False, indent=2)
-        )
-    else:
-        prompt = (
-            "Write one concise briefing summary for each theme below. "
-            "Return a JSON array with fields index and summary only.\n\n"
-            + json.dumps(payload, ensure_ascii=False, indent=2)
-        )
+    prompt = (
+        "你是一位 AI 技术日报编辑。请基于以下主题材料，为每个主题写一段 120-220 字的简报综述。"
+        "输出 JSON 数组，每项包含 index 和 summary。只输出 JSON。不要输出思考过程。\n\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
 
     try:
         response = _chat_with_profile(client, prompt, "summarize", optional=True)
@@ -573,7 +529,7 @@ def generate_theme_summaries(themes, language="zh"):
         return {}
 
 
-def generate_briefing_trends(themes, brief_items, language="zh"):
+def generate_briefing_trends(themes, brief_items):
     """Generate 1-3 trend observations from daily briefing material."""
     client = _get_client()
 
@@ -584,16 +540,10 @@ def generate_briefing_trends(themes, brief_items, language="zh"):
     for article in brief_items[:6]:
         theme_lines.append(f"- Brief: {article.title}")
 
-    if language == "zh":
-        prompt = (
-            "基于以下日报材料，总结 1-3 条趋势观察。输出 JSON 数组，每项是一个字符串。只输出 JSON。\n\n"
-            + "\n".join(theme_lines)
-        )
-    else:
-        prompt = (
-            "Summarize 1-3 trend notes from the material below. Return a JSON array of strings only.\n\n"
-            + "\n".join(theme_lines)
-        )
+    prompt = (
+        "基于以下日报材料，总结 1-3 条趋势观察。输出 JSON 数组，每项是一个字符串。只输出 JSON。\n\n"
+        + "\n".join(theme_lines)
+    )
 
     try:
         response = _chat_with_profile(client, prompt, "trends", optional=True)

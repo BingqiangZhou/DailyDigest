@@ -45,21 +45,21 @@ from core.pipeline import (
 # ---------------------------------------------------------------------------
 
 _SOURCE_RUNNERS = {
-    "tech": lambda hours, lang, limit: run_tech_unified(hours=hours, language=lang, limit=limit),
-    "podcast": lambda hours, _lang, limit: run_podcast(hours=hours, limit=limit),
-    "wechat": lambda hours, _lang, limit: run_wechat(hours=hours, limit=limit),
+    "tech": lambda hours, limit: run_tech_unified(hours=hours, limit=limit),
+    "podcast": lambda hours, limit: run_podcast(hours=hours, limit=limit),
+    "wechat": lambda hours, limit: run_wechat(hours=hours, limit=limit),
 }
 
 _DEFAULT_HOURS = {"tech": 25, "podcast": 25, "wechat": 25}
 
 
-def _try_build_unified_report(sections, now, language, source, output_format="markdown"):
+def _try_build_unified_report(sections, now, source, output_format="markdown"):
     """Attempt to build a unified two-part report from workspace data.
 
     Returns None if API_KEY is not set (falls back to merged report).
     """
     from core.pipeline import try_build_unified_report
-    return try_build_unified_report(source, now, language, output_format=output_format)
+    return try_build_unified_report(source, now, output_format=output_format)
 
 
 def main():
@@ -79,8 +79,6 @@ Examples:
                         default="tech", help="source type (default: tech)")
     parser.add_argument("--hours", type=int, default=None,
                         help="look-back window in hours (default: 25)")
-    parser.add_argument("--language", choices=["zh", "en"], default=None,
-                        help="report language (default: zh)")
     parser.add_argument("--finalize", action="store_true",
                         help="build report from sub-agent summaries in workspace/")
     parser.add_argument("--limit", type=int, default=None,
@@ -90,7 +88,6 @@ Examples:
                         help="output format: markdown (default) or wechat (公众号)")
     args = parser.parse_args()
 
-    language = args.language or os.environ.get("REPORT_LANGUAGE", "zh")
     start_time = datetime.now(timezone.utc)
 
     # --finalize: read sub-agent summaries and produce final report
@@ -99,13 +96,13 @@ Examples:
         print(f"\U0001F4CB Daily Digest -- Finalize mode")
         print(f"\u23f0 {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
         print("=" * 60)
-        finalize_reports(args.source, language, output_format=args.output_format)
+        finalize_reports(args.source, output_format=args.output_format)
         return
 
     # Normal mode: fetch, summarise, and generate
     print("\n" + "=" * 60)
     print(f"\U0001F4E1 Daily Digest")
-    print(f"\u23f0 {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source} | lang: {language}")
+    print(f"\u23f0 {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
     print("=" * 60)
 
     sections = []
@@ -118,7 +115,7 @@ Examples:
         if src == "wechat" and args.source == "all":
             continue
         hours = args.hours or _DEFAULT_HOURS.get(src, 25)
-        result = runner(hours, language, args.limit)
+        result = runner(hours, args.limit)
         if result:
             report, stats = result
             sections.append(report)
@@ -142,17 +139,17 @@ Examples:
         report_content = sections[0]
     else:
         # Try to build unified two-part report from workspace data
-        unified = _try_build_unified_report(sections, now, language, args.source,
+        unified = _try_build_unified_report(sections, now, args.source,
                                             output_format=args.output_format)
         if unified:
             report_content = unified
         else:
-            report_content = build_merged_report(sections, now, language)
+            report_content = build_merged_report(sections, now)
 
     is_wechat = args.output_format == "wechat"
     ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
     filepath = save_report(report_content, ext, OUTPUT_DIR,
-                           report_type="digest", language=language,
+                           report_type="digest",
                            skip_tldr=is_wechat)
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()

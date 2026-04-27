@@ -63,7 +63,7 @@ __all__ = [
 # Report assembly
 # ---------------------------------------------------------------------------
 
-def build_merged_report(sections, now, language="zh"):
+def build_merged_report(sections, now):
     """Merge multiple sections into a single report with header and TOC."""
     date_str = now.strftime("%Y-%m-%d")
     time_str = now.strftime("%H:%M")
@@ -76,15 +76,9 @@ def build_merged_report(sections, now, language="zh"):
                 section_names.append(stripped.lstrip("#").strip())
                 break
 
-    if language == "zh":
-        header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> 📡 {' · '.join(section_names)}\n\n"
-        header += f"> 🕐 生成时间 {time_str} UTC\n"
-    else:
-        header = f"# 📰 Daily Digest — {date_str}\n\n"
-        header += f"> 📡 {' · '.join(section_names)}\n\n"
-        header += f"> 🕐 Generated at {time_str} UTC\n"
-
+    header = f"# 📰 Daily Digest — {date_str}\n\n"
+    header += f"> 📡 {' · '.join(section_names)}\n\n"
+    header += f"> 🕐 生成时间 {time_str} UTC\n"
     header += "\n---\n\n"
 
     cleaned_sections = []
@@ -101,8 +95,7 @@ def build_merged_report(sections, now, language="zh"):
 
         cleaned_sections.append(f"{section_heading}\n\n{cleaned}")
 
-    toc_label = "## 📑 目录" if language == "zh" else "## 📑 Table of Contents"
-    toc_lines = [toc_label, ""]
+    toc_lines = ["## 📑 目录", ""]
     for heading_text, anchor in all_headings:
         toc_lines.append(f"- [{heading_text}](#{anchor})")
     toc = "\n".join(toc_lines) + "\n"
@@ -131,7 +124,7 @@ def _merge_llm_summaries(editorial_results, llm_results):
     return merged
 
 
-def build_unified_report(ai_articles, non_ai_articles, now, language="zh",
+def build_unified_report(ai_articles, non_ai_articles, now,
                          summary_map=None, cluster_map=None,
                          executive_summary="", trend_insights="",
                          stats=None, llm_briefing=None):
@@ -142,7 +135,6 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh",
         cluster_map=cluster_map,
         summary_map=summary_map,
         stats=stats,
-        language=language,
     )
 
     if executive_summary:
@@ -154,15 +146,15 @@ def build_unified_report(ai_articles, non_ai_articles, now, language="zh",
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            llm_briefing = _render_briefing(briefing_data, language=language)
+            llm_briefing = _render_briefing(briefing_data)
         except Exception as e:
             logger.warning(f"⚠️ Briefing narrative generation failed (non-fatal): {e}")
 
-    briefing_data = _merge_llm_briefing(briefing_data, llm_briefing, language=language)
-    return _render_briefing_markdown(briefing_data, now, language=language)
+    briefing_data = _merge_llm_briefing(briefing_data, llm_briefing)
+    return _render_briefing_markdown(briefing_data, now)
 
 
-def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh",
+def build_unified_wechat_report(ai_articles, non_ai_articles, now,
                                  summary_map=None, cluster_map=None,
                                  category_results=None, stats=None, llm_briefing=None):
     """Build a WeChat Official Account Markdown article."""
@@ -174,12 +166,11 @@ def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh"
         cluster_map=cluster_map,
         summary_map=summary_map,
         stats=stats,
-        language=language,
     )
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            llm_briefing = _render_briefing(briefing_data, language=language)
+            llm_briefing = _render_briefing(briefing_data)
         except Exception as e:
             logger.warning(f"[WeChat] ⚠️ Briefing narrative generation failed, using fallback: {e}")
 
@@ -187,11 +178,10 @@ def build_unified_wechat_report(ai_articles, non_ai_articles, now, language="zh"
         ai_articles=ai_articles,
         non_ai_articles=non_ai_articles,
         now=now,
-        language=language,
         category_results=category_results,
         summary_map=summary_map,
         cluster_map=cluster_map,
-        briefing_data=_merge_llm_briefing(briefing_data, llm_briefing, language=language),
+        briefing_data=_merge_llm_briefing(briefing_data, llm_briefing),
     )
 
 
@@ -255,7 +245,7 @@ def build_category_results_from_summaries(updates, summary_map):
     return category_results
 
 
-def build_category_results_from_editorial(ai_articles, cluster_map=None, language="zh"):
+def build_category_results_from_editorial(ai_articles, cluster_map=None):
     """Build category_results from editorial tier data on articles.
 
     Used by API mode when editorial pipeline has annotated articles
@@ -286,12 +276,12 @@ def build_category_results_from_editorial(ai_articles, cluster_map=None, languag
         for i, article in enumerate(articles, 1):
             tier = article.extra.get("editorial_tier", "noteworthy")
             if tier == "must_read":
-                reason = _generate_importance_reason(article, cluster_map, language)
+                reason = _generate_importance_reason(article, cluster_map)
                 must_read.append({"index": i, "summary": reason})
             elif tier == "brief":
                 brief.append(i)
             else:
-                reason = _generate_importance_reason(article, cluster_map, language)
+                reason = _generate_importance_reason(article, cluster_map)
                 noteworthy.append({"index": i, "summary": reason})
 
         tiered = {
@@ -309,44 +299,27 @@ def build_category_results_from_editorial(ai_articles, cluster_map=None, languag
     return category_results
 
 
-def _generate_importance_reason(article, cluster_map=None, language="zh"):
+def _generate_importance_reason(article, cluster_map=None):
     """Generate a brief importance reason from article metadata."""
     parts = []
     cluster_info = (cluster_map or {}).get(article.url, {})
     cluster_size = cluster_info.get("cluster_size", 1)
     cross_source = cluster_info.get("cross_source", False)
 
-    if language == "zh":
-        if cluster_size >= 3:
-            parts.append(f"{cluster_size}篇相关报道")
-        if cross_source:
-            parts.append("多源验证")
-        if article.hn_points and article.hn_points >= 100:
-            parts.append(f"HN {article.hn_points}赞")
-        if not parts:
-            # Use article description as the primary importance signal
-            if article.description:
-                desc = _clean_description_for_display(article.description, max_len=80)
-                if desc:
-                    parts.append(desc)
-            if not parts:
-                parts.append("值得关注")
-        return "，".join(parts)
-    else:
-        if cluster_size >= 3:
-            parts.append(f"{cluster_size} related reports")
-        if cross_source:
-            parts.append("cross-source verification")
-        if article.hn_points and article.hn_points >= 100:
-            parts.append(f"HN {article.hn_points} pts")
-        if not parts:
-            if article.description:
-                desc = _clean_description_for_display(article.description, max_len=80)
-                if desc:
-                    parts.append(desc)
-        if not parts:
-            parts.append("noteworthy")
-        return ", ".join(parts)
+    if cluster_size >= 3:
+        parts.append(f"{cluster_size}篇相关报道")
+    if cross_source:
+        parts.append("多源验证")
+    if article.hn_points and article.hn_points >= 100:
+        parts.append(f"HN {article.hn_points}赞")
+    if not parts:
+        if article.description:
+            desc = _clean_description_for_display(article.description, max_len=80)
+            if desc:
+                parts.append(desc)
+    if not parts:
+        parts.append("值得关注")
+    return "，".join(parts)
 
 
 def classify_from_summaries(updates, summary_map):
@@ -412,7 +385,7 @@ def _select_non_ai_articles(articles: list, max_count: int) -> list:
 
 def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
                          executive_summary=None, category_results=None,
-                         stats=None, report_language="zh", trend_insights=None):
+                         stats=None, trend_insights=None):
     """生成科技日报 Markdown 报告
 
     支持两种模式:
@@ -426,7 +399,6 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
         executive_summary: str, 执行摘要（API 模式）
         category_results: dict, category -> {name, summary, article_count, articles}（API 模式）
         stats: dict with metadata
-        report_language: "zh" or "en"
 
     Returns:
         str: Markdown 报告内容
@@ -442,19 +414,14 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
         total_articles = (stats or {}).get("total_articles", 0)
         total_categories = len(category_results)
 
-        if report_language == "zh":
-            lines.append(f"> 📰 {total_articles} 篇文章 · {total_categories} 个分类 · 🤖 AI 智能摘要")
-        else:
-            lines.append(f"> 📰 {total_articles} articles · {total_categories} categories · 🤖 AI-powered")
-
+        lines.append(f"> 📰 {total_articles} 篇文章 · {total_categories} 个分类 · 🤖 AI 智能摘要")
         lines.append("")
         lines.append("---")
         lines.append("")
 
         # 执行摘要
         if executive_summary:
-            exec_label = "📋 今日要闻" if report_language == "zh" else "📋 Today's Highlights"
-            lines.append(f"### {exec_label}")
+            lines.append("### 📋 今日要闻")
             lines.append("")
             lines.append(executive_summary)
             lines.append("")
@@ -463,8 +430,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
 
         # 趋势洞察 (API mode)
         if trend_insights and trend_insights.strip() and len(trend_insights.strip()) > 10:
-            trend_label = "📊 趋势洞察" if report_language == "zh" else "📊 Trend Insights"
-            lines.append(f"### {trend_label}")
+            lines.append("### 📊 趋势洞察")
             lines.append("")
             lines.append(trend_insights)
             lines.append("")
@@ -472,7 +438,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
             lines.append("")
 
         # 🔥 Today's Highlights (cross-category must-reads)
-        highlights = _render_today_highlights(category_results, report_language)
+        highlights = _render_today_highlights(category_results)
         if highlights:
             lines.append(highlights)
 
@@ -483,15 +449,14 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
             tiered = data.get("tiered")
             count = data.get("article_count", len(articles))
 
-            section = _render_tiered_category(name, articles, tiered, report_language)
+            section = _render_tiered_category(name, articles, tiered)
             if section:
                 lines.append(section)
                 lines.append("---")
                 lines.append("")
 
         # 页脚
-        footer = "报告生成时间" if report_language == "zh" else "Generated at"
-        lines.append(f"*{footer}: {report_time} UTC*")
+        lines.append(f"*报告生成时间: {report_time} UTC*")
 
     else:
         # ---- Skill 模式：按 article 列表渲染 ----
@@ -500,15 +465,9 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
         hours = (stats or {}).get("hours", 24)
         update_count = len(updates)
 
-        if report_language == "zh":
-            lines.append(f"# AI 科技日报 — {report_date}")
-            lines.append("")
-            lines.append(f"> 共检查 {checked} 个信息源 · {hours}h 窗口 · 发现 {update_count} 条更新")
-        else:
-            lines.append(f"# AI Tech Daily — {report_date}")
-            lines.append("")
-            lines.append(f"> Checked {checked} sources · {hours}h window · found {update_count} updates")
-
+        lines.append(f"# AI 科技日报 — {report_date}")
+        lines.append("")
+        lines.append(f"> 共检查 {checked} 个信息源 · {hours}h 窗口 · 发现 {update_count} 条更新")
         lines.append("")
         lines.append("---")
         lines.append("")
@@ -517,7 +476,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
         if trend_insight_skill:
             insight_text = trend_insight_skill.get("trend_insight", "")
             if insight_text:
-                lines.append("## " + ("今日趋势洞察" if report_language == "zh" else "Today's Trend Insights"))
+                lines.append("## 今日趋势洞察")
                 lines.append("")
                 lines.append(insight_text)
                 lines.append("")
@@ -547,23 +506,21 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
             groups[final_cat].append(update)
 
         # 输出各分类
-        count_unit = "条" if report_language == "zh" else "items"
         for cat, cat_updates in groups.items():
             if not cat_updates:
                 continue
 
             cat_display = get_category_display(cat)
-            lines.append(f"## {cat_display} ({len(cat_updates)} {count_unit})")
+            lines.append(f"## {cat_display} ({len(cat_updates)} 条)")
             lines.append("")
 
             # 表格格式
             has_summary = any(summary_map.get(u.url, {}).get("ai_summary", "") or u.description for u in cat_updates)
             if has_summary:
-                summary_header = "摘要" if report_language == "zh" else "Summary"
-                lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} | {summary_header} |")
+                lines.append("| # | 文章 | 来源 | 摘要 |")
                 lines.append("|---:|------|------|------|")
             else:
-                lines.append(f"| # | {'文章' if report_language == 'zh' else 'Article'} | {'来源' if report_language == 'zh' else 'Source'} |")
+                lines.append("| # | 文章 | 来源 |")
                 lines.append("|---:|------|------|")
 
             for i, update in enumerate(cat_updates, 1):
@@ -583,11 +540,10 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
 
         # Hacker News
         if hn_items:
-            lines.extend(_render_hn_table(hn_items, report_language, count_unit, summary_map))
+            lines.extend(_render_hn_table(hn_items, "条", summary_map))
 
         # 页脚
-        footer_prefix = "报告生成时间" if report_language == "zh" else "Report generated at"
-        lines.append(f"*{footer_prefix}: {report_time} UTC*")
+        lines.append(f"*报告生成时间: {report_time} UTC*")
 
     return "\n".join(lines)
 
@@ -596,7 +552,7 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
 # File I/O
 # ---------------------------------------------------------------------------
 
-def save_report(content, filename, output_dir=None, report_type="tech", language="zh",
+def save_report(content, filename, output_dir=None, report_type="tech",
                 skip_tldr=False):
     """保存报告到文件
 
@@ -605,7 +561,6 @@ def save_report(content, filename, output_dir=None, report_type="tech", language
         filename: str, 文件名（如 tech-daily_14-30.md）
         output_dir: Path, 输出目录
         report_type: str, 报告类型（tech/podcast/wechat）
-        language: str, 语言（zh/en）
         skip_tldr: bool, 已废弃，保留兼容
 
     Returns:

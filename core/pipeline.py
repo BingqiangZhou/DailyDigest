@@ -73,7 +73,7 @@ def _build_run_metadata(run_id, source_count, candidate_count, after_dedup, afte
 # Unified report builder (workspace → report)
 # ---------------------------------------------------------------------------
 
-def try_build_unified_report(source, now, language="zh", output_format="markdown"):
+def try_build_unified_report(source, now, output_format="markdown"):
     """Attempt to build a unified two-part report from workspace article data.
 
     Uses API-based AI filter when API_KEY is set, or sub-agent summary data
@@ -154,14 +154,14 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
 
     if output_format == "wechat":
         return build_unified_wechat_report(
-            ai_articles, non_ai_articles, now, language,
+            ai_articles, non_ai_articles, now,
             summary_map=merged_summaries if not api_key else None,
             cluster_map=cluster_map,
             stats=_merge_run_stats(source_stats),
         )
 
     return build_unified_report(
-        ai_articles, non_ai_articles, now, language,
+        ai_articles, non_ai_articles, now,
         summary_map=merged_summaries if not api_key else None,
         cluster_map=cluster_map,
         stats=_merge_run_stats(source_stats),
@@ -172,7 +172,7 @@ def try_build_unified_report(source, now, language="zh", output_format="markdown
 # Finalize helpers
 # ---------------------------------------------------------------------------
 
-def _generate_source_report(source_type, data, summaries, language):
+def _generate_source_report(source_type, data, summaries):
     """Dispatch to the correct report generator and return the markdown string."""
     from .article import Article
 
@@ -204,10 +204,9 @@ def _generate_source_report(source_type, data, summaries, language):
                 updates,
                 category_results=category_results,
                 stats=report_stats,
-                report_language=language,
             )
         else:
-            report = generate_tech_report(updates, summaries, trend_insight_skill=trend_insight, stats=metadata, report_language=language)
+            report = generate_tech_report(updates, summaries, trend_insight_skill=trend_insight, stats=metadata)
 
         logger.info(f"✅ tech report generated ({len(updates)} articles)")
         return report
@@ -227,7 +226,7 @@ def _generate_source_report(source_type, data, summaries, language):
     raise ValueError(f"Unknown source_type: {source_type}")
 
 
-def _finalize_source(source_type, language="zh"):
+def _finalize_source(source_type):
     """Unified finalizer for a single source type.  Returns report string or None."""
     data = load_workspace_data(source_type)
     if data is None:
@@ -238,10 +237,10 @@ def _finalize_source(source_type, language="zh"):
         run_id=metadata.get("run_id"),
         generated_at=metadata.get("generated_at"),
     )
-    return _generate_source_report(source_type, data, summaries, language)
+    return _generate_source_report(source_type, data, summaries)
 
 
-def finalize_reports(source, language="zh", output_format="markdown"):
+def finalize_reports(source, output_format="markdown"):
     """--finalize mode: read sub-agent summaries from workspace/ and build final reports.
 
     Tries the unified briefing path first (preferred). Falls back to
@@ -253,14 +252,14 @@ def finalize_reports(source, language="zh", output_format="markdown"):
     now = datetime.now(timezone.utc)
 
     # Fast path: try unified report first (avoids building per-source reports)
-    merged = try_build_unified_report(source, now, language, output_format=output_format)
+    merged = try_build_unified_report(source, now, output_format=output_format)
 
     if not merged:
         # Slow path: build individual source reports and merge
         sections = []
         for src in ("tech", "podcast", "wechat"):
             if source in (src, "all") or (source == "tech" and src == "wechat"):
-                report = _finalize_source(src, language)
+                report = _finalize_source(src)
                 if report:
                     sections.append(report)
 
@@ -268,12 +267,12 @@ def finalize_reports(source, language="zh", output_format="markdown"):
             logger.warning("⚠️ no reports to generate.")
             return
 
-        merged = build_merged_report(sections, now, language)
+        merged = build_merged_report(sections, now)
 
     is_wechat = output_format == "wechat"
     ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
     filepath = save_report(merged, ext, OUTPUT_DIR,
-                           report_type="digest", language=language,
+                           report_type="digest",
                            skip_tldr=is_wechat)
 
     logger.info("\n" + "=" * 60)
@@ -285,7 +284,7 @@ def finalize_reports(source, language="zh", output_format="markdown"):
 # Per-source pipeline runners
 # ---------------------------------------------------------------------------
 
-def run_tech_unified(hours=48, language="zh", limit=None):
+def run_tech_unified(hours=48, limit=None):
     """Unified tech+wechat pipeline."""
     from .config import load_feed_config, OUTPUT_DIR, WORKSPACE_DIR, normalize_category
     from .dedup import filter_and_mark, cleanup_old_entries
@@ -448,7 +447,6 @@ def run_tech_unified(hours=48, language="zh", limit=None):
         ai_articles,
         non_ai_articles,
         now,
-        language=language,
         cluster_map=cluster_map,
         stats={
             "run_id": run_id,

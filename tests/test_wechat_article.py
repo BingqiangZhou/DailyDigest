@@ -15,16 +15,11 @@ from core.wechat_article import (
 
 
 class TestRenderHeader:
-    def test_zh_header(self, now_utc):
-        result = _render_header("2026-04-06", "05:30", 10, 2, 12, "zh")
+    def test_header(self, now_utc):
+        result = _render_header("2026-04-06", "05:30", 10, 2, 12)
         assert "DailyDigest 人工智能技术日报" in result
         assert "2026-04-06" in result
         assert "共 12 篇" in result
-
-    def test_en_header(self, now_utc):
-        result = _render_header("2026-04-06", "05:30", 10, 2, 12, "en")
-        assert "DailyDigest AI Technology Daily" in result
-        assert "12 articles" in result
 
 
 class TestRenderHighlights:
@@ -33,21 +28,21 @@ class TestRenderHighlights:
             {"article": sample_article, "tier": "must_read", "summary": "", "category": "ai_ml", "cat_name": "AI"},
             {"article": sample_article_zh, "tier": "must_read", "summary": "", "category": "ai_ml", "cat_name": "AI"},
         ]
-        result = _render_highlights(highlights, "zh")
+        result = _render_highlights(highlights)
         assert "今日要点" in result
         assert "- Test Article" in result
         assert "- 测试文章" in result
 
     def test_empty_highlights(self):
         # The caller checks for empty, but let's verify it handles empty gracefully
-        result = _render_highlights([], "zh")
+        result = _render_highlights([])
         assert "今日要点" in result
 
 
 class TestRenderAiHighlights:
     def test_renders_string_items(self):
         highlights = ["AI自主攻破安全系统", "研究揭示模型间知识传递效率"]
-        result = _render_ai_highlights(highlights, "zh")
+        result = _render_ai_highlights(highlights)
         assert "今日要点" in result
         assert "- AI自主攻破安全系统" in result
         assert "- 研究揭示模型间知识传递效率" in result
@@ -60,7 +55,7 @@ class TestRenderThemes:
             "summary": "AI安全面临新挑战",
             "refs": [sample_article],
         }]
-        result = _render_themes(themes, "zh")
+        result = _render_themes(themes)
         assert "### 1. AI安全" in result
         assert "AI安全面临新挑战" in result
         assert "参考" in result
@@ -74,7 +69,7 @@ class TestRenderAiThemes:
             "summary": "AI自主攻破高安全系统意味着威胁升级",
             "articles": [sample_article],
         }]
-        result = _render_ai_themes(themes, "zh")
+        result = _render_ai_themes(themes)
         assert "### 1. AI安全" in result
         assert "AI自主攻破高安全系统意味着威胁升级" in result
         assert "参考" in result
@@ -85,7 +80,7 @@ class TestRenderAiThemes:
             {"title": "AI安全", "summary": "摘要1", "articles": [sample_article]},
             {"title": "AI应用", "summary": "摘要2", "articles": [sample_article_zh]},
         ]
-        result = _render_ai_themes(themes, "zh")
+        result = _render_ai_themes(themes)
         assert "### 1. AI安全" in result
         assert "### 2. AI应用" in result
         assert "---" in result
@@ -93,7 +88,7 @@ class TestRenderAiThemes:
 
 class TestRenderTechBrief:
     def test_renders_non_ai_articles(self, sample_article_hn):
-        result = _render_tech_brief([sample_article_hn], "zh")
+        result = _render_tech_brief([sample_article_hn])
         assert "科技动态" in result
         assert "[HN: Show HN: Cool Project]" in result
 
@@ -103,7 +98,7 @@ class TestRenderTechBrief:
                     category="tech_general", published="2026-01-01")
             for i in range(25)
         ]
-        result = _render_tech_brief(articles, "zh")
+        result = _render_tech_brief(articles)
         assert "等 5 条" in result
 
 
@@ -121,7 +116,6 @@ class TestGenerateWechatArticle:
             ai_articles=[sample_article],
             non_ai_articles=[],
             now=now_utc,
-            language="zh",
             ai_structure=ai_structure,
         )
         assert "DailyDigest" in result
@@ -134,7 +128,6 @@ class TestGenerateWechatArticle:
             ai_articles=[sample_article],
             non_ai_articles=[],
             now=now_utc,
-            language="zh",
         )
         assert "DailyDigest" in result
 
@@ -143,6 +136,5 @@ class TestGenerateWechatArticle:
             ai_articles=[sample_article],
             non_ai_articles=[sample_article_hn],
             now=now_utc,
-            language="zh",
         )
         assert "科技动态" in result

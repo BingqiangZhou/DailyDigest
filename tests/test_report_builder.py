@@ -37,17 +37,10 @@ class TestBuildDataDashboard:
     def test_zh_basic_dashboard(self):
         ai = [_make_article("AI article 1"), _make_article("AI article 2")]
         non_ai = [_make_article("Tech article", category="tech_general")]
-        result = _build_data_dashboard(ai, non_ai, {}, language="zh")
+        result = _build_data_dashboard(ai, non_ai, {})
         assert "📊 数据概览" in result
         assert "3" in result  # total
         assert "2" in result  # AI count
-
-    def test_en_basic_dashboard(self):
-        ai = [_make_article("AI article")]
-        non_ai = [_make_article("Tech article", category="tech_general")]
-        result = _build_data_dashboard(ai, non_ai, {}, language="en")
-        assert "📊 Data Overview" in result
-        assert "2" in result  # total
 
     def test_empty_articles(self):
         result = _build_data_dashboard([], [], {})
@@ -59,7 +52,7 @@ class TestBuildDataDashboard:
             ai[0].url: {"cluster_size": 3, "cross_source": True},
             ai[1].url: {"cluster_size": 2, "cross_source": False},
         }
-        result = _build_data_dashboard(ai, [], cluster_map, "zh")
+        result = _build_data_dashboard(ai, [], cluster_map)
         assert "话题聚类" in result
         assert "跨源验证" in result
 
@@ -69,13 +62,13 @@ class TestBuildDataDashboard:
             _make_article("Noteworthy", editorial_tier="noteworthy"),
             _make_article("Brief", editorial_tier="brief"),
         ]
-        result = _build_data_dashboard(ai, [], {}, "zh")
+        result = _build_data_dashboard(ai, [], {})
         assert "必读" in result
         assert "值得关注" in result
 
     def test_no_tiers_hides_tier_rows(self):
         ai = [_make_article("No tier")]
-        result = _build_data_dashboard(ai, [], {}, "zh")
+        result = _build_data_dashboard(ai, [], {})
         assert "必读" not in result
 
 
@@ -85,23 +78,17 @@ class TestBuildHighlights:
             _make_article("Big AI news", editorial_tier="must_read", news_value_score=0.9),
             _make_article("Lesser news", editorial_tier="noteworthy", news_value_score=0.5),
         ]
-        result = _build_highlights(ai, [], {}, "zh")
+        result = _build_highlights(ai, [], {})
         assert "🔥 今日要点" in result
         assert "Big AI news" in result
 
-    def test_en_highlights(self):
-        ai = [_make_article("Must read", editorial_tier="must_read", news_value_score=0.9)]
-        result = _build_highlights(ai, [], {}, "en")
-        assert "🔥 Today's Highlights" in result
-        assert "Must read" in result
-
     def test_empty_articles_no_highlights(self):
-        result = _build_highlights([], [], {}, "zh")
+        result = _build_highlights([], [], {})
         assert result == ""
 
     def test_no_tier_articles_uses_noteworthy(self):
         ai = [_make_article("Noteworthy", editorial_tier="noteworthy", news_value_score=0.5)]
-        result = _build_highlights(ai, [], {}, "zh")
+        result = _build_highlights(ai, [], {})
         assert "Noteworthy" in result
 
     def test_hn_engagement_shown(self):
@@ -110,14 +97,14 @@ class TestBuildHighlights:
             category="ai_ml", published="2026-04-27T12:00:00",
             extra={"editorial_tier": "must_read", "news_value_score": 0.9, "hn_points": 200},
         )]
-        result = _build_highlights(ai, [], {}, "zh")
+        result = _build_highlights(ai, [], {})
         assert "🔥HN 200" in result
 
     def test_mixed_ai_and_non_ai(self):
         ai = [_make_article("AI news", editorial_tier="must_read", news_value_score=0.9)]
         non_ai = [_make_article("Tech news", category="tech_general",
                                 editorial_tier="must_read", news_value_score=0.8)]
-        result = _build_highlights(ai, non_ai, {}, "zh")
+        result = _build_highlights(ai, non_ai, {})
         assert "AI news" in result
         assert "Tech news" in result
 
@@ -152,40 +139,34 @@ class TestRenderHnTable:
         )
 
     def test_empty_list_returns_empty(self):
-        assert _render_hn_table([], "zh", "条") == []
+        assert _render_hn_table([], "条") == []
 
     def test_basic_zh_rendering(self):
         items = [self._make_hn_item()]
-        lines = _render_hn_table(items, "zh", "条")
+        lines = _render_hn_table(items, "条")
         joined = "\n".join(lines)
         assert "Hacker News 热门" in joined
         assert "🔥 100" in joined
         assert "💬 42" in joined
         assert "Test HN Post" in joined
 
-    def test_basic_en_rendering(self):
-        items = [self._make_hn_item()]
-        lines = _render_hn_table(items, "en", "items")
-        joined = "\n".join(lines)
-        assert "Hacker News Trending" in joined
-
     def test_with_summary_map(self):
         items = [self._make_hn_item(url="https://hn.test/1")]
         sm = {"https://hn.test/1": {"ai_summary": "AI says hello"}}
-        lines = _render_hn_table(items, "zh", "条", summary_map=sm)
+        lines = _render_hn_table(items, "条", summary_map=sm)
         joined = "\n".join(lines)
         assert "摘要" in joined
         assert "AI says hello" in joined
 
     def test_without_summary_map_no_summary_column(self):
         items = [self._make_hn_item()]
-        lines = _render_hn_table(items, "zh", "条")
+        lines = _render_hn_table(items, "条")
         joined = "\n".join(lines)
         assert "摘要" not in joined
 
     def test_pipe_in_title_escaped(self):
         items = [self._make_hn_item(title="A|B")]
-        lines = _render_hn_table(items, "zh", "条")
+        lines = _render_hn_table(items, "条")
         joined = "\n".join(lines)
         assert r"A\|B" in joined
 
@@ -263,31 +244,10 @@ class TestTrendInsightsInReport:
             articles,
             category_results=category_results,
             stats={"total_articles": 1, "categories": 1},
-            report_language="zh",
             trend_insights="**多模态融合**: 各大厂商加速多模态模型迭代。",
         )
         assert "📊 趋势洞察" in report
         assert "多模态融合" in report
-
-    def test_trend_insights_en_rendered(self):
-        articles = [self._make_article()]
-        category_results = {
-            "ai_ml": {
-                "name": "AI/ML",
-                "articles": articles,
-                "tiered": {"must_read": [], "noteworthy": [], "brief": []},
-                "article_count": 1,
-            }
-        }
-        report = generate_tech_report(
-            articles,
-            category_results=category_results,
-            stats={"total_articles": 1, "categories": 1},
-            report_language="en",
-            trend_insights="**Multi-modal convergence**: Vendors accelerate multi-modal models.",
-        )
-        assert "📊 Trend Insights" in report
-        assert "Multi-modal convergence" in report
 
     def test_no_trend_insights_no_section(self):
         articles = [self._make_article()]
@@ -303,7 +263,6 @@ class TestTrendInsightsInReport:
             articles,
             category_results=category_results,
             stats={"total_articles": 1, "categories": 1},
-            report_language="zh",
         )
         assert "📊 趋势洞察" not in report
 
@@ -334,7 +293,6 @@ class TestMultilineBlockquote:
             articles,
             category_results=category_results,
             stats={"total_articles": 1, "categories": 1},
-            report_language="zh",
         )
         assert "> Line one" in report
         assert "> **Line two**" in report
@@ -358,7 +316,7 @@ class TestUnifiedBriefingReport:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
         with _no_api_key():
             report = build_unified_report(
-                [ai_article], [non_ai_article], now, "zh",
+                [ai_article], [non_ai_article], now,
                 executive_summary="Test summary",
             )
         assert "## 📌 今日要点" in report
@@ -375,7 +333,7 @@ class TestUnifiedBriefingReport:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
         with _no_api_key():
             report = build_unified_report(
-                [ai_article], [], now, "zh",
+                [ai_article], [], now,
             )
         assert "## 🧭 今日动态" in report
         assert "## 📌 今日要点" in report
@@ -390,7 +348,7 @@ class TestUnifiedBriefingReport:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
         with _no_api_key():
             report = build_unified_report(
-                [ai_article], [], now, "zh",
+                [ai_article], [], now,
             )
         assert "---\n---" not in report
 
@@ -404,7 +362,7 @@ class TestUnifiedBriefingReport:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
         with _no_api_key():
             report = build_unified_report(
-                [ai_article], [], now, "zh",
+                [ai_article], [], now,
                 cluster_map={},
                 stats={"candidate_count": 12, "source_count": 5, "included_count": 1},
             )
@@ -428,32 +386,15 @@ class TestImportanceReason:
 
     def test_zh_reason_uses_description(self):
         a = self._make_article(priority=1)
-        reason = _generate_importance_reason(a, language="zh")
+        reason = _generate_importance_reason(a)
         assert "值得关注" in reason
-
-    def test_en_reason_uses_description(self):
-        a = self._make_article(priority=1)
-        reason = _generate_importance_reason(a, language="en")
-        assert "noteworthy" in reason
 
     def test_zh_cluster_reason(self):
         a = self._make_article()
         cluster_map = {a.url: {"cluster_size": 5, "cross_source": True}}
-        reason = _generate_importance_reason(a, cluster_map, "zh")
+        reason = _generate_importance_reason(a, cluster_map)
         assert "5篇相关报道" in reason
         assert "多源验证" in reason
-
-    def test_en_cluster_reason(self):
-        a = self._make_article()
-        cluster_map = {a.url: {"cluster_size": 5, "cross_source": True}}
-        reason = _generate_importance_reason(a, cluster_map, "en")
-        assert "5 related reports" in reason
-        assert "cross-source" in reason
-
-    def test_en_fallback_worth_reading(self):
-        a = self._make_article(priority=0, extra={"news_value_score": 0.1})
-        reason = _generate_importance_reason(a, language="en")
-        assert "noteworthy" in reason
 
 
 class TestHighlightHeadingLevels:
@@ -481,7 +422,6 @@ class TestHighlightHeadingLevels:
             articles,
             category_results=category_results,
             stats={"total_articles": 1, "categories": 1},
-            report_language="zh",
         )
         # Section heading should be ###
         assert "### 🔥 今日重点" in report

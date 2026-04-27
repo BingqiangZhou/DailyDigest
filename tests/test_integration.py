@@ -54,7 +54,7 @@ class TestLLMRoutingWithAPIKey:
                      "trends": ["Model vendors are converging around coding workflows."],
                  }):
                 report = build_unified_report(
-                    [ai_article], [non_ai_article], now, "zh",
+                    [ai_article], [non_ai_article], now,
                     cluster_map={},
                 )
 
@@ -76,7 +76,7 @@ class TestLLMRoutingWithAPIKey:
                      "theme_summaries": {"theme-模型与平台": "Theme summary"},
                  }):
                 report = build_unified_report(
-                    [ai], [non_ai], now, "zh",
+                    [ai], [non_ai], now,
                     cluster_map={},
                 )
 
@@ -94,7 +94,7 @@ class TestLLMRoutingWithAPIKey:
             with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
                  patch("core.llm_services.render_briefing", return_value={}):
                 report = build_unified_report(
-                    [ai], [], now, "zh",
+                    [ai], [], now,
                     cluster_map={},
                 )
 
@@ -118,28 +118,10 @@ class TestLLMRoutingWithAPIKey:
         with _mock_llm_env():
             with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
                  patch("core.llm_services._chat_with_profile", side_effect=capture_prompt):
-                build_unified_report([ai], [], now, "zh", cluster_map={})
+                build_unified_report([ai], [], now, cluster_map={})
 
         assert captured_prompt, "LLM was never called"
         assert any("500" in prompt for prompt in captured_prompt)
-
-    def test_english_report_routing(self):
-        """English report renders the briefing skeleton in English."""
-        ai = _make_article("English AI news", tier="must_read", score=0.9)
-        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-
-        with _mock_llm_env():
-            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
-                 patch("core.llm_services.render_briefing", return_value={
-                     "highlights": ["English AI news ships today"],
-                 }):
-                report = build_unified_report(
-                    [ai], [], now, "en",
-                    cluster_map={},
-                )
-
-        assert "## 📌 Highlights" in report
-        assert "## 🧭 New Developments" in report
 
     def test_report_falls_back_when_optional_llm_is_degraded(self):
         """When optional LLM embellishment is degraded, the fallback briefing still renders."""
@@ -150,7 +132,7 @@ class TestLLMRoutingWithAPIKey:
         llm._runtime_state.degraded_mode = True
         try:
             with _mock_llm_env():
-                report = build_unified_report([ai], [], now, "zh", cluster_map={})
+                report = build_unified_report([ai], [], now, cluster_map={})
         finally:
             llm.reset_llm_runtime_state()
 
@@ -172,7 +154,7 @@ class TestSkillModeWithoutAPIKey:
 
         with patch.dict(os.environ, env, clear=True):
             report = build_unified_report(
-                [ai], [], now, "zh",
+                [ai], [], now,
                 cluster_map={},
             )
 

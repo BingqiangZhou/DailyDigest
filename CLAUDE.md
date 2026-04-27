@@ -60,4 +60,4 @@ uv run pytest tests/ -v
 
 ## Language
 
-Reports support `zh` (Chinese, default) and `en` (English) via `REPORT_LANGUAGE` env var.
+Reports are generated in Chinese (zh).

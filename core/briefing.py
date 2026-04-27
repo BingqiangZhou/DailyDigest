@@ -62,11 +62,11 @@ def _theme_sort_key(theme):
     )
 
 
-def _clean_theme_title(text, fallback, language="zh"):
+def _clean_theme_title(text, fallback):
     cleaned = re.sub(r'\s+', ' ', (text or "")).strip()
     cleaned = cleaned.strip("-:;,| ")
     cleaned = cleaned[:72] if cleaned else ""
-    if cleaned and language == "zh" and not _is_language_compatible(cleaned, "zh"):
+    if cleaned and not _is_language_compatible(cleaned):
         return fallback
     return cleaned or fallback
 
@@ -95,21 +95,14 @@ def _clean_description_for_display(description, max_len=180):
     return text
 
 
-def _is_language_compatible(text, language):
-    """Check whether text is compatible with the target report language.
-
-    For zh reports, prefer content with meaningful CJK presence.
-    For non-zh reports, keep original behavior.
-    """
+def _is_language_compatible(text):
+    """Check whether text contains meaningful CJK presence for Chinese reports."""
     if not text:
         return False
 
     cleaned = text.strip()
     if not cleaned:
         return False
-
-    if language != "zh":
-        return True
 
     cjk_count = len(re.findall(r'[一-鿿]', cleaned))
     latin_count = len(re.findall(r'[A-Za-z]', cleaned))
@@ -122,7 +115,7 @@ def _is_language_compatible(text, language):
     return cjk_count >= 4 or cjk_count >= latin_count
 
 
-def _compose_theme_summary(theme, summary_map=None, language="zh"):
+def _compose_theme_summary(theme, summary_map=None):
     """Fallback theme summary from article descriptions and summary_map."""
     parts = []
     seen = set()
@@ -138,7 +131,7 @@ def _compose_theme_summary(theme, summary_map=None, language="zh"):
         if not summary:
             continue
         summary = summary.replace("\n", " ").strip()
-        if not _is_language_compatible(summary, language):
+        if not _is_language_compatible(summary):
             continue
         if summary and summary not in seen:
             seen.add(summary)
@@ -147,19 +140,17 @@ def _compose_theme_summary(theme, summary_map=None, language="zh"):
             break
 
     if parts:
-        joiner = "；" if language == "zh" else " "
+        joiner = "；"
         joined = joiner.join(parts)
         # Cap total summary length to keep themes scannable
         if len(joined) > 300:
             joined = joined[:300].rstrip() + "..."
         return joined
 
-    if language == "zh":
-        return "今日该主题有多篇相关更新，需结合参考条目快速浏览。"
-    return "This theme collected multiple relevant updates for quick scanning."
+    return "今日该主题有多篇相关更新，需结合参考条目快速浏览。"
 
 
-def _fallback_trends(themes, language="zh", brief_items=None):
+def _fallback_trends(themes, brief_items=None):
     """Generate heuristic trend bullets from theme + brief data.
 
     Goes beyond simple "N articles" counts by surfacing source distribution,
@@ -180,34 +171,24 @@ def _fallback_trends(themes, language="zh", brief_items=None):
     if sources:
         top_sources = sorted(sources.items(), key=lambda x: -x[1])[:3]
         top_str = "、".join(f"{s}({n})" for s, n in top_sources)
-        if language == "zh":
-            trends.append(f"今日信息源分布：{top_str} 等 {len(sources)} 个来源贡献了内容。")
-        else:
-            top_str_en = ", ".join(f"{s} ({n})" for s, n in top_sources)
-            trends.append(f"Source distribution: {top_str_en} among {len(sources)} sources.")
+        trends.append(f"今日信息源分布：{top_str} 等 {len(sources)} 个来源贡献了内容。")
 
     # 2. Cross-source convergence
     cross_themes = [t for t in themes if t.get("cross_source")]
     if cross_themes:
         names = "、".join(t.get("title", "") for t in cross_themes[:2])
-        if language == "zh":
-            trends.append(f"多源交叉验证：{names}，值得关注后续发展。")
-        else:
-            trends.append(f"Cross-source convergence: {', '.join(t.get('title', '') for t in cross_themes[:2])}.")
+        trends.append(f"多源交叉验证：{names}，值得关注后续发展。")
 
     # 3. HN heat signal
     hn_hot = [a for a in all_articles if (a.hn_points or 0) >= 100]
     if hn_hot:
         top_hn = max(hn_hot, key=lambda a: a.hn_points or 0)
-        if language == "zh":
-            trends.append(f"HN 热议：「{top_hn.title}」获 {top_hn.hn_points} 赞。")
-        else:
-            trends.append(f"HN trending: \"{top_hn.title}\" with {top_hn.hn_points} points.")
+        trends.append(f"HN 热议：「{top_hn.title}」获 {top_hn.hn_points} 赞。")
 
     return trends[:3]
 
 
-def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None, language="zh"):
+def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None):
     """Build 4-6 concise highlight lines when no LLM highlights are available.
 
     Uses article titles (always clean) rather than descriptions
@@ -220,7 +201,7 @@ def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None, languag
         # Prefer title — descriptions often have byline noise
         line = article.title
         if cluster_info.get("cross_source"):
-            line += "（多源交叉验证）" if language == "zh" else " (cross-source)"
+            line += "（多源交叉验证）"
         highlights.append(line)
     return highlights
 
@@ -261,7 +242,7 @@ def _select_brief_items(non_ai_articles, max_count=20):
     return selected
 
 
-def _build_theme_groups(ai_articles, cluster_map=None, language="zh"):
+def _build_theme_groups(ai_articles, cluster_map=None):
     """Group AI articles into cluster-first theme sections."""
     cluster_map = cluster_map or {}
     articles_by_url = {article.url: article for article in ai_articles}
@@ -279,9 +260,9 @@ def _build_theme_groups(ai_articles, cluster_map=None, language="zh"):
         lead = members[0]
         info = cluster_map.get(lead.url, {})
         theme_fallback = _assign_briefing_theme(lead)
-        title = _clean_theme_title(lead.title, theme_fallback, language=language)
+        title = _clean_theme_title(lead.title, theme_fallback)
         # Double-check: ensure Chinese reports never show English-only titles
-        if language == "zh" and not _is_language_compatible(title, "zh"):
+        if not _is_language_compatible(title):
             title = theme_fallback
         themes.append({
             "id": cluster_id,
@@ -346,24 +327,24 @@ def _select_featured_tech(non_ai_articles, max_count=5):
 
 
 def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_map=None,
-                        stats=None, language="zh"):
+                        stats=None):
     """Build the neutral briefing-data contract shared by markdown and wechat."""
     cluster_map = cluster_map or {}
-    themes = _build_theme_groups(ai_articles, cluster_map=cluster_map, language=language)
+    themes = _build_theme_groups(ai_articles, cluster_map=cluster_map)
     for theme in themes:
-        theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map, language=language)
+        theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map)
     brief_items = _select_brief_items(non_ai_articles, 20)
     return {
-        "highlights": _fallback_highlights(ai_articles, non_ai_articles, cluster_map=cluster_map, language=language),
+        "highlights": _fallback_highlights(ai_articles, non_ai_articles, cluster_map=cluster_map),
         "themes": themes[:8],
         "featured_tech": _select_featured_tech(non_ai_articles),
         "brief_items": brief_items,
         "stats": _combine_briefing_stats(ai_articles, non_ai_articles, stats=stats, cluster_map=cluster_map),
-        "trends": _fallback_trends(themes[:8], language=language, brief_items=brief_items),
+        "trends": _fallback_trends(themes[:8], brief_items=brief_items),
     }
 
 
-def _build_highlights(ai_articles, non_ai_articles, cluster_map, language="zh"):
+def _build_highlights(ai_articles, non_ai_articles, cluster_map):
     """Build a highlights section from top must-read articles.
 
     Picks the top 3-5 most important articles across both AI and non-AI,
@@ -389,42 +370,27 @@ def _build_highlights(ai_articles, non_ai_articles, cluster_map, language="zh"):
     if not highlights:
         return ""
 
-    if language == "zh":
-        section = "### 🔥 今日要点\n\n"
-        for i, a in enumerate(highlights, 1):
-            title = a.title.replace("|", "\\|").replace("\n", " ")
-            url = a.url.replace("|", "\\|")
-            source = a.source.replace("|", "\\|")
-            desc = _clean_description_for_display(a.description, max_len=100)
-            if desc and not _is_language_compatible(desc, language):
-                desc = ""
-            engagement = ""
-            if a.hn_points and a.hn_points >= 50:
-                engagement = f" (🔥HN {a.hn_points})"
-            section += f"**{i}. [{title}]({url})** — *{source}*{engagement}\n"
-            if desc:
-                section += f"> {desc}\n"
-            section += "\n"
-    else:
-        section = "### 🔥 Today's Highlights\n\n"
-        for i, a in enumerate(highlights, 1):
-            title = a.title.replace("|", "\\|").replace("\n", " ")
-            url = a.url.replace("|", "\\|")
-            source = a.source.replace("|", "\\|")
-            desc = _clean_description_for_display(a.description, max_len=100)
-            engagement = ""
-            if a.hn_points and a.hn_points >= 50:
-                engagement = f" (🔥HN {a.hn_points})"
-            section += f"**{i}. [{title}]({url})** — *{source}*{engagement}\n"
-            if desc:
-                section += f"> {desc}\n"
-            section += "\n"
+    section = "### 🔥 今日要点\n\n"
+    for i, a in enumerate(highlights, 1):
+        title = a.title.replace("|", "\\|").replace("\n", " ")
+        url = a.url.replace("|", "\\|")
+        source = a.source.replace("|", "\\|")
+        desc = _clean_description_for_display(a.description, max_len=100)
+        if desc and not _is_language_compatible(desc):
+            desc = ""
+        engagement = ""
+        if a.hn_points and a.hn_points >= 50:
+            engagement = f" (🔥HN {a.hn_points})"
+        section += f"**{i}. [{title}]({url})** — *{source}*{engagement}\n"
+        if desc:
+            section += f"> {desc}\n"
+        section += "\n"
 
     section += "---\n\n"
     return section
 
 
-def _build_data_dashboard(ai_articles, non_ai_articles, cluster_map, language="zh"):
+def _build_data_dashboard(ai_articles, non_ai_articles, cluster_map):
     """Build a data overview dashboard showing scan statistics.
 
     Produces a compact table with total articles, AI vs non-AI split,
@@ -458,34 +424,19 @@ def _build_data_dashboard(ai_articles, non_ai_articles, cluster_map, language="z
     must_read = sum(1 for a in ai_articles if a.extra.get("editorial_tier") == "must_read")
     noteworthy = sum(1 for a in ai_articles if a.extra.get("editorial_tier") == "noteworthy")
 
-    if language == "zh":
-        dash = "## 📊 数据概览\n\n"
-        dash += f"| 指标 | 数值 |\n"
-        dash += f"|------|------|\n"
-        dash += f"| 扫描文章总数 | {total} |\n"
-        dash += f"| 🤖 AI 相关 | {total_ai} ({total_ai * 100 // max(total, 1)}%) |\n"
-        dash += f"| 💻 科技动态 | {total_non_ai} ({total_non_ai * 100 // max(total, 1)}%) |\n"
-        dash += f"| 信息源数量 | {len(all_sources)} |\n"
-        if cluster_map:
-            dash += f"| 话题聚类 | {multi_clusters} 个多源话题 |\n"
-            dash += f"| 跨源验证 | {cross_source_clusters} 个话题 |\n"
-        if must_read or noteworthy:
-            dash += f"| 🔴 必读 | {must_read} |\n"
-            dash += f"| 🟡 值得关注 | {noteworthy} |\n"
-    else:
-        dash = "## 📊 Data Overview\n\n"
-        dash += f"| Metric | Value |\n"
-        dash += f"|--------|-------|\n"
-        dash += f"| Total articles scanned | {total} |\n"
-        dash += f"| 🤖 AI-related | {total_ai} ({total_ai * 100 // max(total, 1)}%) |\n"
-        dash += f"| 💻 Tech updates | {total_non_ai} ({total_non_ai * 100 // max(total, 1)}%) |\n"
-        dash += f"| Sources covered | {len(all_sources)} |\n"
-        if cluster_map:
-            dash += f"| Topic clusters | {multi_clusters} multi-source topics |\n"
-            dash += f"| Cross-verified | {cross_source_clusters} topics |\n"
-        if must_read or noteworthy:
-            dash += f"| 🔴 Must read | {must_read} |\n"
-            dash += f"| 🟡 Noteworthy | {noteworthy} |\n"
+    dash = "## 📊 数据概览\n\n"
+    dash += f"| 指标 | 数值 |\n"
+    dash += f"|------|------|\n"
+    dash += f"| 扫描文章总数 | {total} |\n"
+    dash += f"| 🤖 AI 相关 | {total_ai} ({total_ai * 100 // max(total, 1)}%) |\n"
+    dash += f"| 💻 科技动态 | {total_non_ai} ({total_non_ai * 100 // max(total, 1)}%) |\n"
+    dash += f"| 信息源数量 | {len(all_sources)} |\n"
+    if cluster_map:
+        dash += f"| 话题聚类 | {multi_clusters} 个多源话题 |\n"
+        dash += f"| 跨源验证 | {cross_source_clusters} 个话题 |\n"
+    if must_read or noteworthy:
+        dash += f"| 🔴 必读 | {must_read} |\n"
+        dash += f"| 🟡 值得关注 | {noteworthy} |\n"
 
     dash += "\n---\n\n"
     return dash
