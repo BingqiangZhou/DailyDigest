@@ -15,7 +15,7 @@ from pathlib import Path
 from .logging_config import get_logger
 from .config import OUTPUT_DIR, CATEGORY_ORDER, get_category_display, normalize_category
 from .llm_utils import contains_reasoning_artifacts, sanitize_report_markdown
-from .llm_services import render_briefing as _render_briefing
+from .llm_services import render_briefing as _render_briefing, render_briefing_v2 as _render_briefing_v2
 from .briefing import (
     build_briefing_data,
     _build_highlights,
@@ -146,11 +146,25 @@ def build_unified_report(ai_articles, non_ai_articles, now,
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
         try:
-            llm_briefing = _render_briefing(briefing_data)
+            llm_briefing = _render_briefing_v2(briefing_data)
         except Exception as e:
             logger.warning(f"⚠️ Briefing narrative generation failed (non-fatal): {e}")
 
     briefing_data = _merge_llm_briefing(briefing_data, llm_briefing)
+
+    # Apply theme titles from LLM
+    theme_titles = (llm_briefing or {}).get("theme_titles", {})
+    if theme_titles:
+        for idx, theme in enumerate(briefing_data.get("themes", []), 1):
+            title = theme_titles.get(str(idx))
+            if title:
+                theme["title"] = title
+
+    # Apply TL;DR
+    tldr = (llm_briefing or {}).get("tldr", "")
+    if tldr:
+        briefing_data["tldr"] = tldr
+
     return _render_briefing_markdown(briefing_data, now)
 
 
@@ -354,29 +368,6 @@ def classify_from_summaries(updates, summary_map):
             else:
                 non_ai_articles.append(article)
     return ai_articles, non_ai_articles
-
-
-def _select_non_ai_articles(articles: list, max_count: int) -> list:
-    """Select up to max_count non-AI articles, prioritizing editorial tiers.
-
-    Must-read articles are always kept. Remaining slots are filled by
-    noteworthy (sorted by score), then brief (sorted by score).
-    """
-    must_read = [a for a in articles if a.extra.get("editorial_tier") == "must_read"]
-    noteworthy = [a for a in articles if a.extra.get("editorial_tier") == "noteworthy"]
-    brief = [a for a in articles if a.extra.get("editorial_tier") == "brief"]
-    unclassified = [a for a in articles if not a.extra.get("editorial_tier")]
-
-    for tier_list in (noteworthy, brief, unclassified):
-        tier_list.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
-
-    selected = list(must_read)
-    for tier in (noteworthy, unclassified, brief):
-        remaining = max_count - len(selected)
-        if remaining <= 0:
-            break
-        selected.extend(tier[:remaining])
-    return selected
 
 
 # ---------------------------------------------------------------------------

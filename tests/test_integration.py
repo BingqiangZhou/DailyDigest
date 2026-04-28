@@ -102,26 +102,30 @@ class TestLLMRoutingWithAPIKey:
 
     def test_engagement_data_flows_to_llm(self):
         """HN engagement data flows into the batched briefing prompts."""
+        llm.reset_llm_runtime_state()
         ai = _make_article("Hot post", tier="must_read", score=0.9, hn_points=500)
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
 
-        captured_prompt = []
+        captured_themes = []
 
-        def capture_prompt(_client, prompt, profile_name, max_retries=2, optional=False):
-            captured_prompt.append(prompt)
-            if profile_name == "trends":
-                return '["trend"]'
-            if "JSON 数组" in prompt or "JSON array" in prompt:
-                return '[{"index": 1, "summary": "Hot post summary"}]'
-            return "- Hot post carries heavy HN engagement"
+        def capture_briefing(briefing_data):
+            themes = briefing_data.get("themes", [])
+            for t in themes:
+                for article in t.get("articles", []):
+                    captured_themes.append(article)
+            return {
+                "highlights": ["Hot post carries heavy HN engagement"],
+                "theme_summaries": {t.get("id"): "Summary" for t in themes[:1]} or {"1": "Summary"},
+                "trends": ["trend"],
+            }
 
         with _mock_llm_env():
-            with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
-                 patch("core.llm_services._chat_with_profile", side_effect=capture_prompt):
-                build_unified_report([ai], [], now, cluster_map={})
+            with patch("core.report_builder._render_briefing_v2", side_effect=capture_briefing):
+                report = build_unified_report([ai], [], now, cluster_map={})
 
-        assert captured_prompt, "LLM was never called"
-        assert any("500" in prompt for prompt in captured_prompt)
+        assert captured_themes, "No articles reached the briefing"
+        assert any(a.extra.get("hn_points") == 500 for a in captured_themes), \
+            "HN engagement data did not flow to briefing"
 
     def test_report_falls_back_when_optional_llm_is_degraded(self):
         """When optional LLM embellishment is degraded, the fallback briefing still renders."""
@@ -160,3 +164,93 @@ class TestSkillModeWithoutAPIKey:
 
         assert "## 🧭 今日动态" in report
         assert "Template article" in report
+
+
+class TestFinalizePath:
+    """Tests for the --finalize / try_build_unified_report path."""
+
+    def test_finalizes_tech_source_from_workspace(self):
+        """try_build_unified_report loads workspace data and produces a report."""
+        from core.pipeline import try_build_unified_report
+        from core.workspace import save_workspace_updates
+
+        ai = _make_article("AI breakthrough", tier="must_read", score=0.9)
+        non_ai = _make_article("Cloud update", category="cloud", tier="noteworthy", score=0.5)
+        metadata = {
+            "run_id": "test",
+            "generated_at": "2026-04-27T12:00:00Z",
+            "source_count": 1,
+            "candidate_count": 2,
+            "after_dedup": 2,
+            "after_editorial": 2,
+            "included_count": 2,
+        }
+        save_workspace_updates("tech", [ai, non_ai], metadata)
+
+        try:
+            with _mock_llm_env():
+                with patch("core.report_builder._render_briefing_v2", return_value={
+                    "highlights": ["AI breakthrough reported"],
+                    "theme_summaries": {},
+                }):
+                    now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+                    report = try_build_unified_report("tech", now)
+
+            assert report is not None
+            assert "AI breakthrough" in report
+            assert "## 📌 今日要点" in report
+        finally:
+            # Cleanup workspace file
+            from core.config import WORKSPACE_DIR
+            path = WORKSPACE_DIR / "tech_updates.json"
+            if path.exists():
+                path.unlink()
+
+    def test_finalize_returns_none_when_no_workspace(self):
+        """try_build_unified_report returns None when no workspace data exists."""
+        from core.pipeline import try_build_unified_report
+        from core.config import WORKSPACE_DIR
+
+        # Ensure no workspace file
+        for src in ("tech", "podcast", "wechat"):
+            path = WORKSPACE_DIR / f"{src}_updates.json"
+            if path.exists():
+                path.unlink()
+
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = try_build_unified_report("podcast", now)
+        assert result is None
+
+    def test_finalizes_with_mixed_sources(self):
+        """try_build_unified_report merges tech + podcast workspace data."""
+        from core.pipeline import try_build_unified_report
+        from core.workspace import save_workspace_updates
+
+        tech_article = _make_article("LLM release", tier="must_read", score=0.85)
+        podcast_article = _make_article("AI podcast ep", category="podcast", tier="noteworthy", score=0.6)
+
+        tech_meta = {"run_id": "test", "generated_at": "2026-04-27T12:00:00Z",
+                     "source_count": 1, "candidate_count": 1, "after_dedup": 1,
+                     "after_editorial": 1, "included_count": 1}
+        podcast_meta = dict(tech_meta)
+
+        save_workspace_updates("tech", [tech_article], tech_meta)
+        save_workspace_updates("podcast", [podcast_article], podcast_meta)
+
+        try:
+            with _mock_llm_env():
+                with patch("core.report_builder._render_briefing_v2", return_value={
+                    "highlights": ["LLM released"],
+                    "theme_summaries": {},
+                }):
+                    now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+                    report = try_build_unified_report("all", now)
+
+            assert report is not None
+            assert "LLM release" in report
+        finally:
+            from core.config import WORKSPACE_DIR
+            for src in ("tech", "podcast", "wechat"):
+                path = WORKSPACE_DIR / f"{src}_updates.json"
+                if path.exists():
+                    path.unlink()
