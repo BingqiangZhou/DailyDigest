@@ -287,10 +287,6 @@ def fetch_wechat_articles(hours=24, limit=None):
 
     logger.info(f"✅ {len(raw_updates)} WeChat updates")
 
-    if api_key:
-        logger.info("📖 Enriching WeChat articles with full text...")
-        raw_updates = enrich_wechat_articles(raw_updates)
-
     return raw_updates, stats
 
 

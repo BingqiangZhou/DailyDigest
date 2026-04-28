@@ -553,6 +553,7 @@ def embed_texts(client, texts, model=None, batch_size=100):
                 response = client.embeddings.create(
                     model=model,
                     input=batch,
+                    extra_body={"input_type": "passage"},
                 )
             latency = time.monotonic() - started
             vectors = [item.embedding for item in response.data]

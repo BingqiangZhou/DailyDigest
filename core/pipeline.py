@@ -737,10 +737,6 @@ def run_wechat(hours=24, limit=None):
         except Exception as e:
             logger.warning(f"⚠️ WeChat editorial pipeline failed (non-fatal): {e}")
 
-    if api_key:
-        logger.info("📖 Step 4/5: Enriching WeChat articles...")
-        updates = enrich_wechat_articles(updates)
-
     after_editorial = len(updates)
     wechat_metadata = _build_run_metadata(
         run_id,
