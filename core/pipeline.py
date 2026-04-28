@@ -479,7 +479,7 @@ def run_podcast(hours=24, limit=None):
     api_key = os.environ.get("API_KEY")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    logger.info("\n🎙️ Step 1/3: Checking podcast updates...")
+    logger.info("\n🎙️ Step 1/4: Checking podcast updates...")
     with open(CONFIG_DIR / "podcast_feeds.json", "r", encoding="utf-8") as f:
         pdata = json.load(f)
 
@@ -517,10 +517,27 @@ def run_podcast(hours=24, limit=None):
         u.extra["rank"] = meta.get("rank", 0)
         u.extra["xiaoyuzhou_url"] = meta.get("xiaoyuzhou_url", "")
 
+    # Topic clustering + editorial pipeline for consistent tier/score data
+    cluster_map = {}
+    try:
+        from .topic_cluster import cluster_articles, get_cluster_map
+        topic_clusters = cluster_articles(raw_updates)
+        cluster_map = get_cluster_map(topic_clusters)
+    except Exception as e:
+        logger.warning(f"⚠️ Podcast clustering failed (non-fatal): {e}")
+
+    try:
+        from .editorial import run_editorial_pipeline
+        from .config import EDITORIAL_ENABLED
+        if EDITORIAL_ENABLED:
+            raw_updates, _ = run_editorial_pipeline(raw_updates, cluster_map)
+    except Exception as e:
+        logger.warning(f"⚠️ Podcast editorial pipeline failed (non-fatal): {e}")
+
     logger.info(f"✅ {len(raw_updates)} podcast updates")
 
     t2 = time.time()
-    logger.info("🔗 Step 2/3: Resolving xiaoyuzhou URLs...")
+    logger.info("🔗 Step 2/4: Resolving xiaoyuzhou URLs...")
     updates = resolve_xiaoyuzhou_urls(raw_updates)
     logger.info(f"⏱️ URL resolution completed in {time.time() - t2:.1f}s")
 
@@ -528,7 +545,7 @@ def run_podcast(hours=24, limit=None):
         run_id,
         source_count=len(feed_list),
         candidate_count=candidate_count,
-        after_dedup=len(updates),
+        after_dedup=len(raw_updates),
         after_editorial=len(updates),
         included_count=len(updates),
         extra=stats,
@@ -536,12 +553,12 @@ def run_podcast(hours=24, limit=None):
     updates_path = save_workspace_updates("podcast", updates, podcast_metadata)
 
     if api_key:
-        logger.info("📄 Step 3/3: AI summaries + report...")
+        logger.info("📄 Step 3/4: AI summaries + report...")
         from .llm_services import summarize_podcast_batch
         ai_summaries = summarize_podcast_batch(updates)
         report = generate_podcast_report(updates, ai_summaries, metadata=stats)
     else:
-        logger.info("📄 Step 3/3: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 3/4: Preliminary report (no AI summaries)...")
         report = generate_podcast_report(updates, metadata=stats)
         _log_no_api_key("podcast", updates_path)
 
@@ -559,7 +576,7 @@ def run_wechat(hours=24, limit=None):
     api_key = os.environ.get("API_KEY")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    logger.info("\n📱 Step 1/3: Fetching WeChat feed list...")
+    logger.info("\n📱 Step 1/4: Fetching WeChat feed list...")
     feed_data = fetch_wechat_feed_list()
     feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
     if limit:
@@ -571,7 +588,7 @@ def run_wechat(hours=24, limit=None):
         for f in feeds
     ]
 
-    logger.info("📡 Step 2/3: Checking WeChat updates...")
+    logger.info("📡 Step 2/4: Checking WeChat updates...")
     articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
     raw_updates = [a for arts in articles_by_category.values() for a in arts]
     stats["source_count"] = len(feed_list)
@@ -585,28 +602,46 @@ def run_wechat(hours=24, limit=None):
     updates = raw_updates
     logger.info(f"✅ {len(updates)} WeChat updates")
 
+    # Topic clustering + editorial pipeline for consistent tier/score data
+    cluster_map = {}
+    try:
+        from .topic_cluster import cluster_articles, get_cluster_map
+        topic_clusters = cluster_articles(updates)
+        cluster_map = get_cluster_map(topic_clusters)
+    except Exception as e:
+        logger.warning(f"⚠️ WeChat clustering failed (non-fatal): {e}")
+
+    try:
+        from .editorial import run_editorial_pipeline
+        from .config import EDITORIAL_ENABLED
+        if EDITORIAL_ENABLED:
+            updates, _ = run_editorial_pipeline(updates, cluster_map)
+    except Exception as e:
+        logger.warning(f"⚠️ WeChat editorial pipeline failed (non-fatal): {e}")
+
     if api_key:
-        logger.info("📖 Enriching WeChat articles with full text...")
+        logger.info("📖 Step 3/4: Enriching WeChat articles...")
         updates = enrich_wechat_articles(updates)
 
+    after_editorial = len(updates)
     wechat_metadata = _build_run_metadata(
         run_id,
         source_count=len(feed_list),
         candidate_count=candidate_count,
-        after_dedup=len(updates),
-        after_editorial=len(updates),
-        included_count=len(updates),
+        after_dedup=len(raw_updates),
+        after_editorial=after_editorial,
+        included_count=after_editorial,
         extra=stats,
     )
     updates_path = save_workspace_updates("wechat", updates, wechat_metadata)
 
     if api_key:
-        logger.info("📄 Step 3/3: AI summaries + report...")
+        logger.info("📄 Step 4/4: AI summaries + report...")
         from .llm_services import summarize_wechat_batch
         ai_summaries = summarize_wechat_batch(updates)
         report = generate_wechat_report(updates, ai_summaries, metadata=stats)
     else:
-        logger.info("📄 Step 3/3: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 4/4: Preliminary report (no AI summaries)...")
         report = generate_wechat_report(updates, metadata=stats)
         _log_no_api_key("wechat", updates_path)
 

@@ -187,45 +187,15 @@ def compute_news_value(article: Article, cluster_map: dict) -> dict:
 
 
 def assign_editorial_tier(article: Article) -> str:
-    """Assign editorial tier based on news value score.
-
-    Returns "must_read", "noteworthy", or "brief".
-    Applies promotion rules for high HN engagement and priority-1 sources.
-    """
+    """Assign editorial tier based on news value score already in article.extra."""
     score = article.extra.get("news_value_score", 0.0)
-    tier = "brief"
-
-    if score >= EDITORIAL_TIER_MUST_READ:
-        tier = "must_read"
-    elif score >= EDITORIAL_TIER_NOTEWORTHY:
-        tier = "noteworthy"
-
-    # Promotion: HN points > threshold bumps up one tier
-    if tier != "must_read":
-        hn_points = article.hn_points or 0
-        if hn_points >= EDITORIAL_HN_PROMOTE_THRESHOLD:
-            tier = _promote_tier(tier)
-
-    # Promotion: priority-1 source bumps up one tier (only from noteworthy)
-    # Don't promote brief articles — they need stronger signal first
-    if tier == "noteworthy" and article.priority == 1:
-        tier = _promote_tier(tier)
-
-    return tier
+    return _assign_tier_from_score(score, article)
 
 
 def allocate_depth(article: Article) -> str:
-    """Allocate processing depth based on editorial tier.
-
-    Returns "deep_analysis", "summary_only", or "headline_only".
-    """
+    """Allocate processing depth based on editorial tier."""
     tier = article.extra.get("editorial_tier", "brief")
-    depth_map = {
-        "must_read": "deep_analysis",
-        "noteworthy": "summary_only",
-        "brief": "headline_only",
-    }
-    return depth_map.get(tier, "headline_only")
+    return _DEPTH_MAP.get(tier, "headline_only")
 
 
 def run_editorial_pipeline(
@@ -235,10 +205,11 @@ def run_editorial_pipeline(
     """Run the full editorial pipeline on a list of articles.
 
     Steps:
-      1. Compute news value score for each article
+      1. Compute news value score for each article (pure, no mutation)
       2. Assign editorial tier
       3. Allocate depth
       4. Filter out low-value articles
+      5. Apply results atomically (all-or-nothing per article)
 
     Returns:
         (approved_articles, stats)
@@ -251,24 +222,27 @@ def run_editorial_pipeline(
     cluster_map = cluster_map or {}
     threshold = EDITORIAL_NEWS_VALUE_THRESHOLD
 
+    # Phase 1: Compute all results without mutation
+    results = []
+    for article in articles:
+        factors = compute_news_value(article, cluster_map)
+        score = factors["composite"]
+        tier = _assign_tier_from_score(score, article)
+        depth = _DEPTH_MAP.get(tier, "headline_only")
+        results.append((article, factors, score, tier, depth))
+
+    # Phase 2: Apply results atomically
     approved = []
     tier_counts = {"must_read": 0, "noteworthy": 0, "brief": 0}
     filtered_count = 0
 
-    for article in articles:
-        # Step 1-3: Score, tier, depth
-        factors = compute_news_value(article, cluster_map)
-        article.extra["news_value_score"] = factors["composite"]
+    for article, factors, score, tier, depth in results:
+        article.extra["news_value_score"] = score
         article.extra["editorial_factors"] = factors
-
-        tier = assign_editorial_tier(article)
         article.extra["editorial_tier"] = tier
-
-        depth = allocate_depth(article)
         article.extra["depth"] = depth
 
-        # Step 4: Newsworthiness filter
-        if factors["composite"] < threshold:
+        if score < threshold:
             filtered_count += 1
             continue
 
@@ -297,3 +271,32 @@ def _promote_tier(tier: str) -> str:
     """Promote an editorial tier by one level."""
     promotions = {"brief": "noteworthy", "noteworthy": "must_read"}
     return promotions.get(tier, tier)
+
+
+_DEPTH_MAP = {
+    "must_read": "deep_analysis",
+    "noteworthy": "summary_only",
+    "brief": "headline_only",
+}
+
+
+def _assign_tier_from_score(score: float, article: Article) -> str:
+    """Assign editorial tier based on score, applying promotion rules."""
+    tier = "brief"
+
+    if score >= EDITORIAL_TIER_MUST_READ:
+        tier = "must_read"
+    elif score >= EDITORIAL_TIER_NOTEWORTHY:
+        tier = "noteworthy"
+
+    # Promotion: HN points > threshold bumps up one tier
+    if tier != "must_read":
+        hn_points = article.hn_points or 0
+        if hn_points >= EDITORIAL_HN_PROMOTE_THRESHOLD:
+            tier = _promote_tier(tier)
+
+    # Promotion: priority-1 source bumps up one tier (only from noteworthy)
+    if tier == "noteworthy" and article.priority == 1:
+        tier = _promote_tier(tier)
+
+    return tier

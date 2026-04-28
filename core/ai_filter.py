@@ -306,11 +306,7 @@ def _hard_ai_relevance_check(article: Article) -> bool:
     No amount of clustering, authority, or API classification should
     override a complete absence of AI relevance in the article text.
     """
-    # Negative gate: obvious non-AI content is always rejected
-    if _is_obvious_non_ai(article):
-        return False
-
-    # First check: does it pass the keyword/adjacent term test?
+    # _is_likely_ai_article already includes the negative gate check
     if _is_likely_ai_article(article):
         return True
 
