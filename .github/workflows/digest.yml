@@ -114,7 +114,7 @@ jobs:
             # 先拉取远端最新（避免冲突）
             git pull --rebase --autostash || true
             # 判断是新增还是更新
-            if git ls-files --error-unmatch daily-digests/*.md 2>/dev/null; then
+            if git ls-files --error-unmatch daily-digests/**/*.md 2>/dev/null; then
               COMMIT_MSG="📝 Update digest report $(date +%Y-%m-%d)"
             else
               COMMIT_MSG="📄 Add digest report $(date +%Y-%m-%d)"

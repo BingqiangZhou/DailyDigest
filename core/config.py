@@ -15,6 +15,8 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 
 # 输出目录
 OUTPUT_DIR = PROJECT_ROOT / "daily-digests"
+TECH_OUTPUT_DIR = OUTPUT_DIR / "tech"
+PODCAST_OUTPUT_DIR = OUTPUT_DIR / "podcast"
 
 # 工作空间目录（运行时中间文件）
 WORKSPACE_DIR = PROJECT_ROOT / "workspace"

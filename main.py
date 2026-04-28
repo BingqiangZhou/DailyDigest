@@ -125,32 +125,35 @@ Examples:
         print("\n\u26a0\ufe0f no updates, nothing to report.")
         return
 
-    from core.config import OUTPUT_DIR
+    from core.config import OUTPUT_DIR, TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
     from core.report_builder import save_report
 
     now = datetime.now(timezone.utc)
 
-    # If run_tech_unified() already built a unified report (API mode with
-    # editorial tiers + LLM analysis), use it directly.  Only rebuild from
-    # workspace data when the runner returned raw section reports (Skill mode
-    # or multi-source merge).
-    if len(sections) == 1 and args.source == "tech":
+    is_wechat = args.output_format == "wechat"
+    date_str = now.strftime('%Y-%m-%d')
+    ext = f"wechat-{date_str}.md" if is_wechat else f"{date_str}.md"
+
+    if args.source == "podcast":
+        # Podcast source: save to podcast subdirectory
+        report_content = sections[0]
+        filepath = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
+    elif len(sections) == 1 and args.source == "tech":
         # run_tech_unified() returns a pre-built unified report
         report_content = sections[0]
+        filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
     else:
-        # Try to build unified two-part report from workspace data
+        # Multi-source or wechat: try unified build, then merged
         unified = _try_build_unified_report(sections, now, args.source,
                                             output_format=args.output_format)
         if unified:
             report_content = unified
         else:
             report_content = build_merged_report(sections, now)
-
-    is_wechat = args.output_format == "wechat"
-    ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
-    filepath = save_report(report_content, ext, OUTPUT_DIR,
-                           report_type="digest",
-                           skip_tldr=is_wechat)
+        filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     print("\n" + "=" * 60)

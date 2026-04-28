@@ -294,16 +294,30 @@ def finalize_reports(source, output_format="markdown"):
     Tries the unified briefing path first (preferred). Falls back to
     per-source report merging only when the unified builder returns None.
     """
-    from .config import OUTPUT_DIR
+    from .config import TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
     from .report_builder import save_report
 
     now = datetime.now(timezone.utc)
 
-    # Fast path: try unified report first (avoids building per-source reports)
+    # For podcast source, finalize directly to podcast directory
+    if source == "podcast":
+        report = _finalize_source("podcast")
+        if not report:
+            logger.warning("⚠️ no podcast reports to generate.")
+            return
+        is_wechat = output_format == "wechat"
+        ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
+        filepath = save_report(report, ext, PODCAST_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
+        logger.info("\n" + "=" * 60)
+        logger.info(f"✅ Finalize done! report: {filepath}")
+        logger.info("=" * 60 + "\n")
+        return
+
+    # Tech / wechat / all sources: route to tech directory
     merged = try_build_unified_report(source, now, output_format=output_format)
 
     if not merged:
-        # Slow path: build individual source reports and merge
         sections = []
         for src in ("tech", "podcast", "wechat"):
             if source in (src, "all") or (source == "tech" and src == "wechat"):
@@ -319,7 +333,7 @@ def finalize_reports(source, output_format="markdown"):
 
     is_wechat = output_format == "wechat"
     ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
-    filepath = save_report(merged, ext, OUTPUT_DIR,
+    filepath = save_report(merged, ext, TECH_OUTPUT_DIR,
                            report_type="digest",
                            skip_tldr=is_wechat)
 
@@ -334,7 +348,7 @@ def finalize_reports(source, output_format="markdown"):
 
 def run_tech_unified(hours=48, limit=None):
     """Unified tech+wechat pipeline."""
-    from .config import load_feed_config, OUTPUT_DIR, WORKSPACE_DIR, normalize_category
+    from .config import load_feed_config, WORKSPACE_DIR, normalize_category
     from .dedup import filter_and_mark, cleanup_old_entries
 
     t_start = time.time()

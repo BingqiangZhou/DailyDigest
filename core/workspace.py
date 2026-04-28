@@ -17,8 +17,8 @@ logger = get_logger("workspace")
 
 def ensure_pipeline_dirs():
     """Create output and workspace dirs if needed."""
-    from .config import ensure_dirs, OUTPUT_DIR, WORKSPACE_DIR
-    ensure_dirs(OUTPUT_DIR, WORKSPACE_DIR)
+    from .config import ensure_dirs, OUTPUT_DIR, TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR, WORKSPACE_DIR
+    ensure_dirs(OUTPUT_DIR, TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR, WORKSPACE_DIR)
 
 
 def save_workspace_updates(source_type, updates, metadata=None):
