@@ -338,6 +338,11 @@ def _render_briefing_markdown(briefing_data, now):
         "---",
         "",
     ]
+    tldr = briefing_data.get("tldr", "")
+    if tldr:
+        lines.extend(["## 🎯 今日速览", ""])
+        lines.append(tldr)
+        lines.extend(["", "---", ""])
     if highlights:
         lines.extend(["## 📌 今日要点", ""])
         for item in highlights:
@@ -353,14 +358,17 @@ def _render_briefing_markdown(briefing_data, now):
             lines.append("")
             lines.append(theme.get("summary", ""))
             lines.append("")
-            lines.append("**参考：**")
-            lines.append("")
-            for article in theme.get("articles", [])[:4]:
-                source = f" — *{article.source}*" if article.source else ""
-                heat = ""
-                if article.hn_points:
-                    heat = f" · HN {article.hn_points}"
-                lines.append(f"- [{article.title}]({article.url}){source}{heat}")
+            articles = theme.get("articles", [])[:4]
+            if articles:
+                link_parts = []
+                for i, article in enumerate(articles):
+                    source = f"（{article.source}）" if article.source else ""
+                    heat = ""
+                    if article.hn_points:
+                        heat = f" · HN {article.hn_points}"
+                    link_parts.append(f"[{article.title}]({article.url}){source}{heat}")
+                links_str = "、".join(link_parts)
+                lines.append(f"> 📎 相关：{links_str}")
             lines.append("")
             if idx < len(themes):
                 lines.extend(["---", ""])
