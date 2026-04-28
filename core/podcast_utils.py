@@ -225,3 +225,42 @@ def generate_podcast_report(updates, ai_summaries=None, metadata=None):
     lines.append('')
 
     return '\n'.join(lines)
+
+
+# ============================================================
+# Podcast briefing report (theme-grouped format)
+# ============================================================
+
+def build_podcast_briefing_report(articles, now=None, llm_themes=None, llm_leftovers=None,
+                                   embedding_singletons=None, stats=None):
+    """Build a theme-grouped podcast briefing report.
+
+    Orchestrates build_briefing_data() → _render_podcast_briefing_markdown()
+    to produce the final markdown string.
+
+    Args:
+        articles: list[Article] — all podcast articles (no AI/non-AI split)
+        now: datetime with tzinfo, or None (defaults to utcnow)
+        llm_themes: list[dict] | None — from embedding clustering pipeline
+        llm_leftovers: list[Article] | None — articles not in themes
+        embedding_singletons: list[Article] | None — singleton cluster articles
+        stats: dict | None — pipeline statistics
+
+    Returns:
+        str: Markdown report
+    """
+    from datetime import timezone
+    from .briefing import build_briefing_data
+    from .renderer import _render_podcast_briefing_markdown
+
+    now = now or datetime.now(timezone.utc)
+
+    briefing_data = build_briefing_data(
+        articles,
+        stats=stats,
+        llm_themes=llm_themes,
+        llm_leftovers=llm_leftovers,
+        embedding_singletons=embedding_singletons,
+    )
+
+    return _render_podcast_briefing_markdown(briefing_data, now)

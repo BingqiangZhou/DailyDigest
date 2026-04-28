@@ -855,3 +855,78 @@ class TestRenderPodcastBriefingMarkdown:
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
         result = _render_podcast_briefing_markdown(data, now)
         assert "趋势观察" not in result
+
+
+class TestPodcastBriefingReport:
+    """Tests for build_podcast_briefing_report in core/podcast_utils.py."""
+
+    def test_calls_build_briefing_data_with_correct_args(self):
+        from core.podcast_utils import build_podcast_briefing_report
+        from core.article import Article
+        from datetime import datetime, timezone
+        from unittest.mock import patch
+
+        article = Article(
+            title="Podcast ep 42",
+            url="https://www.xiaoyuzhoufm.com/episode/abc123",
+            source="硬地骇客",
+            category="podcast",
+            published="2026-04-27T12:00:00",
+            description="讨论 AI 创业",
+            extra={"news_value_score": 0.8, "rank": 5},
+        )
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        fake_stats = {"source_count": 10, "candidate_count": 20}
+        fake_themes = [{"title": "AI 创业", "articles": [article]}]
+
+        with patch("core.briefing.build_briefing_data") as mock_bd, \
+             patch("core.renderer._render_podcast_briefing_markdown", return_value="# podcast report") as mock_render:
+            result = build_podcast_briefing_report(
+                [article], now=now, llm_themes=fake_themes,
+                llm_leftovers=[], embedding_singletons=[], stats=fake_stats,
+            )
+
+        mock_bd.assert_called_once_with(
+            [article], stats=fake_stats, llm_themes=fake_themes,
+            llm_leftovers=[], embedding_singletons=[],
+        )
+        mock_render.assert_called_once()
+        assert result == "# podcast report"
+
+    def test_uses_current_time_when_now_is_none(self):
+        from core.podcast_utils import build_podcast_briefing_report
+        from core.article import Article
+        from unittest.mock import patch
+
+        article = Article(
+            title="Ep", url="https://example.com/ep", source="Pod",
+            category="podcast", published="2026-04-27T12:00:00",
+            description="d", extra={},
+        )
+
+        with patch("core.briefing.build_briefing_data", return_value={}), \
+             patch("core.renderer._render_podcast_briefing_markdown", return_value="report") as mock_render:
+            build_podcast_briefing_report([article])
+
+        passed_now = mock_render.call_args[0][1]
+        assert passed_now is not None
+
+    def test_defaults_for_optional_params(self):
+        from core.podcast_utils import build_podcast_briefing_report
+        from core.article import Article
+        from unittest.mock import patch
+
+        article = Article(
+            title="Ep", url="https://example.com/ep", source="Pod",
+            category="podcast", published="2026-04-27T12:00:00",
+            description="d", extra={},
+        )
+
+        with patch("core.briefing.build_briefing_data", return_value={}) as mock_bd, \
+             patch("core.renderer._render_podcast_briefing_markdown", return_value="report"):
+            build_podcast_briefing_report([article])
+
+        mock_bd.assert_called_once_with(
+            [article], stats=None, llm_themes=None,
+            llm_leftovers=None, embedding_singletons=None,
+        )

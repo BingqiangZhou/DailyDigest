@@ -144,26 +144,37 @@ Examples:
         report_content = sections[0]
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest", skip_tldr=is_wechat)
-    else:
-        # Multi-source or wechat
-        if args.source == "all" and sections:
-            # Individual runners already built complete reports; just merge them
-            # to avoid redundant LLM calls from try_build_unified_report()
-            report_content = build_merged_report(sections, now)
-        else:
-            # Single non-tech source (e.g. wechat): try unified build, then merged
-            unified = _try_build_unified_report(sections, now, args.source,
-                                                output_format=args.output_format)
-            if unified:
-                report_content = unified
+    elif args.source == "all" and len(sections) > 1:
+        # Multi-source: save each report to its own directory
+        filepaths = []
+        for src, report_content in zip(["tech", "podcast"], sections):
+            if src == "podcast":
+                fp = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
             else:
-                report_content = build_merged_report(sections, now)
+                fp = save_report(report_content, ext, TECH_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
+            filepaths.append(fp)
+        filepath = filepaths
+    else:
+        # Single non-tech source (e.g. wechat): try unified build, then merged
+        unified = _try_build_unified_report(sections, now, args.source,
+                                            output_format=args.output_format)
+        if unified:
+            report_content = unified
+        else:
+            report_content = build_merged_report(sections, now)
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest", skip_tldr=is_wechat)
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     print("\n" + "=" * 60)
-    print(f"\u2705 Daily Digest done! report: {filepath}")
+    if isinstance(filepath, list):
+        print("\u2705 Daily Digest done! reports:")
+        for fp in filepath:
+            print(f"  \ud83d\udcc4 {fp}")
+    else:
+        print(f"\u2705 Daily Digest done! report: {filepath}")
     for src, st in all_stats.items():
         print(f"  {src}: {st}")
     print(f"\u23f1\ufe0f total: {duration:.1f}s")
