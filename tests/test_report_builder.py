@@ -702,3 +702,31 @@ class TestBlockquoteThemeLinks:
         # Links should be joined with 、
         assert "Article A" in result
         assert "Article B" in result
+
+
+class TestInterpretThemesWithLLMAcceptsPromptTemplate:
+    """Tests that interpret_themes_with_llm accepts an optional prompt_template."""
+
+    def test_accepts_prompt_template_parameter(self):
+        """interpret_themes_with_llm should accept prompt_template kwarg without error."""
+        from core.llm_classify import interpret_themes_with_llm
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        with patch("core.llm_classify.get_llm_client", return_value=mock_client):
+            themes, singletons = interpret_themes_with_llm(
+                [], prompt_template="custom prompt"
+            )
+        assert themes == []
+        assert singletons == []
+
+    def test_default_prompt_template_is_none(self):
+        """Calling without prompt_template should still work (backward compatible)."""
+        from core.llm_classify import interpret_themes_with_llm
+        from unittest.mock import patch, MagicMock
+
+        mock_client = MagicMock()
+        with patch("core.llm_classify.get_llm_client", return_value=mock_client):
+            themes, singletons = interpret_themes_with_llm([])
+        assert themes == []
+        assert singletons == []

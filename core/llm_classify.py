@@ -384,12 +384,13 @@ def _format_cluster_for_interpret(cluster):
     return "\n".join(parts)
 
 
-def _interpret_single_cluster(client, cluster, cluster_idx, total):
+def _interpret_single_cluster(client, cluster, cluster_idx, total, prompt_template=None):
     """Interpret a single cluster via LLM. Returns theme dict or None."""
     from config.prompts.llm_classify import THEME_INTERPRET_PROMPT_ZH
 
+    template = prompt_template or THEME_INTERPRET_PROMPT_ZH
     articles_text = _format_cluster_for_interpret(cluster)
-    prompt = THEME_INTERPRET_PROMPT_ZH.format(articles=articles_text)
+    prompt = template.format(articles=articles_text)
 
     response = chat_with_profile(client, prompt, "brief_summary", optional=True)
     if not response:
@@ -446,7 +447,7 @@ def _salvage_interpret(response):
     return result if result else None
 
 
-def interpret_themes_with_llm(clusters, max_workers=3):
+def interpret_themes_with_llm(clusters, max_workers=3, prompt_template=None):
     """Interpret each cluster via LLM to produce theme titles and summaries.
 
     Each cluster is interpreted independently and in parallel.
@@ -454,6 +455,7 @@ def interpret_themes_with_llm(clusters, max_workers=3):
     Args:
         clusters: list of cluster dicts from cluster_by_embedding()
         max_workers: parallel LLM call limit
+        prompt_template: optional custom prompt template for theme interpretation
 
     Returns:
         (themes, singletons) where:
@@ -490,7 +492,7 @@ def interpret_themes_with_llm(clusters, max_workers=3):
     themes = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_interpret_single_cluster, client, c, idx, total): idx
+            executor.submit(_interpret_single_cluster, client, c, idx, total, prompt_template): idx
             for idx, c in enumerate(real_clusters)
         }
         results = [None] * total
