@@ -145,13 +145,19 @@ Examples:
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest", skip_tldr=is_wechat)
     else:
-        # Multi-source or wechat: try unified build, then merged
-        unified = _try_build_unified_report(sections, now, args.source,
-                                            output_format=args.output_format)
-        if unified:
-            report_content = unified
-        else:
+        # Multi-source or wechat
+        if args.source == "all" and sections:
+            # Individual runners already built complete reports; just merge them
+            # to avoid redundant LLM calls from try_build_unified_report()
             report_content = build_merged_report(sections, now)
+        else:
+            # Single non-tech source (e.g. wechat): try unified build, then merged
+            unified = _try_build_unified_report(sections, now, args.source,
+                                                output_format=args.output_format)
+            if unified:
+                report_content = unified
+            else:
+                report_content = build_merged_report(sections, now)
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest", skip_tldr=is_wechat)
 

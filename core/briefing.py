@@ -1,7 +1,7 @@
 """Briefing data model: theme grouping, highlight selection, and stats."""
 import re
 from .logging_config import get_logger
-from .config import normalize_category
+from .config import normalize_category, REPORT_MAX_THEMES, REPORT_ARTICLES_PER_THEME, REPORT_BRIEF_ITEMS_CAP
 
 logger = get_logger("briefing")
 
@@ -343,7 +343,7 @@ def _build_theme_groups(ai_articles, cluster_map=None):
             "id": cluster_id,
             "theme": theme_fallback,
             "title": title,
-            "articles": members[:4],
+            "articles": members[:REPORT_ARTICLES_PER_THEME],
             "score": max(a.extra.get("news_value_score", 0) for a in members),
             "cluster_theme": info.get("theme", ""),
             "cross_source": info.get("cross_source", False),
@@ -366,7 +366,7 @@ def _build_theme_groups(ai_articles, cluster_map=None):
             "id": f"theme-{theme_name}",
             "theme": theme_name,
             "title": theme_name,
-            "articles": members[:4],
+            "articles": members[:REPORT_ARTICLES_PER_THEME],
             "score": max(a.extra.get("news_value_score", 0) for a in members),
             "cluster_theme": "",
             "cross_source": False,
@@ -376,7 +376,7 @@ def _build_theme_groups(ai_articles, cluster_map=None):
     _dedup_theme_names(themes)
 
     themes.sort(key=_theme_sort_key)
-    return themes[:8]
+    return themes[:REPORT_MAX_THEMES]
 
 
 def _combine_briefing_stats(ai_articles, non_ai_articles, stats=None, cluster_map=None,
@@ -418,11 +418,13 @@ def _convert_llm_themes(llm_themes, summary_map=None):
             "id": f"llm-theme-{i}",
             "theme": t["title"],
             "title": t["title"],
-            "articles": t["articles"][:4],
+            "articles": t["articles"][:REPORT_ARTICLES_PER_THEME],
             "score": t["score"],
             "cluster_theme": "",
             "cross_source": t.get("cross_source", False),
             "summary": t.get("summary", ""),
+            "source_count": t.get("source_count", 0),
+            "cluster_size": t.get("cluster_size", len(t.get("articles", []))),
         }
         if not theme["summary"]:
             theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map)
@@ -431,28 +433,40 @@ def _convert_llm_themes(llm_themes, summary_map=None):
 
 
 def build_briefing_data(ai_articles, non_ai_articles=None, cluster_map=None, summary_map=None,
-                        stats=None, llm_themes=None, llm_leftovers=None):
+                        stats=None, llm_themes=None, llm_leftovers=None,
+                        embedding_singletons=None):
     """Build the neutral briefing-data contract shared by markdown and wechat.
 
     Supports two modes:
     - Legacy: ai_articles + non_ai_articles + cluster_map (heuristic themes)
     - LLM: ai_articles (all) + llm_themes + llm_leftovers (LLM-generated themes)
+    - Embedding: same as LLM, with embedding_singletons for "值得关注" section
     """
     if llm_themes is not None:
         # LLM pipeline mode — unified articles, no AI/non-AI split
         non_ai = non_ai_articles or []
         all_articles = list(ai_articles) + list(non_ai)
         themes = _convert_llm_themes(llm_themes, summary_map=summary_map)
-        brief_items = list(llm_leftovers or [])[:20]
+        brief_items = list(llm_leftovers or [])[:REPORT_BRIEF_ITEMS_CAP]
+
+        # Notable singletons: high-score articles not in any multi-article theme
+        notable_singletons = []
+        if embedding_singletons:
+            notable_singletons = [
+                a for a in embedding_singletons
+                if a.extra.get("news_value_score", 0) >= 7
+            ][:8]
+
         return {
             "highlights": _fallback_highlights(all_articles, [], cluster_map=None),
-            "themes": themes[:8],
+            "themes": themes[:REPORT_MAX_THEMES],
             "featured_tech": [],
             "brief_items": brief_items,
+            "notable_singletons": notable_singletons,
             "stats": _combine_briefing_stats(
                 all_articles, [], stats=stats, cluster_map=None, llm_themes=llm_themes,
             ),
-            "trends": _fallback_trends(themes[:8], brief_items=brief_items),
+            "trends": _fallback_trends(themes[:REPORT_MAX_THEMES], brief_items=brief_items),
         }
 
     # Backward-compatible heuristic mode
@@ -461,14 +475,15 @@ def build_briefing_data(ai_articles, non_ai_articles=None, cluster_map=None, sum
     themes = _build_theme_groups(ai_articles, cluster_map=cluster_map)
     for theme in themes:
         theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map)
-    brief_items = _select_brief_items(non_ai, 20)
+    brief_items = _select_brief_items(non_ai, REPORT_BRIEF_ITEMS_CAP)
     return {
         "highlights": _fallback_highlights(ai_articles, non_ai, cluster_map=cluster_map),
-        "themes": themes[:8],
+        "themes": themes[:REPORT_MAX_THEMES],
         "featured_tech": _select_featured_tech(non_ai),
         "brief_items": brief_items,
+        "notable_singletons": [],
         "stats": _combine_briefing_stats(ai_articles, non_ai, stats=stats, cluster_map=cluster_map),
-        "trends": _fallback_trends(themes[:8], brief_items=brief_items),
+        "trends": _fallback_trends(themes[:REPORT_MAX_THEMES], brief_items=brief_items),
     }
 
 

@@ -7,13 +7,14 @@ with a two-stage LLM approach:
   Stage 2: group_articles_by_theme() — dynamic theme grouping
 """
 
+import json
 import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .llm_utils import parse_llm_json
 from .logging_config import get_logger
-from .llm import get_llm_client, chat_with_profile, limit_llm_workers
+from .llm import get_llm_client, chat_with_profile, limit_llm_workers, should_skip_optional_llm
 
 logger = get_logger("llm_classify")
 
@@ -135,13 +136,13 @@ def _score_batch(client, batch, batch_idx, total_batches):
 
     response = chat_with_profile(client, prompt, "score_filter")
     if not response:
-        logger.warning(f"[Score] batch {batch_idx + 1} API failed, using default score 5")
-        return [(a, 5) for a in batch]
+        logger.warning(f"[Score] batch {batch_idx + 1} API failed, using default score 3")
+        return [(a, 3) for a in batch]
 
     scores = _parse_score_response(response, len(batch))
     if not scores:
-        logger.warning(f"[Score] batch {batch_idx + 1} parse failed, using default score 5")
-        return [(a, 5) for a in batch]
+        logger.warning(f"[Score] batch {batch_idx + 1} parse failed, using default score 3")
+        return [(a, 3) for a in batch]
 
     results = []
     for i, article in enumerate(batch, start=1):
@@ -255,7 +256,7 @@ def _salvage_themes(response):
 
     for i, theme in enumerate(themes):
         # Try to find corresponding summary and indices
-        block_start = response.find(title, 0)
+        block_start = response.find(theme["title"], 0)
         if block_start >= 0:
             block = response[block_start:block_start + 500]
             summary_match = summary_pattern.search(block)
@@ -268,12 +269,14 @@ def _salvage_themes(response):
     return themes
 
 
-def group_articles_by_theme(articles, max_themes=8):
+def group_articles_by_theme(articles):
     """Stage 2: Group articles into dynamic themes via LLM.
 
-    Args:
-        articles: list of scored Article objects
-        max_themes: maximum number of themes
+    Only sends high-scoring articles (score >= 5) to the LLM for grouping.
+    Brief articles (score 3-4) go directly to leftovers.
+
+    The LLM decides how many themes to create based on content significance.
+    Only truly impactful topics become themes; remaining articles are leftovers.
 
     Returns:
         (themes, leftovers) where:
@@ -283,26 +286,41 @@ def group_articles_by_theme(articles, max_themes=8):
     if not articles:
         return [], []
 
-    if len(articles) < 4:
-        logger.info("[Theme] Too few articles for grouping, treating all as leftovers")
+    # Separate: only noteworthy+ articles go to LLM, brief go straight to leftovers
+    noteworthy = [a for a in articles if a.extra.get("news_value_score", 0) >= 5]
+    auto_leftovers = [a for a in articles if a.extra.get("news_value_score", 0) < 5]
+
+    # Cap at top N by score to keep LLM input manageable
+    max_group_input = int(os.environ.get("LLM_THEME_MAX_ARTICLES", "40"))
+    noteworthy.sort(key=lambda a: a.extra.get("news_value_score", 0), reverse=True)
+    group_candidates = noteworthy[:max_group_input]
+    overflow = noteworthy[max_group_input:]
+
+    if not group_candidates:
+        logger.info("[Theme] No noteworthy articles for grouping, all become leftovers")
+        return [], list(articles)
+
+    if len(group_candidates) < 2:
+        logger.info("[Theme] Too few noteworthy articles for grouping")
         return [], list(articles)
 
     client = get_llm_client()
     from config.prompts.llm_classify import TOPIC_GROUP_PROMPT_ZH
 
     articles_text = "\n\n".join(
-        _format_article_for_grouping(i, a) for i, a in enumerate(articles, start=1)
+        _format_article_for_grouping(i, a) for i, a in enumerate(group_candidates, start=1)
     )
     prompt = TOPIC_GROUP_PROMPT_ZH.format(articles=articles_text)
 
-    logger.info(f"[Theme] Grouping {len(articles)} articles into themes...")
+    logger.info(f"[Theme] Grouping {len(group_candidates)}/{len(noteworthy)} noteworthy articles "
+                f"({len(overflow)} overflow + {len(auto_leftovers)} brief → leftovers)...")
     response = chat_with_profile(client, prompt, "topic_group")
 
     if not response:
         logger.warning("[Theme] LLM call failed, using flat fallback")
         return [], list(articles)
 
-    raw_themes = _parse_theme_response(response, len(articles))
+    raw_themes = _parse_theme_response(response, len(group_candidates))
     if not raw_themes:
         logger.warning("[Theme] Parse failed, using flat fallback")
         return [], list(articles)
@@ -311,22 +329,22 @@ def group_articles_by_theme(articles, max_themes=8):
     used_indices = set()
     themes = []
 
-    for raw in raw_themes[:max_themes]:
+    for raw in raw_themes:
         title = raw.get("title", "").strip()
         if not title:
             continue
 
         indices = raw.get("indices", [])
         valid_indices = [i for i in indices if isinstance(i, (int, float))
-                         and 1 <= i <= len(articles) and i not in used_indices]
+                         and 1 <= i <= len(group_candidates) and i not in used_indices]
 
-        if len(valid_indices) < 2:
+        if len(valid_indices) < 1:
             continue
 
         theme_articles = []
         for idx in valid_indices:
             used_indices.add(idx)
-            theme_articles.append(articles[idx - 1])
+            theme_articles.append(group_candidates[idx - 1])
 
         themes.append({
             "title": title,
@@ -336,14 +354,177 @@ def group_articles_by_theme(articles, max_themes=8):
             "cross_source": len(set(a.source for a in theme_articles)) > 1,
         })
 
-    # Articles not in any theme become leftovers
-    leftovers = [a for i, a in enumerate(articles, start=1) if i not in used_indices]
+    # Articles not in any theme + overflow + auto_leftovers
+    theme_leftovers = [a for i, a in enumerate(group_candidates, start=1)
+                       if i not in used_indices]
+    leftovers = auto_leftovers + overflow + theme_leftovers
 
     # Sort themes by score descending
     themes.sort(key=lambda t: t["score"], reverse=True)
 
-    logger.info(f"[Theme] done: {len(themes)} themes, {len(leftovers)} leftovers")
+    logger.info(f"[Theme] done: {len(themes)} themes, {len(leftovers)} leftovers "
+                f"({len(auto_leftovers)} brief + {len(overflow)} overflow + {len(theme_leftovers)} ungrouped)")
     for t in themes:
         logger.info(f"  - {t['title']} ({len(t['articles'])} articles, score={t['score']})")
 
     return themes, leftovers
+
+
+def _format_cluster_for_interpret(cluster):
+    """Format a cluster's articles for the theme interpretation prompt."""
+    parts = []
+    for i, article in enumerate(cluster["articles"][:15], start=1):
+        line = f"[{i}] {article.title}"
+        if article.source:
+            line += f"  (来源: {article.source})"
+        score = article.extra.get("news_value_score", 0)
+        if score:
+            line += f"  (评分: {score})"
+        parts.append(line)
+    return "\n".join(parts)
+
+
+def _interpret_single_cluster(client, cluster, cluster_idx, total):
+    """Interpret a single cluster via LLM. Returns theme dict or None."""
+    from config.prompts.llm_classify import THEME_INTERPRET_PROMPT_ZH
+
+    articles_text = _format_cluster_for_interpret(cluster)
+    prompt = THEME_INTERPRET_PROMPT_ZH.format(articles=articles_text)
+
+    response = chat_with_profile(client, prompt, "brief_summary", optional=True)
+    if not response:
+        return None
+
+    try:
+        parsed = parse_llm_json(response)
+    except (ValueError, json.JSONDecodeError):
+        parsed = _salvage_interpret(response)
+
+    if not isinstance(parsed, dict):
+        return None
+
+    title = (parsed.get("title") or "").strip()
+    summary = (parsed.get("summary") or "").strip()
+    importance = parsed.get("importance")
+
+    if not title:
+        return None
+
+    try:
+        importance = int(importance)
+        importance = max(1, min(10, importance))
+    except (TypeError, ValueError):
+        importance = max(a.extra.get("news_value_score", 0) for a in cluster["articles"])
+
+    logger.info(f"[Interpret] {cluster_idx + 1}/{total}: {title} "
+                f"({cluster['size']} articles, importance={importance})")
+
+    return {
+        "title": title,
+        "summary": summary,
+        "importance": importance,
+        "articles": cluster["articles"],
+        "score": max(a.extra.get("news_value_score", 0) for a in cluster["articles"]),
+        "cross_source": cluster["cross_source"],
+        "source_count": cluster["source_count"],
+        "cluster_size": cluster["size"],
+    }
+
+
+def _salvage_interpret(response):
+    """Fallback parser for theme interpretation response."""
+    result = {}
+    title_m = re.search(r'"title"\s*:\s*"([^"]+)"', response)
+    if title_m:
+        result["title"] = title_m.group(1)
+    summary_m = re.search(r'"summary"\s*:\s*"([^"]*)"', response, re.DOTALL)
+    if summary_m:
+        result["summary"] = summary_m.group(1)
+    imp_m = re.search(r'"importance"\s*:\s*(\d+)', response)
+    if imp_m:
+        result["importance"] = int(imp_m.group(1))
+    return result if result else None
+
+
+def interpret_themes_with_llm(clusters, max_workers=3):
+    """Interpret each cluster via LLM to produce theme titles and summaries.
+
+    Each cluster is interpreted independently and in parallel.
+
+    Args:
+        clusters: list of cluster dicts from cluster_by_embedding()
+        max_workers: parallel LLM call limit
+
+    Returns:
+        (themes, singletons) where:
+          themes = list of interpreted non-singleton themes
+          singletons = list of singleton cluster articles (not interpreted)
+    """
+    if not clusters:
+        return [], []
+
+    # Separate singletons from real clusters
+    real_clusters = [c for c in clusters if not c["is_singleton"]]
+    singletons = []
+    for c in clusters:
+        if c["is_singleton"]:
+            singletons.extend(c["articles"])
+
+    if not real_clusters:
+        logger.info("[Interpret] No multi-article clusters to interpret")
+        return [], singletons
+
+    if should_skip_optional_llm():
+        logger.info("[Interpret] Skipping due to degraded mode")
+        themes = []
+        for c in real_clusters:
+            themes.append(_fallback_theme(c))
+        return themes, singletons
+
+    client = get_llm_client()
+    total = len(real_clusters)
+    max_workers = min(limit_llm_workers(max_workers), total)
+
+    logger.info(f"[Interpret] Interpreting {total} clusters with {max_workers} workers...")
+
+    themes = []
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {
+            executor.submit(_interpret_single_cluster, client, c, idx, total): idx
+            for idx, c in enumerate(real_clusters)
+        }
+        results = [None] * total
+        for future in as_completed(futures):
+            idx = futures[future]
+            results[idx] = future.result()
+
+    for result in results:
+        if result:
+            themes.append(result)
+        else:
+            themes.append(_fallback_theme(real_clusters[results.index(result)]))
+
+    themes.sort(key=lambda t: (-t["importance"], -t["score"]))
+    logger.info(f"[Interpret] done: {len(themes)} themes, {len(singletons)} singletons")
+    for t in themes:
+        logger.info(f"  - {t['title']} ({t['cluster_size']} articles, importance={t['importance']})")
+
+    return themes, singletons
+
+
+def _fallback_theme(cluster):
+    """Build a theme dict without LLM, using the lead article's title."""
+    articles = cluster["articles"]
+    lead = articles[0]
+    title = lead.title[:20] if lead.title else "未命名主题"
+    return {
+        "title": title,
+        "summary": "",
+        "importance": max(a.extra.get("news_value_score", 0) for a in articles),
+        "articles": articles,
+        "score": max(a.extra.get("news_value_score", 0) for a in articles),
+        "cross_source": cluster["cross_source"],
+        "source_count": cluster["source_count"],
+        "cluster_size": cluster["size"],
+    }
+

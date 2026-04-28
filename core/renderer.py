@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 
 from .logging_config import get_logger
 from .briefing import _is_language_compatible, _clean_description_for_display
+from .config import REPORT_MAX_THEMES, REPORT_ARTICLES_PER_THEME, REPORT_BRIEF_ITEMS_CAP, REPORT_HIGHLIGHTS_COUNT
 
 logger = get_logger("renderer")
 
@@ -324,10 +325,10 @@ def _render_briefing_markdown(briefing_data, now):
     """Render briefing_data into the default markdown daily digest."""
     date_str = now.strftime("%Y-%m-%d")
     stats = briefing_data.get("stats", {})
-    highlights = briefing_data.get("highlights", [])[:6]
-    themes = briefing_data.get("themes", [])[:8]
+    highlights = briefing_data.get("highlights", [])[:REPORT_HIGHLIGHTS_COUNT]
+    themes = briefing_data.get("themes", [])[:REPORT_MAX_THEMES]
     featured_tech = briefing_data.get("featured_tech", [])
-    brief_items = briefing_data.get("brief_items", [])[:20]
+    brief_items = briefing_data.get("brief_items", [])[:REPORT_BRIEF_ITEMS_CAP]
     trends = briefing_data.get("trends", [])
 
     lines = [
@@ -351,14 +352,25 @@ def _render_briefing_markdown(briefing_data, now):
 
     if themes:
         lines.extend(["## 🧭 今日动态", ""])
-        numerals = ["一", "二", "三", "四", "五", "六", "七", "八"]
+        numerals = ["一", "二", "三", "四", "五", "六", "七", "八", "九", "十",
+                     "十一", "十二", "十三", "十四", "十五", "十六", "十七", "十八", "十九", "二十"]
         for idx, theme in enumerate(themes, 1):
             prefix = numerals[idx - 1] if idx - 1 < len(numerals) else str(idx)
-            lines.append(f"### {prefix}、{theme.get('title', '')}")
+            title = theme.get("title", "")
+            size_info = ""
+            cluster_size = theme.get("cluster_size") or len(theme.get("articles", []))
+            source_count = theme.get("source_count", 0)
+            if cluster_size > 1:
+                parts = [f"{cluster_size} 篇"]
+                if source_count > 1:
+                    parts.append(f"来自 {source_count} 个来源")
+                size_info = f"  ({' · '.join(parts)})"
+            cross_tag = " 🔥" if theme.get("cross_source") else ""
+            lines.append(f"### {prefix}、{title}{cross_tag}{size_info}")
             lines.append("")
             lines.append(theme.get("summary", ""))
             lines.append("")
-            articles = theme.get("articles", [])[:4]
+            articles = theme.get("articles", [])[:REPORT_ARTICLES_PER_THEME]
             if articles:
                 link_parts = []
                 for i, article in enumerate(articles):
@@ -372,6 +384,18 @@ def _render_briefing_markdown(briefing_data, now):
             lines.append("")
             if idx < len(themes):
                 lines.extend(["---", ""])
+
+    notable_singletons = briefing_data.get("notable_singletons", [])
+    if notable_singletons:
+        lines.extend(["## 👀 值得关注", ""])
+        for article in notable_singletons:
+            source = f" — *{article.source}*" if article.source else ""
+            desc = _clean_description_for_display(article.description, max_len=80)
+            lines.append(f"- **[{article.title}]({article.url})**{source}")
+            if desc and _is_language_compatible(desc):
+                lines.append(f"  > {desc}")
+            lines.append("")
+        lines.extend(["---", ""])
 
     if featured_tech:
         lines.extend(["## ⭐ 重点科技新闻", ""])

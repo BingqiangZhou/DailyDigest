@@ -508,6 +508,71 @@ def chat_completion(client, prompt, max_tokens=4000, max_retries=None,
     return result["content"]
 
 
+def get_embedding_model():
+    """Resolve the embedding model name. Falls back to a provider-appropriate default."""
+    raw = os.environ.get("EMBEDDING_MODEL", "").strip()
+    if raw:
+        return raw
+    config = get_llm_runtime_config()
+    provider = config["provider"]
+    if provider == "nvidia":
+        return "nvidia/llama-nemotron-embed-1b-v2"
+    if provider in ("openrouter", "custom"):
+        return "text-embedding-3-small"
+    if provider == "deepseek":
+        return "deepseek-embedding"
+    if provider == "siliconflow":
+        return "BAAI/bge-large-zh-v1.5"
+    return "text-embedding-3-small"
+
+
+def embed_texts(client, texts, model=None, batch_size=100):
+    """Call the OpenAI-compatible embeddings API and return list of float vectors.
+
+    Args:
+        client: OpenAI client instance (reused from get_llm_client())
+        texts: list of strings to embed
+        model: embedding model name (defaults to get_embedding_model())
+        batch_size: texts per API call
+
+    Returns:
+        list[list[float]] — one vector per input text, same order.
+        Returns empty list on failure.
+    """
+    if not texts:
+        return []
+
+    model = model or get_embedding_model()
+    all_embeddings = []
+
+    for i in range(0, len(texts), batch_size):
+        batch = texts[i:i + batch_size]
+        started = time.monotonic()
+        try:
+            with _get_semaphore():
+                response = client.embeddings.create(
+                    model=model,
+                    input=batch,
+                )
+            latency = time.monotonic() - started
+            vectors = [item.embedding for item in response.data]
+            all_embeddings.extend(vectors)
+            logger.info(
+                "[Embed] batch %d/%d (%d texts) latency=%.2fs model=%s",
+                i // batch_size + 1,
+                (len(texts) + batch_size - 1) // batch_size,
+                len(batch),
+                latency,
+                model,
+            )
+        except Exception as exc:
+            latency = time.monotonic() - started
+            logger.error("[Embed] batch failed latency=%.2fs err=%s", latency, exc)
+            return []
+
+    return all_embeddings
+
+
 def chat_with_profile(client, prompt, profile_name, max_retries=None, optional=False):
     """Call chat_completion with task-specific parameters from TASK_PROFILES."""
     profile = TASK_PROFILES.get(profile_name, TASK_PROFILES["summarize"])

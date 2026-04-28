@@ -159,13 +159,31 @@ def try_build_unified_report(source, now, output_format="markdown"):
 
     if api_key:
         logger.info(f"\n🤖 Building unified report from {len(all_articles)} articles (LLM pipeline)...")
-        from .llm_classify import score_and_filter_articles, group_articles_by_theme
+        from .llm_classify import score_and_filter_articles
 
         all_articles, score_stats = score_and_filter_articles(all_articles)
-        llm_themes, leftovers = group_articles_by_theme(all_articles)
 
         if not all_articles:
             return None
+
+        from .config import EMBEDDING_CLUSTERING_ENABLED
+        if EMBEDDING_CLUSTERING_ENABLED:
+            from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
+            from .llm_classify import interpret_themes_with_llm
+            try:
+                embeddings = embed_articles(all_articles)
+                clusters = cluster_by_embedding(all_articles, embeddings)
+                llm_themes, singletons = interpret_themes_with_llm(clusters)
+                leftovers = get_cluster_leftovers(clusters, all_articles)
+            except RuntimeError as e:
+                logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
+                from .llm_classify import group_articles_by_theme
+                llm_themes, leftovers = group_articles_by_theme(all_articles)
+                singletons = []
+        else:
+            from .llm_classify import group_articles_by_theme
+            llm_themes, leftovers = group_articles_by_theme(all_articles)
+            singletons = []
 
         merged_stats = _merge_run_stats(source_stats)
         merged_stats.update(score_stats)
@@ -180,6 +198,7 @@ def try_build_unified_report(source, now, output_format="markdown"):
         return build_unified_report(
             all_articles, now=now,
             llm_themes=llm_themes, llm_leftovers=leftovers,
+            embedding_singletons=singletons,
             stats=merged_stats,
         )
 
@@ -426,7 +445,7 @@ def run_tech_unified(hours=48, limit=None):
     if not tech_articles:
         logger.warning("⚠️ No tech articles fetched.")
 
-    # Step 3: Merge + dedup
+    # Step 2: Merge + dedup
     all_articles = tech_articles + wechat_articles
     candidate_count = len(all_articles)
     if not all_articles:
@@ -488,17 +507,38 @@ def run_tech_unified(hours=48, limit=None):
         return None
 
     t4 = time.time()
-    logger.info("🤖 Step 5/5: LLM theme grouping + unified briefing...")
-    from .llm_classify import group_articles_by_theme
-    from .report_builder import build_unified_report
 
-    llm_themes, leftovers = group_articles_by_theme(new_articles)
+    from .config import EMBEDDING_CLUSTERING_ENABLED
+    if EMBEDDING_CLUSTERING_ENABLED:
+        logger.info("🤖 Step 5/5: Embedding clustering + LLM interpretation + unified briefing...")
+        from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
+        from .llm_classify import interpret_themes_with_llm
+        from .report_builder import build_unified_report
+
+        try:
+            embeddings = embed_articles(new_articles)
+            clusters = cluster_by_embedding(new_articles, embeddings)
+            llm_themes, singletons = interpret_themes_with_llm(clusters)
+            leftovers = get_cluster_leftovers(clusters, new_articles)
+        except RuntimeError as e:
+            logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
+            from .llm_classify import group_articles_by_theme
+            llm_themes, leftovers = group_articles_by_theme(new_articles)
+            singletons = []
+    else:
+        logger.info("🤖 Step 5/5: LLM theme grouping + unified briefing...")
+        from .llm_classify import group_articles_by_theme
+        from .report_builder import build_unified_report
+
+        llm_themes, leftovers = group_articles_by_theme(new_articles)
+        singletons = []
     now = datetime.now(timezone.utc)
     report = build_unified_report(
         new_articles,
         now=now,
         llm_themes=llm_themes,
         llm_leftovers=leftovers,
+        embedding_singletons=singletons,
         stats={
             "run_id": run_id,
             "source_count": len(feed_list) + wechat_stats.get("source_count", 0),
@@ -529,7 +569,7 @@ def run_podcast(hours=24, limit=None):
     api_key = os.environ.get("API_KEY")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    logger.info("\n🎙️ Step 1/4: Checking podcast updates...")
+    logger.info("\n🎙️ Step 1/5: Checking podcast updates...")
     with open(CONFIG_DIR / "podcast_feeds.json", "r", encoding="utf-8") as f:
         pdata = json.load(f)
 
@@ -577,27 +617,33 @@ def run_podcast(hours=24, limit=None):
         u.extra["rank"] = meta.get("rank", 0)
         u.extra["xiaoyuzhou_url"] = meta.get("xiaoyuzhou_url", "")
 
-    # Topic clustering + editorial pipeline for consistent tier/score data
-    cluster_map = {}
-    try:
-        from .topic_cluster import cluster_articles, get_cluster_map
-        topic_clusters = cluster_articles(raw_updates)
-        cluster_map = get_cluster_map(topic_clusters)
-    except Exception as e:
-        logger.warning(f"⚠️ Podcast clustering failed (non-fatal): {e}")
+    # Scoring: LLM when API_KEY is set, heuristic otherwise
+    if api_key:
+        logger.info("🤖 Step 2/5: LLM scoring & filtering...")
+        from .llm_classify import score_and_filter_articles
+        raw_updates, score_stats = score_and_filter_articles(raw_updates)
+        logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
+    else:
+        logger.info("📊 Step 2/5: Heuristic scoring...")
+        try:
+            from .topic_cluster import cluster_articles, get_cluster_map
+            topic_clusters = cluster_articles(raw_updates)
+            cluster_map = get_cluster_map(topic_clusters)
+        except Exception as e:
+            logger.warning(f"⚠️ Podcast clustering failed (non-fatal): {e}")
 
-    try:
-        from .editorial import run_editorial_pipeline
-        from .config import EDITORIAL_ENABLED
-        if EDITORIAL_ENABLED:
-            raw_updates, _ = run_editorial_pipeline(raw_updates, cluster_map)
-    except Exception as e:
-        logger.warning(f"⚠️ Podcast editorial pipeline failed (non-fatal): {e}")
+        try:
+            from .editorial import run_editorial_pipeline
+            from .config import EDITORIAL_ENABLED
+            if EDITORIAL_ENABLED:
+                raw_updates, _ = run_editorial_pipeline(raw_updates, cluster_map)
+        except Exception as e:
+            logger.warning(f"⚠️ Podcast editorial pipeline failed (non-fatal): {e}")
 
     logger.info(f"✅ {len(raw_updates)} podcast updates")
 
     t2 = time.time()
-    logger.info("🔗 Step 2/4: Resolving xiaoyuzhou URLs...")
+    logger.info("🔗 Step 3/5: Resolving xiaoyuzhou URLs...")
     updates = resolve_xiaoyuzhou_urls(raw_updates)
     logger.info(f"⏱️ URL resolution completed in {time.time() - t2:.1f}s")
 
@@ -613,12 +659,12 @@ def run_podcast(hours=24, limit=None):
     updates_path = save_workspace_updates("podcast", updates, podcast_metadata)
 
     if api_key:
-        logger.info("📄 Step 3/4: AI summaries + report...")
+        logger.info("📄 Step 4/5: AI summaries + report...")
         from .llm_services import summarize_podcast_batch
         ai_summaries = summarize_podcast_batch(updates)
         report = generate_podcast_report(updates, ai_summaries, metadata=stats)
     else:
-        logger.info("📄 Step 3/4: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 4/5: Preliminary report (no AI summaries)...")
         report = generate_podcast_report(updates, metadata=stats)
         _log_no_api_key("podcast", updates_path)
 
@@ -636,7 +682,7 @@ def run_wechat(hours=24, limit=None):
     api_key = os.environ.get("API_KEY")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    logger.info("\n📱 Step 1/4: Fetching WeChat feed list...")
+    logger.info("\n📱 Step 1/5: Fetching WeChat feed list...")
     feed_data = fetch_wechat_feed_list()
     feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
     if limit:
@@ -654,7 +700,7 @@ def run_wechat(hours=24, limit=None):
             logger.warning(f"⚠️ wechat2rss.xlab.app unreachable, aborting WeChat pipeline")
             return None
 
-    logger.info("📡 Step 2/4: Checking WeChat updates...")
+    logger.info("📡 Step 2/5: Checking WeChat updates...")
     articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
     raw_updates = [a for arts in articles_by_category.values() for a in arts]
     stats["source_count"] = len(feed_list)
@@ -668,25 +714,31 @@ def run_wechat(hours=24, limit=None):
     updates = raw_updates
     logger.info(f"✅ {len(updates)} WeChat updates")
 
-    # Topic clustering + editorial pipeline for consistent tier/score data
-    cluster_map = {}
-    try:
-        from .topic_cluster import cluster_articles, get_cluster_map
-        topic_clusters = cluster_articles(updates)
-        cluster_map = get_cluster_map(topic_clusters)
-    except Exception as e:
-        logger.warning(f"⚠️ WeChat clustering failed (non-fatal): {e}")
+    # Scoring: LLM when API_KEY is set, heuristic otherwise
+    if api_key:
+        logger.info("🤖 Step 3/5: LLM scoring & filtering...")
+        from .llm_classify import score_and_filter_articles
+        updates, score_stats = score_and_filter_articles(updates)
+        logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
+    else:
+        logger.info("📊 Step 3/5: Heuristic scoring...")
+        try:
+            from .topic_cluster import cluster_articles, get_cluster_map
+            topic_clusters = cluster_articles(updates)
+            cluster_map = get_cluster_map(topic_clusters)
+        except Exception as e:
+            logger.warning(f"⚠️ WeChat clustering failed (non-fatal): {e}")
 
-    try:
-        from .editorial import run_editorial_pipeline
-        from .config import EDITORIAL_ENABLED
-        if EDITORIAL_ENABLED:
-            updates, _ = run_editorial_pipeline(updates, cluster_map)
-    except Exception as e:
-        logger.warning(f"⚠️ WeChat editorial pipeline failed (non-fatal): {e}")
+        try:
+            from .editorial import run_editorial_pipeline
+            from .config import EDITORIAL_ENABLED
+            if EDITORIAL_ENABLED:
+                updates, _ = run_editorial_pipeline(updates, cluster_map)
+        except Exception as e:
+            logger.warning(f"⚠️ WeChat editorial pipeline failed (non-fatal): {e}")
 
     if api_key:
-        logger.info("📖 Step 3/4: Enriching WeChat articles...")
+        logger.info("📖 Step 4/5: Enriching WeChat articles...")
         updates = enrich_wechat_articles(updates)
 
     after_editorial = len(updates)
@@ -702,12 +754,12 @@ def run_wechat(hours=24, limit=None):
     updates_path = save_workspace_updates("wechat", updates, wechat_metadata)
 
     if api_key:
-        logger.info("📄 Step 4/4: AI summaries + report...")
+        logger.info("📄 Step 5/5: AI summaries + report...")
         from .llm_services import summarize_wechat_batch
         ai_summaries = summarize_wechat_batch(updates)
         report = generate_wechat_report(updates, ai_summaries, metadata=stats)
     else:
-        logger.info("📄 Step 4/4: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 5/5: Preliminary report (no AI summaries)...")
         report = generate_wechat_report(updates, metadata=stats)
         _log_no_api_key("wechat", updates_path)
 

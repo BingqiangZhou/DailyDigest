@@ -298,6 +298,22 @@ AUTHORITY_DOMAINS = {
 }
 
 # ============================================================
+# Embedding Clustering Configuration
+# ============================================================
+
+EMBEDDING_CLUSTERING_ENABLED = os.environ.get("EMBEDDING_CLUSTERING_ENABLED", "true").lower() != "false"
+EMBEDDING_DISTANCE_THRESHOLD = float(os.environ.get("EMBEDDING_DISTANCE_THRESHOLD", "0.35"))
+EMBEDDING_MIN_CLUSTER_SIZE = int(os.environ.get("EMBEDDING_MIN_CLUSTER_SIZE", "2"))
+EMBEDDING_MAX_CLUSTERS = int(os.environ.get("EMBEDDING_MAX_CLUSTERS", "25"))
+EMBEDDING_CACHE_ENABLED = os.environ.get("EMBEDDING_CACHE_ENABLED", "true").lower() != "false"
+
+# Report display parameters
+REPORT_MAX_THEMES = int(os.environ.get("REPORT_MAX_THEMES", "20"))
+REPORT_ARTICLES_PER_THEME = int(os.environ.get("REPORT_ARTICLES_PER_THEME", "6"))
+REPORT_BRIEF_ITEMS_CAP = int(os.environ.get("REPORT_BRIEF_ITEMS_CAP", "40"))
+REPORT_HIGHLIGHTS_COUNT = int(os.environ.get("REPORT_HIGHLIGHTS_COUNT", "8"))
+
+# ============================================================
 # AI Prompt Templates (lazy-loaded from config/prompts/)
 # ============================================================
 

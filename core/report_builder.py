@@ -128,7 +128,8 @@ def build_unified_report(ai_articles, non_ai_articles=None, now=None,
                          summary_map=None, cluster_map=None,
                          executive_summary="", trend_insights="",
                          stats=None, llm_briefing=None,
-                         llm_themes=None, llm_leftovers=None):
+                         llm_themes=None, llm_leftovers=None,
+                         embedding_singletons=None):
     """Build the default markdown daily digest in briefing format.
 
     Supports two modes:
@@ -145,6 +146,7 @@ def build_unified_report(ai_articles, non_ai_articles=None, now=None,
         stats=stats,
         llm_themes=llm_themes,
         llm_leftovers=llm_leftovers,
+        embedding_singletons=embedding_singletons,
     )
 
     if executive_summary:
