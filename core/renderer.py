@@ -489,8 +489,8 @@ def _render_podcast_briefing_markdown(briefing_data, now):
         f"# 🎙️ AI 播客日报 — {date_str}",
         "",
         f"> 扫描 {stats.get('source_count', 0)} 个播客 · "
-        f"{stats.get('candidate_count', 0)}h 窗口 · "
-        f"发现 {stats.get('included_count', 0)} 个更新",
+        f"共 {stats.get('candidate_count', 0)} 条更新 · "
+        f"筛选后 {stats.get('included_count', 0)} 条",
         "",
         "---",
         "",
