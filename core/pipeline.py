@@ -132,7 +132,7 @@ def try_build_unified_report(source, now, output_format="markdown"):
     all_articles = []
     summaries_by_source = {}
     source_stats = []
-    for src in ("tech", "podcast", "wechat"):
+    for src in ("tech", "wechat"):
         if source in (src, "all") or (source == "tech" and src == "wechat"):
             data = load_workspace_data(src)
             if data:
@@ -247,6 +247,79 @@ def try_build_unified_report(source, now, output_format="markdown"):
     )
 
 
+def try_build_podcast_report(now, output_format="markdown"):
+    """Build a podcast report from workspace data using LLM pipeline or Skill mode."""
+    from .article import Article
+
+    data = load_workspace_data("podcast")
+    if not data:
+        return None
+
+    all_articles = []
+    for item in data.get("updates", []):
+        try:
+            all_articles.append(Article(**item))
+        except TypeError:
+            continue
+
+    if not all_articles:
+        return None
+
+    metadata = data.get("metadata", {})
+    api_key = os.environ.get("API_KEY")
+
+    if api_key:
+        logger.info(f"\n🎙️ Building podcast report from {len(all_articles)} episodes (LLM pipeline)...")
+        from .llm_classify import score_and_filter_articles
+
+        all_articles, score_stats = score_and_filter_articles(all_articles)
+        if not all_articles:
+            return None
+
+        from .config import EMBEDDING_CLUSTERING_ENABLED
+        if EMBEDDING_CLUSTERING_ENABLED:
+            from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
+            from .llm_classify import interpret_themes_with_llm
+            try:
+                embeddings = embed_articles(all_articles)
+                clusters = cluster_by_embedding(all_articles, embeddings)
+                from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
+                llm_themes, singletons = interpret_themes_with_llm(
+                    clusters, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH,
+                )
+                leftovers = get_cluster_leftovers(clusters, all_articles)
+            except RuntimeError as e:
+                logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
+                from .llm_classify import group_articles_by_theme
+                llm_themes, leftovers = group_articles_by_theme(all_articles)
+                singletons = []
+        else:
+            from .llm_classify import group_articles_by_theme
+            llm_themes, leftovers = group_articles_by_theme(all_articles)
+            singletons = []
+
+        from .podcast_utils import build_podcast_briefing_report
+
+        merged_stats = _merge_run_stats([metadata])
+        merged_stats.update(score_stats)
+
+        return build_podcast_briefing_report(
+            all_articles, now=now,
+            llm_themes=llm_themes, llm_leftovers=leftovers,
+            embedding_singletons=singletons, stats=merged_stats,
+        )
+
+    # Skill mode
+    summaries = merge_batch_summaries(
+        "podcast",
+        run_id=metadata.get("run_id"),
+        generated_at=metadata.get("generated_at"),
+    )
+    if summaries:
+        return _generate_source_report("podcast", data, summaries)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Finalize helpers
 # ---------------------------------------------------------------------------
@@ -320,24 +393,62 @@ def _finalize_source(source_type):
 
 
 def finalize_reports(source, output_format="markdown"):
-    """--finalize mode: read sub-agent summaries from workspace/ and build final reports.
+    """--finalize mode: build final reports from workspace data.
 
-    Tries the unified briefing path first (preferred). Falls back to
-    per-source report merging only when the unified builder returns None.
+    For source='all': produces two separate files (tech + podcast).
+    For source='podcast': uses podcast-specific report builder.
+    For source='tech'/'wechat': uses unified report builder (no podcast).
     """
     from .config import TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
     from .report_builder import save_report
 
     now = datetime.now(timezone.utc)
+    is_wechat = output_format == "wechat"
+    ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
 
-    # For podcast source, finalize directly to podcast directory
+    if source == "all":
+        # Tech + WeChat → TECH_OUTPUT_DIR
+        tech_report = try_build_unified_report(source, now, output_format=output_format)
+        if not tech_report:
+            sections = []
+            for src in ("tech", "wechat"):
+                report = _finalize_source(src)
+                if report:
+                    sections.append(report)
+            if sections:
+                tech_report = build_merged_report(sections, now)
+
+        if tech_report:
+            save_report(tech_report, ext, TECH_OUTPUT_DIR,
+                        report_type="digest", skip_tldr=is_wechat)
+            logger.info(f"✅ Tech report saved to {TECH_OUTPUT_DIR / ext}")
+
+        # Podcast → PODCAST_OUTPUT_DIR
+        podcast_report = try_build_podcast_report(now, output_format=output_format)
+        if not podcast_report:
+            podcast_report = _finalize_source("podcast")
+
+        if podcast_report:
+            save_report(podcast_report, ext, PODCAST_OUTPUT_DIR,
+                        report_type="digest", skip_tldr=is_wechat)
+            logger.info(f"✅ Podcast report saved to {PODCAST_OUTPUT_DIR / ext}")
+
+        if not tech_report and not podcast_report:
+            logger.warning("⚠️ no reports to generate.")
+            return
+
+        logger.info("\n" + "=" * 60)
+        logger.info("✅ Finalize done!")
+        logger.info("=" * 60 + "\n")
+        return
+
     if source == "podcast":
-        report = _finalize_source("podcast")
+        report = try_build_podcast_report(now, output_format=output_format)
+        if not report:
+            report = _finalize_source("podcast")
         if not report:
             logger.warning("⚠️ no podcast reports to generate.")
             return
-        is_wechat = output_format == "wechat"
-        ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
         filepath = save_report(report, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest", skip_tldr=is_wechat)
         logger.info("\n" + "=" * 60)
@@ -345,29 +456,22 @@ def finalize_reports(source, output_format="markdown"):
         logger.info("=" * 60 + "\n")
         return
 
-    # Tech / wechat / all sources: route to tech directory
+    # Tech / wechat
     merged = try_build_unified_report(source, now, output_format=output_format)
-
     if not merged:
         sections = []
-        for src in ("tech", "podcast", "wechat"):
+        for src in ("tech", "wechat"):
             if source in (src, "all") or (source == "tech" and src == "wechat"):
                 report = _finalize_source(src)
                 if report:
                     sections.append(report)
-
         if not sections:
             logger.warning("⚠️ no reports to generate.")
             return
-
         merged = build_merged_report(sections, now)
 
-    is_wechat = output_format == "wechat"
-    ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
     filepath = save_report(merged, ext, TECH_OUTPUT_DIR,
-                           report_type="digest",
-                           skip_tldr=is_wechat)
-
+                           report_type="digest", skip_tldr=is_wechat)
     logger.info("\n" + "=" * 60)
     logger.info(f"✅ Finalize done! report: {filepath}")
     logger.info("=" * 60 + "\n")
