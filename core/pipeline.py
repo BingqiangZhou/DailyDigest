@@ -763,11 +763,38 @@ def run_podcast(hours=24, limit=None):
     updates_path = save_workspace_updates("podcast", updates, podcast_metadata)
 
     if api_key:
-        logger.info("📄 Step 4/5: AI summaries + report...")
-        from .llm_services import summarize_podcast_batch
-        ai_summaries = summarize_podcast_batch(updates)
-        report = generate_podcast_report(updates, ai_summaries, metadata=stats)
+        # Step 4a: Embedding clustering + theme interpretation
+        from .config import EMBEDDING_CLUSTERING_ENABLED
+        if EMBEDDING_CLUSTERING_ENABLED:
+            logger.info("📄 Step 4/5: Embedding clustering + podcast briefing...")
+            from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
+            from .llm_classify import interpret_themes_with_llm
+            from .podcast_utils import build_podcast_briefing_report
+            from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
+            embeddings = embed_articles(updates)
+            clusters = cluster_by_embedding(updates, embeddings)
+            llm_themes, singletons = interpret_themes_with_llm(
+                clusters, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH
+            )
+            leftovers = get_cluster_leftovers(clusters, updates)
+            report = build_podcast_briefing_report(
+                updates, now=datetime.now(timezone.utc),
+                llm_themes=llm_themes, llm_leftovers=leftovers,
+                embedding_singletons=singletons,
+                stats=podcast_metadata,
+            )
+        else:
+            logger.info("📄 Step 4/5: LLM theme grouping + podcast briefing...")
+            from .llm_classify import group_articles_by_theme
+            from .podcast_utils import build_podcast_briefing_report
+            llm_themes, leftovers = group_articles_by_theme(updates)
+            report = build_podcast_briefing_report(
+                updates, now=datetime.now(timezone.utc),
+                llm_themes=llm_themes, llm_leftovers=leftovers,
+                stats=podcast_metadata,
+            )
     else:
+        # Keep existing simple table format for Skill mode
         logger.info("📄 Step 4/5: Preliminary report (no AI summaries)...")
         report = generate_podcast_report(updates, metadata=stats)
         _log_no_api_key("podcast", updates_path)
