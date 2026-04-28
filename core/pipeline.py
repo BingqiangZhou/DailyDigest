@@ -375,7 +375,7 @@ def run_tech_unified(hours=48, limit=None):
     cleanup_old_entries()
 
     # Step 1: Fetch tech RSS and WeChat in parallel
-    logger.info("\n📡 Step 1/6: Fetching tech RSS + WeChat in parallel...")
+    logger.info("\n📡 Step 1/5: Fetching tech RSS + WeChat in parallel...")
     config = load_feed_config("tech")
     feed_list = [
         {"name": f["name"], "url": f["url"], "category": c["name"],
@@ -434,7 +434,7 @@ def run_tech_unified(hours=48, limit=None):
         return None
 
     t2 = time.time()
-    logger.info(f"\n🔍 Step 2/6: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
+    logger.info(f"\n🔍 Step 2/5: Dedup ({len(tech_articles)} tech + {len(wechat_articles)} wechat)...")
     new_articles = filter_and_mark(all_articles)
     if not new_articles:
         logger.warning("⚠️ All articles already processed.")
@@ -448,12 +448,13 @@ def run_tech_unified(hours=48, limit=None):
     # Step 3: LLM scoring & filtering
     pre_scoring_articles = list(new_articles)
 
-    logger.info("🤖 Step 3/6: LLM scoring & filtering...")
+    logger.info("🤖 Step 3/5: LLM scoring & filtering...")
     from .llm_classify import score_and_filter_articles
     new_articles, score_stats = score_and_filter_articles(new_articles)
     logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
 
-    # Save workspace data AFTER scoring pipeline so tier data is preserved
+    # Step 4: Save workspace data (with tier/score data preserved)
+    logger.info("💾 Step 4/5: Saving workspace data...")
     tech_pre_scoring = [a for a in pre_scoring_articles if not _is_wechat_article(a)]
     wechat_pre_scoring = [a for a in pre_scoring_articles if _is_wechat_article(a)]
     tech_new = [a for a in new_articles if not _is_wechat_article(a)]
@@ -480,18 +481,6 @@ def run_tech_unified(hours=48, limit=None):
         )
         save_workspace_updates("wechat", wechat_new, wechat_metadata)
 
-    if api_key and os.environ.get("ENRICH_FULL_TEXT") and timer.can_proceed(120):
-        try:
-            t_enrich = time.time()
-            logger.info("📖 Step 5/6: Enriching high-importance articles...")
-            from .enrich import enrich_tech_articles
-            new_articles, _ = enrich_tech_articles(new_articles, cluster_map=cluster_map)
-            logger.info(f"⏱️ Enrichment completed in {time.time() - t_enrich:.1f}s")
-        except Exception as e:
-            logger.warning(f"⚠️ Full-text enrichment failed (non-fatal): {e}")
-    elif api_key and os.environ.get("ENRICH_FULL_TEXT"):
-        logger.warning(f"⏭️ Skipping enrichment -- {timer.remaining():.0f}s remaining (budget low)")
-
     if not api_key:
         logger.info("💡 no API_KEY, raw data saved to workspace/")
         logger.info("   Run sub-agent summaries, then:")
@@ -499,7 +488,7 @@ def run_tech_unified(hours=48, limit=None):
         return None
 
     t4 = time.time()
-    logger.info("🤖 Step 6/6: LLM theme grouping + unified briefing...")
+    logger.info("🤖 Step 5/5: LLM theme grouping + unified briefing...")
     from .llm_classify import group_articles_by_theme
     from .report_builder import build_unified_report
 
