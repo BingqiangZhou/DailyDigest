@@ -20,30 +20,47 @@ permissions:
   contents: write
   actions: read
 
+concurrency:
+  group: digest-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   generate-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
 
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0
+          fetch-depth: 1
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - name: Set up uv
+        uses: astral-sh/setup-uv@v4
         with:
-          python-version: '3.11'
-          cache: 'pip'
+          enable-cache: true
 
       - name: Install dependencies
-        run: pip install -r requirements.txt
+        run: uv sync --frozen
 
       - name: Download processed articles tracker
         uses: actions/download-artifact@v4
         with:
           name: processed-articles
+          path: workspace/
+        continue-on-error: true
+
+      - name: Download feed health tracker
+        uses: actions/download-artifact@v4
+        with:
+          name: feed-health
+          path: workspace/
+        continue-on-error: true
+
+      - name: Download WeChat feed list cache
+        uses: actions/download-artifact@v4
+        with:
+          name: wechat-cache
           path: workspace/
         continue-on-error: true
 
@@ -54,7 +71,8 @@ jobs:
           MODEL: ${{ secrets.MODEL }}
           SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
           ENRICH_FULL_TEXT: "1"
-        run: python main.py --source ${{ github.event.inputs.source || 'tech' }}
+          LLM_MAX_CONCURRENCY: "3"
+        run: uv run python main.py --source ${{ github.event.inputs.source || 'tech' }}
 
       - name: Upload processed articles tracker
         uses: actions/upload-artifact@v4
@@ -62,6 +80,22 @@ jobs:
           name: processed-articles
           path: workspace/processed_articles.json
           retention-days: 90
+        if: always()
+
+      - name: Upload feed health tracker
+        uses: actions/upload-artifact@v4
+        with:
+          name: feed-health
+          path: workspace/feed_health.json
+          retention-days: 90
+        if: always()
+
+      - name: Upload WeChat feed list cache
+        uses: actions/upload-artifact@v4
+        with:
+          name: wechat-cache
+          path: workspace/.wechat_feed_list_cache.json
+          retention-days: 30
         if: always()
 
       - name: Upload reports

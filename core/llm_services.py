@@ -250,7 +250,7 @@ def _generic_batch_summarize(updates, source_name, count_unit, format_item, buil
     return ai_summaries
 
 
-def summarize_podcast_batch(updates, batch_size=6, max_workers=None):
+def summarize_podcast_batch(updates, batch_size=12, max_workers=None):
     """对播客更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:
@@ -281,7 +281,7 @@ def summarize_podcast_batch(updates, batch_size=6, max_workers=None):
     )
 
 
-def summarize_wechat_batch(updates, batch_size=6, max_workers=None):
+def summarize_wechat_batch(updates, batch_size=12, max_workers=None):
     """对微信公众号更新批量生成 AI 摘要（OpenAI API 模式，并发控制）
 
     Args:

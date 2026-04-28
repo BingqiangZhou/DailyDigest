@@ -11,6 +11,7 @@ import os
 import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from urllib.parse import urlparse
 
 from .logging_config import get_logger
 from .workspace import (
@@ -23,6 +24,53 @@ from .report_builder import (
 )
 
 logger = get_logger("pipeline")
+
+
+class PipelineTimer:
+    """Track elapsed time across pipeline steps with an overall budget."""
+
+    def __init__(self, budget_seconds=2400):
+        self.budget = budget_seconds
+        self.start = time.time()
+
+    def elapsed(self):
+        return time.time() - self.start
+
+    def remaining(self):
+        return max(0, self.budget - self.elapsed())
+
+    def can_proceed(self, estimated_seconds=60):
+        return self.remaining() > estimated_seconds
+
+
+def _canary_check(url, timeout=10):
+    """Quick health check for a shared service URL. Returns True if reachable."""
+    from .http import fetch_url_with_retry
+    try:
+        body, status, _ = fetch_url_with_retry(url, timeout=timeout, max_retries=0)
+        return body is not None or status == 304
+    except Exception:
+        return False
+
+
+def _group_feeds_by_shared_domain(feed_list, threshold=20):
+    """Split feeds into shared-domain and unique-domain groups.
+
+    Returns (shared, unique) where shared contains feeds whose domain
+    appears >= threshold times across the entire feed_list.
+    """
+    domain_counts = {}
+    for f in feed_list:
+        try:
+            domain = urlparse(f["url"]).netloc
+        except Exception:
+            domain = "unknown"
+        domain_counts[domain] = domain_counts.get(domain, 0) + 1
+
+    shared_domains = {d for d, c in domain_counts.items() if c >= threshold}
+    shared = [f for f in feed_list if urlparse(f["url"]).netloc in shared_domains]
+    unique = [f for f in feed_list if urlparse(f["url"]).netloc not in shared_domains]
+    return shared, unique, shared_domains
 
 
 def _log_no_api_key(source_type, path):
@@ -290,6 +338,7 @@ def run_tech_unified(hours=48, limit=None):
     from .dedup import filter_and_mark, cleanup_old_entries
 
     t_start = time.time()
+    timer = PipelineTimer(budget_seconds=int(os.environ.get("PIPELINE_BUDGET_SECONDS", "2400")))
     ensure_pipeline_dirs()
     api_key = os.environ.get("API_KEY")
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
@@ -325,15 +374,26 @@ def run_tech_unified(hours=48, limit=None):
 
     wechat_hours = min(hours, 25)
 
+    # Canary check: verify wechat2rss service is reachable before batch fetch
+    wechat_ok = True
+    if not limit:
+        wechat_ok = _canary_check("https://wechat2rss.xlab.app/", timeout=10)
+        if not wechat_ok:
+            logger.warning("⚠️ wechat2rss.xlab.app unreachable, skipping WeChat fetch")
+
     t1 = time.time()
     from .wechat_utils import fetch_wechat_articles
     tech_articles, tech_stats = [], {}
     wechat_articles, wechat_stats = [], {}
     with ThreadPoolExecutor(max_workers=2) as pool:
         tech_future = pool.submit(_fetch_tech)
-        wechat_future = pool.submit(fetch_wechat_articles, wechat_hours, limit)
+        wechat_future = (
+            pool.submit(fetch_wechat_articles, wechat_hours, limit)
+            if wechat_ok else None
+        )
         tech_articles, tech_stats = tech_future.result()
-        wechat_articles, wechat_stats = wechat_future.result()
+        if wechat_future:
+            wechat_articles, wechat_stats = wechat_future.result()
     logger.info(f"⏱️ RSS fetch completed in {time.time() - t1:.1f}s "
                 f"(tech: {len(tech_articles)}, wechat: {len(wechat_articles)})")
 
@@ -420,7 +480,7 @@ def run_tech_unified(hours=48, limit=None):
         )
         save_workspace_updates("wechat", wechat_new, wechat_metadata)
 
-    if api_key and os.environ.get("ENRICH_FULL_TEXT"):
+    if api_key and os.environ.get("ENRICH_FULL_TEXT") and timer.can_proceed(120):
         try:
             t_enrich = time.time()
             logger.info("📖 Step 5/6: Enriching high-importance articles...")
@@ -429,6 +489,8 @@ def run_tech_unified(hours=48, limit=None):
             logger.info(f"⏱️ Enrichment completed in {time.time() - t_enrich:.1f}s")
         except Exception as e:
             logger.warning(f"⚠️ Full-text enrichment failed (non-fatal): {e}")
+    elif api_key and os.environ.get("ENRICH_FULL_TEXT"):
+        logger.warning(f"⏭️ Skipping enrichment -- {timer.remaining():.0f}s remaining (budget low)")
 
     if not api_key:
         logger.info("💡 no API_KEY, raw data saved to workspace/")
@@ -500,6 +562,16 @@ def run_podcast(hours=24, limit=None):
          "_podcast_meta": {"rank": p.get("rank", 0), "xiaoyuzhou_url": p.get("xiaoyuzhou_url", "")}}
         for p in podcasts if p.get("url")
     ]
+
+    # Canary check: verify feed.xyzfm.space is reachable (serves majority of podcast feeds)
+    xyzfm_feeds = [f for f in feed_list if "feed.xyzfm.space" in f["url"]]
+    if xyzfm_feeds and not limit and not _canary_check(xyzfm_feeds[0]["url"], timeout=10):
+        logger.warning(f"⚠️ feed.xyzfm.space unreachable, removing {len(xyzfm_feeds)} feeds")
+        feed_list = [f for f in feed_list if "feed.xyzfm.space" not in f["url"]]
+
+    if not feed_list:
+        logger.warning("⚠️ No podcast feeds available after health check.")
+        return None
 
     t1 = time.time()
     articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
@@ -587,6 +659,12 @@ def run_wechat(hours=24, limit=None):
          "_wechat_meta": {"index": f.get("index", 0)}}
         for f in feeds
     ]
+
+    # Canary check: verify wechat2rss service is reachable
+    if feed_list and not limit:
+        if not _canary_check(feed_list[0]["url"], timeout=10):
+            logger.warning(f"⚠️ wechat2rss.xlab.app unreachable, aborting WeChat pipeline")
+            return None
 
     logger.info("📡 Step 2/4: Checking WeChat updates...")
     articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)

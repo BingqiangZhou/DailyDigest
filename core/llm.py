@@ -283,6 +283,13 @@ def log_llm_runtime_summary():
         summary["avg_latency_seconds"],
         "yes" if summary["degraded_mode"] else "no",
     )
+    if summary["degraded_mode"]:
+        print(
+            f"::warning::LLM entered degraded mode after "
+            f"{summary['total_retryable_failures']} failures. "
+            f"Report quality may be reduced.",
+            flush=True,
+        )
 
 
 atexit.register(log_llm_runtime_summary)

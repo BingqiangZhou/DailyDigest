@@ -344,8 +344,22 @@ def filter_ai_articles(articles: list[Article]) -> tuple[list[Article], list[Art
     if not to_classify:
         return ai_direct, []
 
+    # Pre-filter: skip LLM calls for articles with zero AI signal.
+    # These would be caught by _hard_ai_relevance_check() after LLM anyway.
     if os.environ.get("API_KEY"):
-        ai_classified = _api_filter(to_classify)
+        pre_filtered = []
+        pre_non_ai = []
+        for article in to_classify:
+            if _hard_ai_relevance_check(article):
+                pre_filtered.append(article)
+            else:
+                pre_non_ai.append(article)
+        if pre_non_ai:
+            logger.info(
+                f"[AI Filter] ⚡ Pre-filter skipped {len(pre_non_ai)} articles "
+                f"with zero AI signal (saved ~{len(pre_non_ai) // 25 + 1} LLM calls)"
+            )
+        ai_classified = _api_filter(pre_filtered) if pre_filtered else []
     else:
         ai_classified = _keyword_filter(to_classify)
 
