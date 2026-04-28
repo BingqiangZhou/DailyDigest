@@ -21,7 +21,9 @@ from datetime import datetime, timezone
 
 # Flush stdout on every print (helps concurrent progress output)
 if hasattr(sys.stdout, "reconfigure"):
-    sys.stdout.reconfigure(line_buffering=True)
+    sys.stdout.reconfigure(line_buffering=True, errors="replace")
+if hasattr(sys.stderr, "reconfigure"):
+    sys.stderr.reconfigure(errors="replace")
 os.environ.setdefault("PYTHONUNBUFFERED", "1")
 
 # Load .env if python-dotenv is available
@@ -172,7 +174,7 @@ Examples:
     if isinstance(filepath, list):
         print("\u2705 Daily Digest done! reports:")
         for fp in filepath:
-            print(f"  \ud83d\udcc4 {fp}")
+            print(f"  \U0001F4C4 {fp}")
     else:
         print(f"\u2705 Daily Digest done! report: {filepath}")
     for src, st in all_stats.items():
