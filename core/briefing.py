@@ -115,6 +115,26 @@ def _is_language_compatible(text):
     return cjk_count >= 4 or cjk_count >= latin_count
 
 
+def _extract_keyword_from_title(title, max_en=6, max_zh=4):
+    """Extract a short distinguishing keyword from an article title.
+
+    For titles containing English: extract the first capitalized word or acronym.
+    For Chinese titles: extract the first 2-4 character meaningful phrase.
+    Returns empty string if nothing useful is found.
+    """
+    if not title:
+        return ""
+    # Try English first: first capitalized word or acronym
+    en_match = re.search(r'\b([A-Z][A-Za-z0-9\-\.]{1,' + str(max_en - 1) + r'})\b', title)
+    if en_match:
+        return en_match.group(1)[:max_en]
+    # Chinese: first meaningful phrase (2-4 CJK chars, skip common particles)
+    zh_match = re.search(r'[一-鿿]{2,' + str(max_zh) + r'}', title)
+    if zh_match:
+        return zh_match.group(0)[:max_zh]
+    return ""
+
+
 def _compose_theme_summary(theme, summary_map=None):
     """Fallback theme summary from article descriptions and summary_map."""
     parts = []
@@ -127,25 +147,39 @@ def _compose_theme_summary(theme, summary_map=None):
         elif isinstance(info, str):
             summary = info
         if not summary:
-            summary = _clean_description_for_display(article.description, max_len=120)
+            summary = _clean_description_for_display(article.description, max_len=150)
         if not summary:
             continue
         summary = summary.replace("\n", " ").strip()
+        # Extract only the first sentence
+        summary = re.split(r'[。.!！]', summary)[0].strip()
+        if not summary:
+            continue
         if not _is_language_compatible(summary):
             continue
         if summary and summary not in seen:
             seen.add(summary)
-            parts.append(summary[:120])
+            parts.append(summary[:150])
         if len(parts) >= 3:
             break
 
     if parts:
-        joiner = "；"
-        joined = joiner.join(parts)
+        joined = " · ".join(parts)
         # Cap total summary length to keep themes scannable
         if len(joined) > 300:
             joined = joined[:300].rstrip() + "..."
         return joined
+
+    # No descriptions available — build a keyword summary from article titles
+    keywords = []
+    for article in theme.get("articles", []):
+        kw = _extract_keyword_from_title(article.title or "")
+        if kw and kw not in keywords:
+            keywords.append(kw)
+        if len(keywords) >= 4:
+            break
+    if keywords:
+        return "涉及：" + "、".join(keywords)
 
     return "今日该主题有多篇相关更新，需结合参考条目快速浏览。"
 
@@ -176,8 +210,17 @@ def _fallback_trends(themes, brief_items=None):
     # 2. Cross-source convergence
     cross_themes = [t for t in themes if t.get("cross_source")]
     if cross_themes:
-        names = "、".join(t.get("title", "") for t in cross_themes[:2])
-        trends.append(f"多源交叉验证：{names}，值得关注后续发展。")
+        names = []
+        for t in cross_themes[:2]:
+            title = t.get("title", "")
+            # If the title is the same as the fallback theme name, use lead article title
+            if title == t.get("theme", "") or not _is_language_compatible(title):
+                articles = t.get("articles", [])
+                if articles:
+                    title = articles[0].title or title
+            names.append(title)
+        names_str = "、".join(names)
+        trends.append(f"多源交叉验证：{names_str}，多个独立来源均报道此话题。")
 
     # 3. HN heat signal
     hn_hot = [a for a in all_articles if (a.hn_points or 0) >= 100]
@@ -242,6 +285,38 @@ def _select_brief_items(non_ai_articles, max_count=20):
     return selected
 
 
+def _dedup_theme_names(themes):
+    """Add keyword suffixes to duplicate theme titles for disambiguation.
+
+    Modifies themes in-place. When multiple themes share the same title,
+    appends a distinguishing keyword from the lead article's title.
+    """
+    # Count occurrences of each title
+    title_counts = {}
+    for t in themes:
+        title = t.get("title", "")
+        title_counts[title] = title_counts.get(title, 0) + 1
+
+    # Only process duplicates
+    seen = {}
+    for t in themes:
+        title = t.get("title", "")
+        if title_counts.get(title, 0) <= 1:
+            continue
+        # Track occurrence index per title
+        idx = seen.get(title, 0)
+        seen[title] = idx + 1
+        # Skip the first occurrence — only suffix subsequent ones
+        if idx == 0:
+            continue
+        articles = t.get("articles", [])
+        if articles:
+            lead_title = articles[0].title or ""
+            kw = _extract_keyword_from_title(lead_title)
+            if kw:
+                t["title"] = f"{title} · {kw}"
+
+
 def _build_theme_groups(ai_articles, cluster_map=None):
     """Group AI articles into cluster-first theme sections."""
     cluster_map = cluster_map or {}
@@ -285,6 +360,8 @@ def _build_theme_groups(ai_articles, cluster_map=None):
     for theme_name, members in leftovers.items():
         if not members:
             continue
+        # Sort members so the lead article is the highest-ranked one
+        members.sort(key=lambda a: _article_rank(a, cluster_map), reverse=True)
         themes.append({
             "id": f"theme-{theme_name}",
             "theme": theme_name,
@@ -294,6 +371,9 @@ def _build_theme_groups(ai_articles, cluster_map=None):
             "cluster_theme": "",
             "cross_source": False,
         })
+
+    # Dedup pass: add keyword suffix when multiple themes share the same name
+    _dedup_theme_names(themes)
 
     themes.sort(key=_theme_sort_key)
     return themes[:8]
