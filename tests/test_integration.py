@@ -254,3 +254,56 @@ class TestFinalizePath:
                 path = WORKSPACE_DIR / f"{src}_updates.json"
                 if path.exists():
                     path.unlink()
+
+
+class TestRenderBriefingV2:
+    """Tests that build_unified_report correctly applies v2 fields from render_briefing_v2."""
+
+    def test_tldr_section_appears_from_v2(self):
+        """When render_briefing_v2 returns tldr, the report contains the TL;DR section."""
+        ai = _make_article("GPT-5.5 released", tier="must_read", score=0.9)
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
+        v2_response = {
+            "tldr": "今日AI领域重点关注：OpenAI发布GPT-5.5，性能大幅提升。",
+            "highlights": ["GPT-5.5 released with major improvements"],
+            "theme_summaries": {},
+        }
+
+        with _mock_llm_env():
+            with patch("core.report_builder._render_briefing_v2", return_value=v2_response):
+                report = build_unified_report([ai], [], now, cluster_map={})
+
+        assert "## 🎯 今日速览" in report
+        assert "今日AI领域重点关注" in report
+
+    def test_theme_titles_applied_from_v2(self):
+        """When render_briefing_v2 returns theme_titles, they override the rendered theme names."""
+        ai = _make_article("Claude 5 released", tier="must_read", score=0.9)
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
+        v2_response = {
+            "tldr": "速览内容",
+            "theme_titles": {"1": "大模型竞赛白热化"},
+        }
+
+        with _mock_llm_env():
+            with patch("core.report_builder._render_briefing_v2", return_value=v2_response):
+                report = build_unified_report([ai], [], now, cluster_map={})
+
+        assert "大模型竞赛白热化" in report
+
+    def test_v2_highlights_override_template_highlights(self):
+        """When render_briefing_v2 returns highlights, they replace the template-generated ones."""
+        ai = _make_article("AI article", tier="must_read", score=0.9)
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+
+        v2_response = {
+            "highlights": ["LLM领域出现重大突破，多家厂商发布新模型"],
+        }
+
+        with _mock_llm_env():
+            with patch("core.report_builder._render_briefing_v2", return_value=v2_response):
+                report = build_unified_report([ai], [], now, cluster_map={})
+
+        assert "LLM领域出现重大突破" in report

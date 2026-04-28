@@ -5,6 +5,8 @@ from datetime import datetime, timezone
 from core.article import Article
 from core.report_builder import _build_data_dashboard, _build_highlights
 from core.report_builder import _escape_pipe, _render_hn_table, generate_tech_report, _merge_llm_summaries, build_unified_report, _generate_importance_reason
+from core.briefing import _extract_keyword_from_title, _dedup_theme_names, _compose_theme_summary, _fallback_trends
+from core.renderer import _render_briefing_markdown
 from unittest.mock import patch
 
 def _no_api_key():
@@ -431,3 +433,272 @@ class TestHighlightHeadingLevels:
         for line in report.split("\n"):
             if "Big AI news" in line and line.strip().startswith("#"):
                     assert line.strip().startswith("####"), f"Expected h4 but got: {line}"
+
+
+class TestThemeDedup:
+    """Tests for _extract_keyword_from_title and _dedup_theme_names."""
+
+    def test_extract_keyword_english_title(self):
+        result = _extract_keyword_from_title("OpenAI releases GPT-5")
+        assert result == "OpenAI"
+
+    def test_extract_keyword_chinese_title(self):
+        result = _extract_keyword_from_title("新智元报道全球AI终局")
+        assert len(result) >= 2
+        assert len(result) <= 4
+
+    def test_extract_keyword_empty_title(self):
+        result = _extract_keyword_from_title("")
+        assert result == ""
+
+    def test_extract_keyword_none_title(self):
+        result = _extract_keyword_from_title(None)
+        assert result == ""
+
+    def test_dedup_adds_suffix_to_duplicate_themes(self):
+        themes = [
+            {"title": "模型与平台", "articles": [_make_article("OpenAI releases model")]},
+            {"title": "模型与平台", "articles": [_make_article("Anthropic launches Claude")]},
+        ]
+        _dedup_theme_names(themes)
+        # First occurrence is unchanged, second gets a keyword suffix
+        assert themes[0]["title"] == "模型与平台"
+        assert "模型与平台" in themes[1]["title"]
+        assert themes[1]["title"] != "模型与平台"
+
+    def test_dedup_no_suffix_for_unique_titles(self):
+        themes = [
+            {"title": "模型与平台", "articles": [_make_article("OpenAI news")]},
+            {"title": "开源与工具", "articles": [_make_article("Hugging Face release")]},
+        ]
+        _dedup_theme_names(themes)
+        assert themes[0]["title"] == "模型与平台"
+        assert themes[1]["title"] == "开源与工具"
+
+    def test_dedup_three_duplicates(self):
+        themes = [
+            {"title": "研究与方法", "articles": [_make_article("DeepMind AlphaFold")]},
+            {"title": "研究与方法", "articles": [_make_article("Stanford NLP paper")]},
+            {"title": "研究与方法", "articles": [_make_article("MIT research breakthrough")]},
+        ]
+        _dedup_theme_names(themes)
+        # First unchanged, subsequent ones get suffixes
+        assert themes[0]["title"] == "研究与方法"
+        assert themes[1]["title"] != "研究与方法"
+        assert themes[2]["title"] != "研究与方法"
+
+
+class TestComposeThemeSummary:
+    """Tests for _compose_theme_summary fallback logic."""
+
+    def test_with_descriptions_joins_first_sentences(self):
+        a1 = _make_article("Article 1")
+        a1.description = "这是第一篇文章的重要摘要。后面还有更多内容。"
+        a2 = _make_article("Article 2")
+        a2.description = "这是第二篇文章的摘要内容。额外信息。"
+        theme = {"articles": [a1, a2]}
+        result = _compose_theme_summary(theme)
+        assert " · " in result
+        assert "这是第一篇" in result
+
+    def test_without_descriptions_uses_keywords(self):
+        a1 = _make_article("OpenAI launches new model")
+        a1.description = ""
+        a2 = _make_article("Anthropic releases Claude update")
+        a2.description = ""
+        theme = {"articles": [a1, a2]}
+        result = _compose_theme_summary(theme)
+        assert "涉及" in result
+
+    def test_empty_theme_returns_fallback(self):
+        theme = {"articles": []}
+        result = _compose_theme_summary(theme)
+        assert "涉及" in result or "今日该主题" in result
+
+    def test_with_summary_map_uses_importance_reason(self):
+        a1 = _make_article("Article 1")
+        summary_map = {a1.url: {"importance_reason": "模型性能大幅提升，值得关注。"}}
+        theme = {"articles": [a1]}
+        result = _compose_theme_summary(theme, summary_map=summary_map)
+        assert "模型性能大幅提升" in result
+
+
+class TestFallbackTrends:
+    """Tests for _fallback_trends heuristic trend generation."""
+
+    def test_cross_source_trend_uses_lead_article_title(self):
+        a1 = Article(
+            title="GPT-5 多模态突破性进展", url="https://test/1",
+            source="SourceA", category="ai_ml",
+            published="2026-04-27T12:00:00", extra={"news_value_score": 0.8},
+        )
+        theme = {
+            "theme": "模型与平台",
+            "title": "模型与平台",  # generic title = theme name
+            "articles": [a1],
+            "cross_source": True,
+        }
+        trends = _fallback_trends([theme])
+        joined = " ".join(trends)
+        # Should use lead article title since theme title is generic
+        assert "GPT-5" in joined
+
+    def test_hn_heat_trend(self):
+        a1 = Article(
+            title="Hot HN Post", url="https://test/1",
+            source="HN", category="ai_ml",
+            published="2026-04-27T12:00:00",
+            extra={"news_value_score": 0.5, "hn_points": 250},
+        )
+        theme = {
+            "theme": "评测与实战",
+            "title": "评测与实战",
+            "articles": [a1],
+            "score": 0.5,
+        }
+        trends = _fallback_trends([theme])
+        joined = " ".join(trends)
+        assert "HN 热议" in joined
+        assert "250" in joined
+
+    def test_empty_themes_returns_empty(self):
+        assert _fallback_trends([]) == []
+
+    def test_source_distribution_trend(self):
+        a1 = _make_article("Article A")
+        a1.source = "SourceAlpha"
+        a2 = _make_article("Article B")
+        a2.source = "SourceBeta"
+        theme = {
+            "theme": "行业与商业",
+            "title": "行业与商业",
+            "articles": [a1, a2],
+            "score": 0.4,
+        }
+        trends = _fallback_trends([theme])
+        joined = " ".join(trends)
+        assert "信息源分布" in joined
+
+
+class TestTldrSection:
+    """Tests for TL;DR rendering in _render_briefing_markdown."""
+
+    def _make_briefing_data(self, **overrides):
+        data = {
+            "stats": {"candidate_count": 10, "source_count": 3, "included_count": 8,
+                      "after_dedup": 9, "ai_count": 5, "non_ai_count": 3,
+                      "cluster_count": 0, "cross_source_count": 0},
+            "highlights": ["AI highlight one", "AI highlight two"],
+            "themes": [],
+            "featured_tech": [],
+            "brief_items": [],
+            "trends": [],
+        }
+        data.update(overrides)
+        return data
+
+    def test_tldr_section_appears(self):
+        data = self._make_briefing_data(tldr="今日AI领域重要更新概览。")
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = _render_briefing_markdown(data, now)
+        assert "## 🎯 今日速览" in result
+        assert "今日AI领域重要更新概览" in result
+
+    def test_tldr_section_absent_without_field(self):
+        data = self._make_briefing_data()
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = _render_briefing_markdown(data, now)
+        assert "## 🎯 今日速览" not in result
+
+    def test_tldr_appears_before_highlights(self):
+        data = self._make_briefing_data(tldr="这是速览内容")
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = _render_briefing_markdown(data, now)
+        tldr_pos = result.find("## 🎯 今日速览")
+        highlights_pos = result.find("## 📌 今日要点")
+        assert tldr_pos > 0
+        assert highlights_pos > 0
+        assert tldr_pos < highlights_pos
+
+
+class TestBlockquoteThemeLinks:
+    """Tests for blockquote-style theme link rendering."""
+
+    def test_blockquote_theme_links_present(self):
+        a1 = Article(
+            title="AI article one", url="https://test/1",
+            source="SrcA", category="ai_ml",
+            published="2026-04-27T12:00:00", extra={"news_value_score": 0.5},
+        )
+        data = {
+            "stats": {"candidate_count": 1, "source_count": 1, "included_count": 1,
+                      "after_dedup": 1, "ai_count": 1, "non_ai_count": 0,
+                      "cluster_count": 0, "cross_source_count": 0},
+            "highlights": [],
+            "themes": [{
+                "title": "模型与平台",
+                "summary": "主题摘要",
+                "articles": [a1],
+            }],
+            "featured_tech": [],
+            "brief_items": [],
+            "trends": [],
+        }
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = _render_briefing_markdown(data, now)
+        assert "> 📎 相关：" in result
+
+    def test_old_format_not_present(self):
+        a1 = Article(
+            title="AI article one", url="https://test/1",
+            source="SrcA", category="ai_ml",
+            published="2026-04-27T12:00:00", extra={"news_value_score": 0.5},
+        )
+        data = {
+            "stats": {"candidate_count": 1, "source_count": 1, "included_count": 1,
+                      "after_dedup": 1, "ai_count": 1, "non_ai_count": 0,
+                      "cluster_count": 0, "cross_source_count": 0},
+            "highlights": [],
+            "themes": [{
+                "title": "模型与平台",
+                "summary": "主题摘要",
+                "articles": [a1],
+            }],
+            "featured_tech": [],
+            "brief_items": [],
+            "trends": [],
+        }
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = _render_briefing_markdown(data, now)
+        assert "**参考：**" not in result
+
+    def test_links_joined_with_chinese_comma(self):
+        a1 = Article(
+            title="Article A", url="https://test/1",
+            source="SrcA", category="ai_ml",
+            published="2026-04-27T12:00:00", extra={"news_value_score": 0.5},
+        )
+        a2 = Article(
+            title="Article B", url="https://test/2",
+            source="SrcB", category="ai_ml",
+            published="2026-04-27T12:00:00", extra={"news_value_score": 0.4},
+        )
+        data = {
+            "stats": {"candidate_count": 2, "source_count": 2, "included_count": 2,
+                      "after_dedup": 2, "ai_count": 2, "non_ai_count": 0,
+                      "cluster_count": 0, "cross_source_count": 0},
+            "highlights": [],
+            "themes": [{
+                "title": "模型与平台",
+                "summary": "主题摘要",
+                "articles": [a1, a2],
+            }],
+            "featured_tech": [],
+            "brief_items": [],
+            "trends": [],
+        }
+        now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
+        result = _render_briefing_markdown(data, now)
+        # Links should be joined with 、
+        assert "Article A" in result
+        assert "Article B" in result
