@@ -14,6 +14,7 @@ from config.prompts.summarizer import (
     TLDR_PROMPT_ZH,
 )
 from .llm_utils import parse_llm_json, sanitize_generated_text
+from .briefing import _is_language_compatible
 from .llm import (
     get_llm_client as _get_client,
     get_model as _get_model,
@@ -437,6 +438,91 @@ def generate_tldr(report_content, report_type="tech"):
 # Flattened functions from narrative_renderer.py (NarrativeRenderer class)
 # ---------------------------------------------------------------------------
 
+def generate_theme_titles(themes):
+    """Generate concise Chinese titles for clustered themes."""
+    client = _get_client()
+    if not client or should_skip_optional_llm():
+        return {}
+
+    # Only generate titles for themes with clusters (cluster_size > 1)
+    payload = []
+    for idx, theme in enumerate(themes, 1):
+        articles = theme.get("articles", [])
+        if not articles:
+            continue
+        # Check if this is a real cluster (has cluster_id and multiple articles)
+        theme_id = theme.get("id", "")
+        if not theme_id or not theme_id.startswith("cluster-"):
+            continue
+        titles = [a.title for a in articles[:3]]
+        payload.append({
+            "index": idx,
+            "current_title": theme.get("title", ""),
+            "article_titles": titles,
+        })
+
+    if not payload:
+        return {}
+
+    prompt = (
+        "你是一位科技日报编辑。请为以下每个新闻主题生成一个 4-8 字的中文标题。\n"
+        "要求：准确概括主题核心内容；不要使用「模型与平台」等泛泛的标题；输出 JSON 数组，每项包含 index 和 title。\n"
+        "只输出 JSON，不要输出思考过程。\n\n"
+        + json.dumps(payload, ensure_ascii=False, indent=2)
+    )
+
+    try:
+        response = _chat_with_profile(client, prompt, "brief_summary", optional=True)
+        parsed = parse_llm_json(response or "[]")
+        results = {}
+        if isinstance(parsed, list):
+            for item in parsed:
+                if isinstance(item, dict):
+                    idx = item.get("index")
+                    title = sanitize_generated_text(item.get("title", ""))
+                    if idx and title and _is_language_compatible(title):
+                        results[str(idx)] = title
+        return results
+    except Exception as e:
+        logger.warning(f"  ⚠️ Theme titles: failed ({e})")
+        return {}
+
+
+def generate_tldr(themes):
+    """Generate a 2-3 sentence TL;DR overview of the day's AI developments."""
+    client = _get_client()
+    if not client or should_skip_optional_llm():
+        return ""
+
+    lines = []
+    for theme in themes[:6]:
+        title = theme.get("title", "")
+        articles = theme.get("articles", [])[:2]
+        article_titles = "、".join(a.title for a in articles)
+        lines.append(f"- {title}: {article_titles}")
+
+    if not lines:
+        return ""
+
+    prompt = (
+        "你是一位 AI 科技日报编辑。基于下面的主题材料，用 60-120 字写一段中文概述，"
+        "回答「今天 AI 领域发生了什么大事」。突出最重要的 1-2 条主线。"
+        "只输出概述段落，不要加标题、编号或额外说明。\n\n"
+        + "\n".join(lines)
+    )
+
+    try:
+        response = _chat_with_profile(client, prompt, "brief_summary", optional=True)
+        if response:
+            tldr = sanitize_generated_text(response).strip()
+            if tldr and _is_language_compatible(tldr):
+                return tldr
+        return ""
+    except Exception as e:
+        logger.warning(f"  ⚠️ TL;DR: failed ({e})")
+        return ""
+
+
 def render_briefing(briefing_data):
     """Generate batched highlights, theme summaries, and trends for briefing_data."""
     themes = briefing_data.get("themes", [])
@@ -454,7 +540,7 @@ def render_briefing(briefing_data):
 
 
 def generate_briefing_highlights(themes):
-    """Generate one-line daily highlights from themed article material."""
+    """Generate synthesized Chinese daily highlights from themed article material."""
     client = _get_client()
 
     lines = []
@@ -468,9 +554,13 @@ def generate_briefing_highlights(themes):
         lines.append("")
 
     prompt = (
-        "你是一位科技日报编辑。基于下面的主题材料，输出 4-6 条“今日要点”。\n"
-        "要求：每条一行，以 '- ' 开头；只写事实，不写分析过程；不要输出 JSON；"
-        "不要出现 思考和规则说明、字符计数。\n\n"
+        '你是一位 AI 科技日报编辑。基于下面的主题材料，输出 4-6 条“今日要点”。\n'
+        "要求：\n"
+        "- 每条一行，以 '- ' 开头\n"
+        "- 格式：【领域】要点描述（15-30字）\n"
+        "- 用中文综合改写，不要照搬英文标题\n"
+        "- 综合多篇信息，提炼核心要点\n"
+        "- 不要输出 JSON、思考过程、字符计数或规则说明\n\n"
         + "\n".join(lines)
     )
 
@@ -484,7 +574,7 @@ def generate_briefing_highlights(themes):
 
 
 def generate_theme_summaries(themes):
-    """Generate concise briefing summary for each theme."""
+    """Generate in-depth briefing summaries for each theme."""
     client = _get_client()
 
     payload = []
@@ -506,8 +596,13 @@ def generate_theme_summaries(themes):
         })
 
     prompt = (
-        "你是一位 AI 技术日报编辑。请基于以下主题材料，为每个主题写一段 120-220 字的简报综述。"
-        "输出 JSON 数组，每项包含 index 和 summary。只输出 JSON。不要输出思考过程。\n\n"
+        "你是一位 AI 技术日报编辑。请基于以下主题材料，为每个主题写一段综述（200-350字）。\n"
+        "要求：\n"
+        "- 包含三部分：1) 这件事是什么 2) 为什么值得关注 3) 可能的影响或后续方向\n"
+        "- 综合多篇文章信息，不要逐篇复述\n"
+        "- 可以在段落末尾加 1-2 个要点（'- ' 格式的列表项）\n"
+        "- 输出 JSON 数组，每项包含 index 和 summary（summary 可以是多行文本）\n"
+        "- 只输出 JSON\n\n"
         + json.dumps(payload, ensure_ascii=False, indent=2)
     )
 
@@ -530,18 +625,28 @@ def generate_theme_summaries(themes):
 
 
 def generate_briefing_trends(themes, brief_items):
-    """Generate 1-3 trend observations from daily briefing material."""
+    """Generate evidence-based trend observations from daily briefing material."""
     client = _get_client()
 
     theme_lines = []
     for theme in themes[:6]:
+        title = theme.get("title", "")
+        summary = theme.get("summary", "")
+        # Use first 100 chars of summary as context
+        summary_brief = summary[:100] + "..." if len(summary) > 100 else summary
         article_titles = ", ".join(a.title for a in theme.get("articles", [])[:3])
-        theme_lines.append(f"- {theme.get('title', '')}: {article_titles}")
-    for article in brief_items[:6]:
-        theme_lines.append(f"- Brief: {article.title}")
+        theme_lines.append(f"- {title}: {summary_brief or article_titles}")
+    for article in (brief_items or [])[:6]:
+        theme_lines.append(f"- Brief: {article.title} ({article.source})")
 
     prompt = (
-        "基于以下日报材料，总结 1-3 条趋势观察。输出 JSON 数组，每项是一个字符串。只输出 JSON。\n\n"
+        "基于以下日报材料，总结 1-3 条跨主题的趋势观察。\n"
+        "要求：\n"
+        "- 每条格式：【趋势方向】观察描述（支撑证据）\n"
+        "- 每条 50-100 字，需要引用具体来源作为证据\n"
+        "- 寻找跨主题的关联，而非罗列单个主题\n"
+        "- 输出 JSON 数组，每项是一个字符串\n"
+        "- 只输出 JSON\n\n"
         + "\n".join(theme_lines)
     )
 
@@ -554,3 +659,39 @@ def generate_briefing_trends(themes, brief_items):
     except Exception as e:
         logger.warning(f"  ⚠️ Briefing trends: failed ({e})")
         return []
+
+
+def render_briefing_v2(briefing_data):
+    """Enhanced briefing generation with theme titles, TL;DR, and deeper analysis."""
+    themes = briefing_data.get("themes", [])
+    if not themes or should_skip_optional_llm():
+        return {}
+
+    results = {}
+
+    # Step 1: Generate theme titles (must run first)
+    titles = generate_theme_titles(themes)
+    if titles:
+        results["theme_titles"] = titles
+
+    # Step 2: Generate TL;DR
+    tldr = generate_tldr(themes)
+    if tldr:
+        results["tldr"] = tldr
+
+    # Step 3: Generate highlights
+    highlights = generate_briefing_highlights(themes)
+    if highlights:
+        results["highlights"] = highlights
+
+    # Step 4: Generate theme summaries (uses generated titles as context)
+    summaries = generate_theme_summaries(themes)
+    if summaries:
+        results["theme_summaries"] = summaries
+
+    # Step 5: Generate trends
+    trends = generate_briefing_trends(themes, briefing_data.get("brief_items", []))
+    if trends:
+        results["trends"] = trends
+
+    return results
