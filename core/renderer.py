@@ -405,8 +405,18 @@ def _render_briefing_markdown(briefing_data, now):
         f"| 候选内容 | {stats.get('candidate_count', 0)} |",
         f"| 去重后 | {stats.get('after_dedup', 0)} |",
         f"| 纳入日报 | {stats.get('included_count', 0)} |",
-        f"| AI 主题 | {stats.get('ai_count', 0)} |",
-        f"| 科技简讯 | {len(brief_items)} |",
+    ])
+    if "theme_count" in stats:
+        lines.extend([
+            f"| 主题分组 | {stats['theme_count']} |",
+            f"| 独立条目 | {len(brief_items)} |",
+        ])
+    else:
+        lines.extend([
+            f"| AI 主题 | {stats.get('ai_count', 0)} |",
+            f"| 科技简讯 | {len(brief_items)} |",
+        ])
+    lines.extend([
         f"| 信息源数量 | {stats.get('source_count', 0)} |",
     ])
     if stats.get("cluster_count"):

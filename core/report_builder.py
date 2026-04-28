@@ -124,17 +124,27 @@ def _merge_llm_summaries(editorial_results, llm_results):
     return merged
 
 
-def build_unified_report(ai_articles, non_ai_articles, now,
+def build_unified_report(ai_articles, non_ai_articles=None, now=None,
                          summary_map=None, cluster_map=None,
                          executive_summary="", trend_insights="",
-                         stats=None, llm_briefing=None):
-    """Build the default markdown daily digest in briefing format."""
+                         stats=None, llm_briefing=None,
+                         llm_themes=None, llm_leftovers=None):
+    """Build the default markdown daily digest in briefing format.
+
+    Supports two modes:
+    - Legacy: ai_articles + non_ai_articles + cluster_map (heuristic themes)
+    - LLM: ai_articles (all) + llm_themes + llm_leftovers (LLM-generated themes)
+    """
+    if non_ai_articles is None:
+        non_ai_articles = []
     briefing_data = build_briefing_data(
         ai_articles,
         non_ai_articles,
         cluster_map=cluster_map,
         summary_map=summary_map,
         stats=stats,
+        llm_themes=llm_themes,
+        llm_leftovers=llm_leftovers,
     )
 
     if executive_summary:
@@ -168,18 +178,23 @@ def build_unified_report(ai_articles, non_ai_articles, now,
     return _render_briefing_markdown(briefing_data, now)
 
 
-def build_unified_wechat_report(ai_articles, non_ai_articles, now,
+def build_unified_wechat_report(ai_articles, non_ai_articles=None, now=None,
                                  summary_map=None, cluster_map=None,
-                                 category_results=None, stats=None, llm_briefing=None):
+                                 category_results=None, stats=None, llm_briefing=None,
+                                 llm_themes=None, llm_leftovers=None):
     """Build a WeChat Official Account Markdown article."""
     from .wechat_article import generate_wechat_article
 
+    if non_ai_articles is None:
+        non_ai_articles = []
     briefing_data = build_briefing_data(
         ai_articles,
         non_ai_articles,
         cluster_map=cluster_map,
         summary_map=summary_map,
         stats=stats,
+        llm_themes=llm_themes,
+        llm_leftovers=llm_leftovers,
     )
 
     if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:

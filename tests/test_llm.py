@@ -98,6 +98,7 @@ class TestTaskProfiles:
             "classify", "topic_cluster", "tldr", "critique", "summarize",
             "deep_analysis", "wechat_structure",
             "narrative", "brief_summary", "trends",
+            "score_filter", "topic_group",
         }
         assert set(TASK_PROFILES.keys()) == expected
 

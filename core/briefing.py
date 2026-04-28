@@ -379,7 +379,8 @@ def _build_theme_groups(ai_articles, cluster_map=None):
     return themes[:8]
 
 
-def _combine_briefing_stats(ai_articles, non_ai_articles, stats=None, cluster_map=None):
+def _combine_briefing_stats(ai_articles, non_ai_articles, stats=None, cluster_map=None,
+                            llm_themes=None):
     """Normalize top-level report statistics."""
     stats = dict(stats or {})
     total_included = len(ai_articles) + len(non_ai_articles)
@@ -388,14 +389,17 @@ def _combine_briefing_stats(ai_articles, non_ai_articles, stats=None, cluster_ma
     stats.setdefault("after_dedup", total_included)
     stats.setdefault("candidate_count", total_included)
     stats.setdefault("source_count", len({a.source for a in ai_articles + non_ai_articles if a.source}))
-    if cluster_map:
-        stats.setdefault("cluster_count", len({info.get("cluster_id") for info in cluster_map.values() if info.get("cluster_id")}))
-        stats.setdefault("cross_source_count", len({info.get("cluster_id") for info in cluster_map.values() if info.get("cross_source")}))
+    if llm_themes is not None:
+        stats["theme_count"] = len(llm_themes)
     else:
-        stats.setdefault("cluster_count", 0)
-        stats.setdefault("cross_source_count", 0)
-    stats["ai_count"] = len(ai_articles)
-    stats["non_ai_count"] = len(non_ai_articles)
+        if cluster_map:
+            stats.setdefault("cluster_count", len({info.get("cluster_id") for info in cluster_map.values() if info.get("cluster_id")}))
+            stats.setdefault("cross_source_count", len({info.get("cluster_id") for info in cluster_map.values() if info.get("cross_source")}))
+        else:
+            stats.setdefault("cluster_count", 0)
+            stats.setdefault("cross_source_count", 0)
+        stats["ai_count"] = len(ai_articles)
+        stats["non_ai_count"] = len(non_ai_articles)
     return stats
 
 
@@ -406,20 +410,64 @@ def _select_featured_tech(non_ai_articles, max_count=5):
     return must_read[:max_count]
 
 
-def build_briefing_data(ai_articles, non_ai_articles, cluster_map=None, summary_map=None,
-                        stats=None):
-    """Build the neutral briefing-data contract shared by markdown and wechat."""
+def _convert_llm_themes(llm_themes, summary_map=None):
+    """Convert LLM-generated themes to briefing theme format."""
+    themes = []
+    for i, t in enumerate(llm_themes):
+        theme = {
+            "id": f"llm-theme-{i}",
+            "theme": t["title"],
+            "title": t["title"],
+            "articles": t["articles"][:4],
+            "score": t["score"],
+            "cluster_theme": "",
+            "cross_source": t.get("cross_source", False),
+            "summary": t.get("summary", ""),
+        }
+        if not theme["summary"]:
+            theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map)
+        themes.append(theme)
+    return themes
+
+
+def build_briefing_data(ai_articles, non_ai_articles=None, cluster_map=None, summary_map=None,
+                        stats=None, llm_themes=None, llm_leftovers=None):
+    """Build the neutral briefing-data contract shared by markdown and wechat.
+
+    Supports two modes:
+    - Legacy: ai_articles + non_ai_articles + cluster_map (heuristic themes)
+    - LLM: ai_articles (all) + llm_themes + llm_leftovers (LLM-generated themes)
+    """
+    if llm_themes is not None:
+        # LLM pipeline mode — unified articles, no AI/non-AI split
+        non_ai = non_ai_articles or []
+        all_articles = list(ai_articles) + list(non_ai)
+        themes = _convert_llm_themes(llm_themes, summary_map=summary_map)
+        brief_items = list(llm_leftovers or [])[:20]
+        return {
+            "highlights": _fallback_highlights(all_articles, [], cluster_map=None),
+            "themes": themes[:8],
+            "featured_tech": [],
+            "brief_items": brief_items,
+            "stats": _combine_briefing_stats(
+                all_articles, [], stats=stats, cluster_map=None, llm_themes=llm_themes,
+            ),
+            "trends": _fallback_trends(themes[:8], brief_items=brief_items),
+        }
+
+    # Backward-compatible heuristic mode
+    non_ai = non_ai_articles or []
     cluster_map = cluster_map or {}
     themes = _build_theme_groups(ai_articles, cluster_map=cluster_map)
     for theme in themes:
         theme["summary"] = _compose_theme_summary(theme, summary_map=summary_map)
-    brief_items = _select_brief_items(non_ai_articles, 20)
+    brief_items = _select_brief_items(non_ai, 20)
     return {
-        "highlights": _fallback_highlights(ai_articles, non_ai_articles, cluster_map=cluster_map),
+        "highlights": _fallback_highlights(ai_articles, non_ai, cluster_map=cluster_map),
         "themes": themes[:8],
-        "featured_tech": _select_featured_tech(non_ai_articles),
+        "featured_tech": _select_featured_tech(non_ai),
         "brief_items": brief_items,
-        "stats": _combine_briefing_stats(ai_articles, non_ai_articles, stats=stats, cluster_map=cluster_map),
+        "stats": _combine_briefing_stats(ai_articles, non_ai, stats=stats, cluster_map=cluster_map),
         "trends": _fallback_trends(themes[:8], brief_items=brief_items),
     }
 

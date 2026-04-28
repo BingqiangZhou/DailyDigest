@@ -122,10 +122,10 @@ def _build_run_metadata(run_id, source_count, candidate_count, after_dedup, afte
 # ---------------------------------------------------------------------------
 
 def try_build_unified_report(source, now, output_format="markdown"):
-    """Attempt to build a unified two-part report from workspace article data.
+    """Attempt to build a unified report from workspace article data.
 
-    Uses API-based AI filter when API_KEY is set, or sub-agent summary data
-    for Skill mode classification when no API_KEY.
+    Uses LLM scoring + theme grouping when API_KEY is set, or sub-agent
+    summary data for Skill mode when no API_KEY.
     """
     from .article import Article
 
@@ -158,19 +158,41 @@ def try_build_unified_report(source, now, output_format="markdown"):
         merged_summaries.update(s)
 
     if api_key:
-        from .ai_filter import filter_ai_articles
-        logger.info(f"\n🤖 Building unified AI + non-AI report from {len(all_articles)} articles...")
-        ai_articles, non_ai_articles = filter_ai_articles(all_articles)
-    else:
-        if not merged_summaries:
+        logger.info(f"\n🤖 Building unified report from {len(all_articles)} articles (LLM pipeline)...")
+        from .llm_classify import score_and_filter_articles, group_articles_by_theme
+
+        all_articles, score_stats = score_and_filter_articles(all_articles)
+        llm_themes, leftovers = group_articles_by_theme(all_articles)
+
+        if not all_articles:
             return None
-        logger.info(f"\n🤖 Building unified report from {len(all_articles)} articles (Skill mode)...")
-        ai_articles, non_ai_articles = classify_from_summaries(all_articles, merged_summaries)
+
+        merged_stats = _merge_run_stats(source_stats)
+        merged_stats.update(score_stats)
+
+        if output_format == "wechat":
+            return build_unified_wechat_report(
+                all_articles, now=now,
+                llm_themes=llm_themes, llm_leftovers=leftovers,
+                stats=merged_stats,
+            )
+
+        return build_unified_report(
+            all_articles, now=now,
+            llm_themes=llm_themes, llm_leftovers=leftovers,
+            stats=merged_stats,
+        )
+
+    # Skill mode: use sub-agent summaries for classification
+    if not merged_summaries:
+        return None
+    logger.info(f"\n🤖 Building unified report from {len(all_articles)} articles (Skill mode)...")
+    ai_articles, non_ai_articles = classify_from_summaries(all_articles, merged_summaries)
 
     if not ai_articles and not non_ai_articles:
         return None
 
-    # Generate topic clusters for AI articles
+    # Skill mode: heuristic clustering + editorial
     cluster_map = {}
     try:
         from .topic_cluster import cluster_articles, get_cluster_map
@@ -179,8 +201,6 @@ def try_build_unified_report(source, now, output_format="markdown"):
     except Exception as e:
         logger.warning(f"⚠️ Clustering failed (non-fatal): {e}")
 
-    # Run editorial pipeline on AI articles if they lack tier data
-    # (e.g. Skill mode path, or if pipeline failed during initial fetch)
     if not any(a.extra.get("editorial_tier") for a in ai_articles):
         try:
             from .editorial import run_editorial_pipeline
@@ -191,14 +211,6 @@ def try_build_unified_report(source, now, output_format="markdown"):
             import traceback
             logger.warning(f"⚠️ Editorial pipeline in finalize failed: {e}")
             logger.debug(traceback.format_exc())
-
-    # Full-text enrichment (optional)
-    if api_key and os.environ.get("ENRICH_FULL_TEXT"):
-        try:
-            from .enrich import enrich_tech_articles
-            ai_articles, _ = enrich_tech_articles(ai_articles, cluster_map=cluster_map)
-        except Exception as e:
-            logger.warning(f"⚠️ Enrichment failed (non-fatal): {e}")
 
     if output_format == "wechat":
         return build_unified_wechat_report(
@@ -430,53 +442,27 @@ def run_tech_unified(hours=48, limit=None):
     after_dedup_total = len(new_articles)
     logger.info(f"✅ {len(new_articles)} new articles total ({time.time() - t2:.1f}s)")
 
-    # Feed-level noise filtering for high-noise sources
-    try:
-        from .ai_filter import apply_feed_noise_filter
-        pre_count = len(new_articles)
-        new_articles = apply_feed_noise_filter(new_articles)
-        if len(new_articles) < pre_count:
-            logger.info(f"🧹 Feed noise filter: {pre_count} → {len(new_articles)} articles")
-    except Exception as e:
-        logger.warning(f"⚠️ Feed noise filter failed (non-fatal): {e}")
-
     def _is_wechat_article(a):
         return a.category.startswith("wechat_") or "mp.weixin.qq.com" in a.url
 
-    # Step 3: Cluster topics
-    cluster_map = {}
-    t3 = time.time()
-    try:
-        logger.info("🔍 Step 3/6: Clustering topics...")
-        from .topic_cluster import cluster_articles, get_cluster_map
-        topic_clusters = cluster_articles(new_articles)
-        cluster_map = get_cluster_map(topic_clusters)
-        clustered = sum(1 for c in topic_clusters if c["size"] > 1)
-        logger.info(f"✅ {len(topic_clusters)} topic clusters ({clustered} multi-article) ({time.time() - t3:.1f}s)")
-    except Exception as e:
-        logger.warning(f"⚠️ Topic clustering failed (non-fatal): {e}")
+    # Step 3: LLM scoring & filtering
+    pre_scoring_articles = list(new_articles)
 
-    # Step 4: Editorial pipeline — scoring, tiering, depth allocation, filtering
-    pre_editorial_articles = list(new_articles)
+    logger.info("🤖 Step 3/6: LLM scoring & filtering...")
+    from .llm_classify import score_and_filter_articles
+    new_articles, score_stats = score_and_filter_articles(new_articles)
+    logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
 
-    try:
-        from .editorial import run_editorial_pipeline
-        new_articles, editorial_stats = run_editorial_pipeline(new_articles, cluster_map)
-    except Exception as e:
-        import traceback
-        logger.warning(f"⚠️ Editorial pipeline failed (non-fatal): {e}")
-        logger.debug(traceback.format_exc())
-
-    # Save workspace data AFTER editorial pipeline so tier data is preserved
-    tech_pre_editorial = [a for a in pre_editorial_articles if not _is_wechat_article(a)]
-    wechat_pre_editorial = [a for a in pre_editorial_articles if _is_wechat_article(a)]
+    # Save workspace data AFTER scoring pipeline so tier data is preserved
+    tech_pre_scoring = [a for a in pre_scoring_articles if not _is_wechat_article(a)]
+    wechat_pre_scoring = [a for a in pre_scoring_articles if _is_wechat_article(a)]
     tech_new = [a for a in new_articles if not _is_wechat_article(a)]
     wechat_new = [a for a in new_articles if _is_wechat_article(a)]
     tech_metadata = _build_run_metadata(
         run_id,
         source_count=len(feed_list),
         candidate_count=len(tech_articles),
-        after_dedup=len(tech_pre_editorial),
+        after_dedup=len(tech_pre_scoring),
         after_editorial=len(tech_new),
         included_count=len(tech_new),
         extra=tech_stats,
@@ -487,7 +473,7 @@ def run_tech_unified(hours=48, limit=None):
             run_id,
             source_count=wechat_stats.get("source_count", 0),
             candidate_count=len(wechat_articles),
-            after_dedup=len(wechat_pre_editorial),
+            after_dedup=len(wechat_pre_scoring),
             after_editorial=len(wechat_new),
             included_count=len(wechat_new),
             extra=wechat_stats,
@@ -513,32 +499,31 @@ def run_tech_unified(hours=48, limit=None):
         return None
 
     t4 = time.time()
-    logger.info("🤖 Step 6/6: AI split + unified briefing build...")
-    from .ai_filter import filter_ai_articles
+    logger.info("🤖 Step 6/6: LLM theme grouping + unified briefing...")
+    from .llm_classify import group_articles_by_theme
     from .report_builder import build_unified_report
 
-    ai_articles, non_ai_articles = filter_ai_articles(new_articles)
+    llm_themes, leftovers = group_articles_by_theme(new_articles)
     now = datetime.now(timezone.utc)
     report = build_unified_report(
-        ai_articles,
-        non_ai_articles,
-        now,
-        cluster_map=cluster_map,
+        new_articles,
+        now=now,
+        llm_themes=llm_themes,
+        llm_leftovers=leftovers,
         stats={
             "run_id": run_id,
             "source_count": len(feed_list) + wechat_stats.get("source_count", 0),
             "candidate_count": candidate_count,
             "after_dedup": after_dedup_total,
-            "after_editorial": len(new_articles),
-            "included_count": len(ai_articles) + len(non_ai_articles),
+            "included_count": len(new_articles),
         },
     )
-
     combined_stats = {
-        "total_articles": len(ai_articles) + len(non_ai_articles),
+        "total_articles": len(new_articles),
         "tech": len(tech_new),
         "wechat": len(wechat_new),
     }
+
     logger.info(f"⏱️ Total pipeline time: {time.time() - t_start:.1f}s")
     return report, combined_stats
 

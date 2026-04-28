@@ -36,9 +36,25 @@ python main.py --source podcast       # 播客
 python main.py --source wechat        # 微信公众号
 python main.py --source all           # 全部源
 python main.py --hours 72             # 自定义时间范围
-python main.py --language en          # 英文报告
+python main.py --format wechat        # 公众号格式输出
 python main.py --limit 20             # 限制源数量（测试用）
 python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘要生成最终报告
+```
+
+## 处理管线
+
+```
+RSS/WeChat/Podcast feeds
+  → Fetch（并发抓取，Feed 健康熔断）
+  → Dedup（URL 标准化 + Jaccard 标题相似度）
+  → Noise filter（负面门控 → 关键词匹配 → 硬相关性检查）
+  → Topic cluster（关键词提取，Jaccard 相似度，层次合并）
+  → Editorial pipeline（6 因子新闻价值评分 → 三级分层）
+  → AI/non-AI split（LLM 分类 + 关键词回退）
+  → AI path：LLM 深度分析（草稿 → 自我批评 → 精炼）
+  → Non-AI path：模板渲染（上限 30 篇）
+  → 统一两部分报告（Part I: AI 深度，Part II: 科技简讯）
+  → TL;DR 生成
 ```
 
 ## 信息源
@@ -57,40 +73,57 @@ python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘�
 ├── SKILL.md                 # Claude Code Skill 定义
 ├── core/                    # 核心模块
 │   ├── article.py           # 统一数据模型（Article dataclass）
-│   ├── config.py            # 配置管理、分类体系
-│   ├── http.py              # 共享 HTTP/SSL 工具（抓取、重试、ETag 缓存）
-│   ├── html_utils.py        # 共享 HTML 解析（零依赖 + BeautifulSoup）
-│   ├── rss_fetcher.py       # RSS 抓取（feedparser + stdlib 双后端）
-│   ├── dedup.py             # 文章去重（SHA-256 + Jaccard 相似度）
-│   ├── ai_summarizer.py     # AI 摘要（OpenAI API，带重试）
-│   ├── report_builder.py  # Markdown 报告生成
+│   ├── config.py            # 配置、分类体系、权威域名、编辑阈值
 │   ├── pipeline.py          # Pipeline 编排（运行、合并、finalize）
+│   ├── llm.py               # LLM 客户端（重试、降级、任务 profile）
+│   ├── llm_services.py      # LLM 服务（摘要、分类摘要、趋势、批处理）
+│   ├── llm_utils.py         # LLM 工具（JSON 解析、文本清洗）
+│   ├── ai_filter.py         # AI/非AI 文章分类
+│   ├── editorial.py         # 编辑管线（6 因子新闻价值评分 → 层级分配）
+│   ├── topic_cluster.py     # 主题聚类（关键词提取 + Jaccard + 层次合并）
+│   ├── briefing.py          # 简报生成（V2 格式、TL;DR、主题标题）
+│   ├── renderer.py          # Markdown 渲染（段落、表格、引用链接）
+│   ├── report_builder.py    # 报告构建（统一报告、分类结果、TOC）
+│   ├── enrich.py            # 全文丰富（必读文章）
+│   ├── dedup.py             # 文章去重（SHA-256 URL + Jaccard 标题相似度）
+│   ├── feed_health.py       # Feed 健康（熔断器、5 次失败跳过、24h 重试）
+│   ├── rss_fetcher.py       # RSS 抓取（feedparser）
+│   ├── http.py              # HTTP/SSL 工具（重试、ETag 缓存）
+│   ├── html_utils.py        # HTML 解析（零依赖 + BeautifulSoup）
+│   ├── wechat_utils.py      # 微信：Feed 获取、全文提取、报告构建
+│   ├── wechat_article.py    # 微信文章渲染
 │   ├── podcast_utils.py     # 播客：小宇宙解析、播客报告
-│   └── wechat_utils.py      # 微信：Feed 获取、全文提取、微信报告
-├── config/                  # 源配置
+│   ├── workspace.py         # 工作空间管理
+│   ├── date_utils.py        # 日期工具
+│   └── logging_config.py    # 日志配置
+├── config/                  # 配置
+│   ├── prompts/             # LLM Prompt 模板（7 个）
 │   ├── tech_feeds.json      # 科技 RSS 源
 │   ├── podcast_feeds.json   # 播客源
 │   ├── wechat_feeds.json    # 微信公众号源
 │   └── youtube_feeds.json   # YouTube 频道
-├── scripts/
-│   └── fetch_transcripts.py # YouTube 字幕提取
-├── .github/workflows/
-│   └── digest.yml           # GitHub Actions 定时任务
+├── knowledge/               # 内容策略、编辑风格、Prompt 技巧
+├── scripts/                 # 工具脚本
+├── .github/workflows/       # CI/CD（digest.yml + auto-retry.yml）
 ├── daily-digests/           # 报告输出（Actions 自动提交）
 └── workspace/               # 运行时中间文件（gitignore）
 ```
 
 ## 核心特性
 
-- **双后端 RSS 抓取**：feedparser（功能全）+ stdlib urllib（零依赖），自动按 API_KEY 切换
-- **ETag/If-Modified-Since 缓存**：增量更新，避免重复抓取
-- **跨源去重**：URL 标准化 + 词级倒排索引加速的 Jaccard 标题相似度
-- **并发抓取**：ThreadPoolExecutor，实时进度输出
-- **优先级分级**：每个源可设置 priority（1/2/3），控制最大文章数
-- **小宇宙集成**：自动解析播客页面的 `__NEXT_DATA__` 匹配 episode URL
-- **统一数据模型**：Article dataclass 统一科技/播客/微信三种源的数据格式
-- **报告格式美化**：标题加粗、`·` 分隔来源、清晰可见，合并报告自动降级标题层级、消除重复分隔符- **统一分类体系**：15 个分类，兼容两个源项目的分类映射
-- **AI API 容错**：3 次重试 + 退避 + 超时控制
+- **并发抓取 + Feed 健康熔断** — ThreadPoolExecutor 并发抓取，连续 5 次失败自动跳过，24h 后重试
+- **ETag/If-Modified-Since 缓存** — 增量更新，避免重复抓取
+- **跨源去重** — URL 标准化 + Jaccard 标题相似度
+- **噪声过滤** — 负面门控 → 关键词匹配 → 硬相关性检查
+- **主题聚类** — 关键词提取 + Jaccard 相似度 + 层次合并
+- **编辑管线** — 6 因子新闻价值评分 → 三级分层（必读 / 值得关注 / 简讯）
+- **权威度评分** — 76 个域名 4 级权重（AI 实验室 1.0 → 聚合站 0.55）
+- **AI/非AI 分流** — LLM 分类 + 关键词回退
+- **深度分析** — 草稿 → 自我批评 → 精炼，三阶段 LLM 循环
+- **TL;DR 生成** — 自动提取主题标题和简明摘要
+- **统一两部分报告** — Part I: AI 深度分析，Part II: 科技简讯
+- **小宇宙集成** — 自动解析播客页面 episode URL
+- **AI API 容错** — 重试 + 退避 + 超时 + 降级模式
 
 ## GitHub Actions Secrets
 
@@ -103,7 +136,7 @@ python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘�
 
 ## LLM 稳定性参数
 
-默认策略按“成功率优先”收敛，适合 NVIDIA NIM 和大多数 OpenAI 兼容后端：
+默认策略按"成功率优先"收敛，适合 NVIDIA NIM 和大多数 OpenAI 兼容后端：
 
 | Env Var | 默认值 | 作用 |
 |--------|--------|------|

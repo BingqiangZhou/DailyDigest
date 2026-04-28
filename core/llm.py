@@ -36,6 +36,8 @@ TASK_PROFILES = {
     "narrative": {"temperature": 0.6, "top_p": 0.9, "max_tokens": 800},
     "brief_summary": {"temperature": 0.3, "top_p": 0.9, "max_tokens": 200},
     "trends": {"temperature": 0.5, "top_p": 0.9, "max_tokens": 1500},
+    "score_filter": {"temperature": 0.2, "top_p": 0.9, "max_tokens": 3000},
+    "topic_group": {"temperature": 0.3, "top_p": 0.9, "max_tokens": 3000},
 }
 
 # Module-level singleton
