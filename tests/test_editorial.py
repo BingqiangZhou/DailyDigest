@@ -11,25 +11,7 @@ from core.editorial import (
     allocate_depth,
     run_editorial_pipeline,
 )
-
-
-def _make_article(title="Test", url="https://example.com/1",
-                  source="TestSource", category="ai_ml",
-                  priority=3, hn_points=None, description=""):
-    """Helper to create an Article with common defaults."""
-    extra = {"priority": priority}
-    if hn_points is not None:
-        extra["hn_points"] = hn_points
-    return Article(
-        title=title,
-        url=url,
-        source=source,
-        category=category,
-        published="2026-04-27T08:00:00",
-        description=description,
-        language="en",
-        extra=extra,
-    )
+from .conftest import make_article as _make_article
 
 
 class TestComputeArticleAuthority:

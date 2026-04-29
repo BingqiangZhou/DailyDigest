@@ -23,6 +23,21 @@ WORKSPACE_DIR = PROJECT_ROOT / "workspace"
 
 
 # ============================================================
+# API key & shared constants
+# ============================================================
+
+def has_api_key() -> bool:
+    """Check whether the API_KEY environment variable is set."""
+    return bool(os.environ.get("API_KEY"))
+
+DEPTH_MAP = {
+    "must_read": "deep_analysis",
+    "noteworthy": "summary_only",
+    "brief": "headline_only",
+}
+
+
+# ============================================================
 # 分类定义
 # ============================================================
 

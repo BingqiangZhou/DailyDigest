@@ -2,19 +2,8 @@
 
 import json
 
-from core.article import Article
 from core.workspace import merge_batch_summaries, save_workspace_updates
-
-
-def _make_article(title="Test Article"):
-    return Article(
-        title=title,
-        url=f"https://example.com/{title}",
-        source="TestSource",
-        category="ai_ml",
-        published="2026-04-27T12:00:00",
-        description="Test description",
-    )
+from .conftest import make_article as _make_article
 
 
 class TestWorkspaceSummaries:

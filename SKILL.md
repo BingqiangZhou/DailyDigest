@@ -15,7 +15,6 @@ description: |
 |----|------|------|
 | 科技新闻 | 268+ RSS + HN | `python main.py --source tech` |
 | 播客 | 1000 中文播客 | `python main.py --source podcast` |
-| 微信公众号 | ~395 个 | `python main.py --source wechat` |
 | 全部 | 所有源 | `python main.py --source all` |
 
 ## 快速开始
@@ -25,7 +24,6 @@ description: |
 ```bash
 python main.py --source tech
 python main.py --source podcast
-python main.py --source wechat
 python main.py --source all
 ```
 
@@ -56,16 +54,6 @@ python main.py --source podcast
 
 # Step 2: Claude 用 sub-agent 生成摘要
 # （读取 workspace/podcast_updates.json，分批启动 sub-agent）
-```
-
-#### 微信公众号（sub-agent 模式）
-
-```bash
-# Step 1: 抓取（保存到 workspace/wechat_updates.json）
-python main.py --source wechat
-
-# Step 2: Claude 用 sub-agent 生成摘要
-# （读取 workspace/wechat_updates.json，分批启动 sub-agent）
 ```
 
 ## Sub-agent 摘要 Prompt 模板
@@ -127,39 +115,42 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 ├── main.py                  # 统一入口（GitHub Actions 和 Skill 都调用它）
 ├── core/                    # 核心模块
 │   ├── article.py           # Article 数据类 + ArticleExtra TypedDict
-│   ├── config.py            # 配置管理（分类、环境变量）
+│   ├── config.py            # 配置管理（分类、环境变量、共享常量）
 │   ├── llm.py               # LLM 客户端单例 + 任务配置 + 重试逻辑
 │   ├── llm_utils.py         # JSON 解析（code fence 剥离 + json.loads）
+│   ├── llm_classify.py      # LLM 评分 + 主题分组
+│   ├── llm_services.py      # LLM 服务（简报生成、主题标题、TLDR）
 │   ├── logging_config.py    # 结构化 logging 配置
 │   ├── rss_fetcher.py       # RSS 抓取
 │   ├── dedup.py             # 去重
-│   ├── ai_summarizer.py     # AI 摘要（并发批量 + 多轮审阅）
-│   ├── ai_report.py         # AI 深度分析报告
-│   ├── ai_filter.py         # AI/非AI 分类
-│   ├── wechat_article.py    # 公众号文章渲染
-│   ├── topic_cluster.py     # 话题聚类与重要性评分
-│   ├── enrich.py            # 全文补充（ENRICH_FULL_TEXT=1 开启）
-│   ├── report_builder.py  # 报告生成
-│   ├── pipeline.py          # Pipeline 编排（run_tech/run_podcast/run_wechat）
+│   ├── editorial.py         # 编辑管线（6 因子新闻价值评分 → 层级分配）
+│   ├── topic_cluster.py     # 话题聚类与重要性评分（Skill 模式）
+│   ├── embedding_cluster.py # 嵌入向量聚类（API 模式）
+│   ├── briefing.py          # 简报数据模型
+│   ├── renderer.py          # Markdown 渲染
+│   ├── report_builder.py    # 报告构建（统一报告、分类结果）
+│   ├── pipeline.py          # Pipeline 编排（run_tech_unified/run_podcast/finalize）
 │   ├── podcast_utils.py     # 播客专有逻辑
-│   └── wechat_utils.py      # 微信专有逻辑
+│   ├── wechat_utils.py      # 微信专有逻辑
+│   ├── feed_health.py       # Feed 健康跟踪与熔断
+│   ├── http.py              # HTTP 客户端（重试、ETag 缓存）
+│   ├── html_utils.py        # HTML 解析
+│   ├── workspace.py         # 工作空间管理
+│   ├── date_utils.py        # 日期工具
+│   └── dedup.py             # 文章去重
 ├── config/                  # 源配置 + Prompt 模板
 │   ├── prompts/             # Prompt 模板（独立模块）
 │   │   ├── ai_filter.py     #   AI 过滤 prompt
 │   │   ├── ai_report.py     #   深度分析 prompt
-│   │   ├── wechat.py        #   公众号结构 prompt
-│   │   └── critique.py      #   审阅 prompt
+│   │   ├── summarizer.py    #   摘要 prompt
+│   │   ├── critique.py      #   审阅 prompt
+│   │   ├── narrative.py     #   叙事 prompt
+│   │   ├── llm_classify.py  #   分类评分 prompt
+│   │   └── podcast_theme.py #   播客主题 prompt
 │   ├── tech_feeds.json      # 268+ 科技 RSS
 │   ├── podcast_feeds.json   # 1000 播客
-│   ├── youtube_feeds.json   # YouTube 频道
 │   └── wechat_feeds.json    # 微信公众号
-├── tests/                   # 测试套件（pytest）
-│   ├── conftest.py          # 共享 fixture
-│   ├── test_article.py      # Article 数据类测试
-│   ├── test_config.py       # 配置函数测试
-│   ├── test_llm_utils.py    # JSON 解析测试
-│   ├── test_wechat_article.py # 渲染函数测试
-│   └── test_report_builder.py # 报告工具函数测试
+├── tests/                   # 测试套件（pytest, 13 文件）
 ├── knowledge/               # 知识库
 ├── workspace/               # 运行时中间文件
 └── daily-digests/           # 报告输出

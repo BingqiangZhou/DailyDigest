@@ -55,3 +55,30 @@ def sample_articles(sample_article, sample_article_zh, sample_article_hn):
 def now_utc():
     """Fixed UTC datetime for deterministic tests."""
     return datetime(2026, 4, 6, 5, 30, tzinfo=timezone.utc)
+
+
+def make_article(title="Test Article", url=None, source="TestSource", category="ai_ml",
+                 published="2026-04-27T12:00:00", description="", language=None,
+                 priority=None, hn_points=None, tier=None, score=None, extra=None):
+    """Flexible Article factory for tests. Extra kwargs override auto-set fields."""
+    _extra = extra or {}
+    if priority is not None:
+        _extra.setdefault("priority", priority)
+    if hn_points is not None:
+        _extra.setdefault("hn_points", hn_points)
+    if tier is not None:
+        _extra.setdefault("editorial_tier", tier)
+    if score is not None:
+        _extra.setdefault("news_value_score", score)
+    kwargs = dict(
+        title=title,
+        url=url or f"https://test/{title}",
+        source=source,
+        category=category,
+        published=published,
+        description=description or f"Description of {title}",
+        extra=_extra,
+    )
+    if language:
+        kwargs["language"] = language
+    return Article(**kwargs)

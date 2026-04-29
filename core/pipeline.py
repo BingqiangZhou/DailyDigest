@@ -14,6 +14,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urlparse
 
 from .logging_config import get_logger
+from .config import has_api_key
 from .workspace import (
     ensure_pipeline_dirs,
     save_workspace_updates, load_workspace_data, merge_batch_summaries,
@@ -71,6 +72,31 @@ def _group_feeds_by_shared_domain(feed_list, threshold=20):
     shared = [f for f in feed_list if urlparse(f["url"]).netloc in shared_domains]
     unique = [f for f in feed_list if urlparse(f["url"]).netloc not in shared_domains]
     return shared, unique, shared_domains
+
+
+def _run_theming(articles, prompt_template=None):
+    """Run embedding clustering + LLM theme interpretation, or fallback to LLM grouping.
+
+    Returns (llm_themes, singletons, leftovers).
+    """
+    from .config import EMBEDDING_CLUSTERING_ENABLED
+
+    if EMBEDDING_CLUSTERING_ENABLED:
+        from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
+        from .llm_classify import interpret_themes_with_llm
+        try:
+            embeddings = embed_articles(articles)
+            clusters = cluster_by_embedding(articles, embeddings)
+            kwargs = {"prompt_template": prompt_template} if prompt_template else {}
+            llm_themes, singletons = interpret_themes_with_llm(clusters, **kwargs)
+            leftovers = get_cluster_leftovers(clusters, articles)
+            return llm_themes, singletons, leftovers
+        except RuntimeError as e:
+            logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
+
+    from .llm_classify import group_articles_by_theme
+    llm_themes, leftovers = group_articles_by_theme(articles)
+    return llm_themes, [], leftovers
 
 
 def _log_no_api_key(source_type, path):
@@ -152,7 +178,7 @@ def try_build_unified_report(source, now):
     if not all_articles:
         return None
 
-    api_key = os.environ.get("API_KEY")
+    api_key = has_api_key()
     merged_summaries = {}
     for s in summaries_by_source.values():
         merged_summaries.update(s)
@@ -167,23 +193,7 @@ def try_build_unified_report(source, now):
             return None
 
         from .config import EMBEDDING_CLUSTERING_ENABLED
-        if EMBEDDING_CLUSTERING_ENABLED:
-            from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
-            from .llm_classify import interpret_themes_with_llm
-            try:
-                embeddings = embed_articles(all_articles)
-                clusters = cluster_by_embedding(all_articles, embeddings)
-                llm_themes, singletons = interpret_themes_with_llm(clusters)
-                leftovers = get_cluster_leftovers(clusters, all_articles)
-            except RuntimeError as e:
-                logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
-                from .llm_classify import group_articles_by_theme
-                llm_themes, leftovers = group_articles_by_theme(all_articles)
-                singletons = []
-        else:
-            from .llm_classify import group_articles_by_theme
-            llm_themes, leftovers = group_articles_by_theme(all_articles)
-            singletons = []
+        llm_themes, singletons, leftovers = _run_theming(all_articles)
 
         merged_stats = _merge_run_stats(source_stats)
         merged_stats.update(score_stats)
@@ -251,7 +261,7 @@ def try_build_podcast_report(now, output_format="markdown"):
         return None
 
     metadata = data.get("metadata", {})
-    api_key = os.environ.get("API_KEY")
+    api_key = has_api_key()
 
     if api_key:
         logger.info(f"\n🎙️ Building podcast report from {len(all_articles)} episodes (LLM pipeline)...")
@@ -262,26 +272,10 @@ def try_build_podcast_report(now, output_format="markdown"):
             return None
 
         from .config import EMBEDDING_CLUSTERING_ENABLED
-        if EMBEDDING_CLUSTERING_ENABLED:
-            from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
-            from .llm_classify import interpret_themes_with_llm
-            try:
-                embeddings = embed_articles(all_articles)
-                clusters = cluster_by_embedding(all_articles, embeddings)
-                from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
-                llm_themes, singletons = interpret_themes_with_llm(
-                    clusters, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH,
-                )
-                leftovers = get_cluster_leftovers(clusters, all_articles)
-            except RuntimeError as e:
-                logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
-                from .llm_classify import group_articles_by_theme
-                llm_themes, leftovers = group_articles_by_theme(all_articles)
-                singletons = []
-        else:
-            from .llm_classify import group_articles_by_theme
-            llm_themes, leftovers = group_articles_by_theme(all_articles)
-            singletons = []
+        from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
+        llm_themes, singletons, leftovers = _run_theming(
+            all_articles, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH,
+        )
 
         from .podcast_utils import build_podcast_briefing_report
 
@@ -467,7 +461,7 @@ def run_tech_unified(hours=48, limit=None):
     t_start = time.time()
     timer = PipelineTimer(budget_seconds=int(os.environ.get("PIPELINE_BUDGET_SECONDS", "2400")))
     ensure_pipeline_dirs()
-    api_key = os.environ.get("API_KEY")
+    api_key = has_api_key()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     # Cleanup stale feed health and dedup entries
@@ -590,30 +584,9 @@ def run_tech_unified(hours=48, limit=None):
 
     t4 = time.time()
 
-    from .config import EMBEDDING_CLUSTERING_ENABLED
-    if EMBEDDING_CLUSTERING_ENABLED:
-        logger.info("🤖 Step 5/5: Embedding clustering + LLM interpretation + unified briefing...")
-        from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
-        from .llm_classify import interpret_themes_with_llm
-        from .report_builder import build_unified_report
-
-        try:
-            embeddings = embed_articles(new_articles)
-            clusters = cluster_by_embedding(new_articles, embeddings)
-            llm_themes, singletons = interpret_themes_with_llm(clusters)
-            leftovers = get_cluster_leftovers(clusters, new_articles)
-        except RuntimeError as e:
-            logger.warning(f"⚠️ Embedding clustering failed, falling back to LLM grouping: {e}")
-            from .llm_classify import group_articles_by_theme
-            llm_themes, leftovers = group_articles_by_theme(new_articles)
-            singletons = []
-    else:
-        logger.info("🤖 Step 5/5: LLM theme grouping + unified briefing...")
-        from .llm_classify import group_articles_by_theme
-        from .report_builder import build_unified_report
-
-        llm_themes, leftovers = group_articles_by_theme(new_articles)
-        singletons = []
+    logger.info("🤖 Step 5/5: Clustering + unified briefing...")
+    from .report_builder import build_unified_report
+    llm_themes, singletons, leftovers = _run_theming(new_articles)
     now = datetime.now(timezone.utc)
     report = build_unified_report(
         new_articles,
@@ -648,7 +621,7 @@ def run_podcast(hours=24, limit=None):
 
     t_start = time.time()
     ensure_pipeline_dirs()
-    api_key = os.environ.get("API_KEY")
+    api_key = has_api_key()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
     logger.info("\n🎙️ Step 1/5: Checking podcast updates...")
@@ -742,35 +715,18 @@ def run_podcast(hours=24, limit=None):
 
     if api_key:
         # Step 4a: Embedding clustering + theme interpretation
-        from .config import EMBEDDING_CLUSTERING_ENABLED
-        if EMBEDDING_CLUSTERING_ENABLED:
-            logger.info("📄 Step 4/5: Embedding clustering + podcast briefing...")
-            from .embedding_cluster import embed_articles, cluster_by_embedding, get_cluster_leftovers
-            from .llm_classify import interpret_themes_with_llm
-            from .podcast_utils import build_podcast_briefing_report
-            from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
-            embeddings = embed_articles(updates)
-            clusters = cluster_by_embedding(updates, embeddings)
-            llm_themes, singletons = interpret_themes_with_llm(
-                clusters, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH
-            )
-            leftovers = get_cluster_leftovers(clusters, updates)
-            report = build_podcast_briefing_report(
-                updates, now=datetime.now(timezone.utc),
-                llm_themes=llm_themes, llm_leftovers=leftovers,
-                embedding_singletons=singletons,
-                stats=podcast_metadata,
-            )
-        else:
-            logger.info("📄 Step 4/5: LLM theme grouping + podcast briefing...")
-            from .llm_classify import group_articles_by_theme
-            from .podcast_utils import build_podcast_briefing_report
-            llm_themes, leftovers = group_articles_by_theme(updates)
-            report = build_podcast_briefing_report(
-                updates, now=datetime.now(timezone.utc),
-                llm_themes=llm_themes, llm_leftovers=leftovers,
-                stats=podcast_metadata,
-            )
+        logger.info("📄 Step 4/5: Clustering + podcast briefing...")
+        from .podcast_utils import build_podcast_briefing_report
+        from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
+        llm_themes, singletons, leftovers = _run_theming(
+            updates, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH,
+        )
+        report = build_podcast_briefing_report(
+            updates, now=datetime.now(timezone.utc),
+            llm_themes=llm_themes, llm_leftovers=leftovers,
+            embedding_singletons=singletons,
+            stats=podcast_metadata,
+        )
     else:
         # Keep existing simple table format for Skill mode
         logger.info("📄 Step 4/5: Preliminary report (no AI summaries)...")

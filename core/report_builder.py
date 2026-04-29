@@ -13,9 +13,9 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from .logging_config import get_logger
-from .config import OUTPUT_DIR, CATEGORY_ORDER, get_category_display, normalize_category
+from .config import OUTPUT_DIR, CATEGORY_ORDER, get_category_display, normalize_category, has_api_key
 from .llm_utils import contains_reasoning_artifacts, sanitize_report_markdown
-from .llm_services import render_briefing as _render_briefing, render_briefing_v2 as _render_briefing_v2
+from .llm_services import render_briefing_v2 as _render_briefing_v2
 from .briefing import (
     build_briefing_data,
     _build_highlights,
@@ -156,7 +156,7 @@ def build_unified_report(ai_articles, non_ai_articles=None, now=None,
     if trend_insights:
         briefing_data["trends"] = [line.strip() for line in trend_insights.splitlines() if line.strip()]
 
-    if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
+    if has_api_key() and ai_articles and llm_briefing is None:
         try:
             llm_briefing = _render_briefing_v2(briefing_data)
         except Exception as e:

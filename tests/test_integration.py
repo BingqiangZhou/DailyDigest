@@ -12,23 +12,7 @@ from unittest.mock import patch, MagicMock
 from core.article import Article
 from core import llm
 from core.report_builder import build_unified_report
-
-
-def _make_article(title, category="ai_ml", tier=None, score=0.5, hn_points=0):
-    extra = {"news_value_score": score}
-    if tier:
-        extra["editorial_tier"] = tier
-    if hn_points:
-        extra["hn_points"] = hn_points
-    return Article(
-        title=title,
-        url=f"https://test/{title}",
-        source="TestSource",
-        category=category,
-        published="2026-04-27T12:00:00",
-        description=f"Description of {title}",
-        extra=extra,
-    )
+from .conftest import make_article as _make_article
 
 
 def _mock_llm_env():
@@ -48,7 +32,7 @@ class TestLLMRoutingWithAPIKey:
 
         with _mock_llm_env():
             with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
-                 patch("core.llm_services.render_briefing", return_value={
+                 patch("core.llm_services.render_briefing_v2", return_value={
                      "highlights": ["OpenAI folds Codex into GPT-5.5"],
                      "theme_summaries": {"theme-模型与平台": "GPT-5.5 is here."},
                      "trends": ["Model vendors are converging around coding workflows."],
@@ -71,7 +55,7 @@ class TestLLMRoutingWithAPIKey:
 
         with _mock_llm_env():
             with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
-                 patch("core.llm_services.render_briefing", return_value={
+                 patch("core.llm_services.render_briefing_v2", return_value={
                      "highlights": ["Big AI news moves into production"],
                      "theme_summaries": {"theme-模型与平台": "Theme summary"},
                  }):
@@ -92,7 +76,7 @@ class TestLLMRoutingWithAPIKey:
 
         with _mock_llm_env():
             with patch("core.llm_services.get_llm_client", return_value=MagicMock()), \
-                 patch("core.llm_services.render_briefing", return_value={}):
+                 patch("core.llm_services.render_briefing_v2", return_value={}):
                 report = build_unified_report(
                     [ai], [], now,
                     cluster_map={},

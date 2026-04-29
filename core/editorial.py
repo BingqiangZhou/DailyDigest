@@ -20,7 +20,7 @@ from .config import (
     EDITORIAL_HN_PROMOTE_THRESHOLD,
 )
 from .logging_config import get_logger
-from .config import AUTHORITY_DOMAINS, HIGH_SIGNAL_KEYWORDS
+from .config import AUTHORITY_DOMAINS, HIGH_SIGNAL_KEYWORDS, DEPTH_MAP
 
 logger = get_logger("editorial")
 
@@ -273,11 +273,7 @@ def _promote_tier(tier: str) -> str:
     return promotions.get(tier, tier)
 
 
-_DEPTH_MAP = {
-    "must_read": "deep_analysis",
-    "noteworthy": "summary_only",
-    "brief": "headline_only",
-}
+_DEPTH_MAP = DEPTH_MAP
 
 
 def _assign_tier_from_score(score: float, article: Article) -> str:

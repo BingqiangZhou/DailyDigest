@@ -15,6 +15,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from .llm_utils import parse_llm_json
 from .logging_config import get_logger
 from .llm import get_llm_client, chat_with_profile, limit_llm_workers, should_skip_optional_llm
+from .config import DEPTH_MAP
 
 logger = get_logger("llm_classify")
 
@@ -24,11 +25,7 @@ _TIER_MAP = {
     "noteworthy": (5, 7),
     "brief": (3, 4),
 }
-_DEPTH_MAP = {
-    "must_read": "deep_analysis",
-    "noteworthy": "summary_only",
-    "brief": "headline_only",
-}
+_DEPTH_MAP = DEPTH_MAP
 
 
 def _score_to_tier(score):

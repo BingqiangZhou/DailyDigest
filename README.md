@@ -33,10 +33,8 @@
 ```bash
 python main.py                        # 科技新闻（默认）
 python main.py --source podcast       # 播客
-python main.py --source wechat        # 微信公众号
 python main.py --source all           # 全部源
 python main.py --hours 72             # 自定义时间范围
-python main.py --format wechat        # 公众号格式输出
 python main.py --limit 20             # 限制源数量（测试用）
 python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘要生成最终报告
 ```
@@ -64,7 +62,6 @@ RSS/WeChat/Podcast feeds
 | 科技新闻 | 268+ RSS + Hacker News | `config/tech_feeds.json` | 含 15 个分类，支持优先级 |
 | 播客 | 1000 中文播客 | `config/podcast_feeds.json` | RSS + 小宇宙链接解析 |
 | 微信公众号 | ~395 个 | `config/wechat_feeds.json` | 通过 Wechat2RSS 获取 |
-| YouTube | 5 频道 | `config/youtube_feeds.json` | 含在科技新闻中 |
 
 ## 项目结构
 
@@ -76,22 +73,21 @@ RSS/WeChat/Podcast feeds
 │   ├── config.py            # 配置、分类体系、权威域名、编辑阈值
 │   ├── pipeline.py          # Pipeline 编排（运行、合并、finalize）
 │   ├── llm.py               # LLM 客户端（重试、降级、任务 profile）
-│   ├── llm_services.py      # LLM 服务（摘要、分类摘要、趋势、批处理）
+│   ├── llm_services.py      # LLM 服务（简报生成、主题标题、TLDR）
+│   ├── llm_classify.py      # LLM 评分 + 主题分组
 │   ├── llm_utils.py         # LLM 工具（JSON 解析、文本清洗）
-│   ├── ai_filter.py         # AI/非AI 文章分类
 │   ├── editorial.py         # 编辑管线（6 因子新闻价值评分 → 层级分配）
 │   ├── topic_cluster.py     # 主题聚类（关键词提取 + Jaccard + 层次合并）
+│   ├── embedding_cluster.py # 嵌入向量聚类（API 模式）
 │   ├── briefing.py          # 简报生成（V2 格式、TL;DR、主题标题）
 │   ├── renderer.py          # Markdown 渲染（段落、表格、引用链接）
 │   ├── report_builder.py    # 报告构建（统一报告、分类结果、TOC）
-│   ├── enrich.py            # 全文丰富（必读文章）
 │   ├── dedup.py             # 文章去重（SHA-256 URL + Jaccard 标题相似度）
 │   ├── feed_health.py       # Feed 健康（熔断器、5 次失败跳过、24h 重试）
 │   ├── rss_fetcher.py       # RSS 抓取（feedparser）
 │   ├── http.py              # HTTP/SSL 工具（重试、ETag 缓存）
 │   ├── html_utils.py        # HTML 解析（零依赖 + BeautifulSoup）
 │   ├── wechat_utils.py      # 微信：Feed 获取、全文提取、报告构建
-│   ├── wechat_article.py    # 微信文章渲染
 │   ├── podcast_utils.py     # 播客：小宇宙解析、播客报告
 │   ├── workspace.py         # 工作空间管理
 │   ├── date_utils.py        # 日期工具
@@ -100,8 +96,7 @@ RSS/WeChat/Podcast feeds
 │   ├── prompts/             # LLM Prompt 模板（7 个）
 │   ├── tech_feeds.json      # 科技 RSS 源
 │   ├── podcast_feeds.json   # 播客源
-│   ├── wechat_feeds.json    # 微信公众号源
-│   └── youtube_feeds.json   # YouTube 频道
+│   └── wechat_feeds.json    # 微信公众号源
 ├── knowledge/               # 内容策略、编辑风格、Prompt 技巧
 ├── scripts/                 # 工具脚本
 ├── .github/workflows/       # CI/CD（digest.yml + auto-retry.yml）
@@ -152,10 +147,10 @@ RSS/WeChat/Podcast feeds
 ## 依赖
 
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
-- **GitHub Actions 模式**：feedparser, openai, python-dotenv, beautifulsoup4, requests
+- **GitHub Actions 模式**：feedparser, openai, python-dotenv, beautifulsoup4, scikit-learn
 - **Skill 模式**：纯 Python 标准库，无需安装
 
 ## License
