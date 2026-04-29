@@ -3,7 +3,6 @@
 包含微信监控的专有逻辑：
   - Feed 列表获取（从 Wechat2RSS GitHub 仓库）
   - 文章全文获取（从 mp.weixin.qq.com）
-  - 微信报告生成
 """
 
 import json
@@ -13,14 +12,12 @@ import time
 import random
 from pathlib import Path
 from datetime import datetime, timezone
-from collections import OrderedDict
 
-from .config import CONFIG_DIR, WORKSPACE_DIR, get_category_display
+from .config import CONFIG_DIR, WORKSPACE_DIR
 from .http import fetch_url_with_retry
 from .html_utils import strip_html
 from .logging_config import get_logger
 from .rss_fetcher import fetch_feeds_feedparser
-from .dedup import filter_and_mark
 
 logger = get_logger("wechat")
 
@@ -280,94 +277,10 @@ def fetch_wechat_articles(hours=24, limit=None):
     raw_updates = [a for arts in articles_by_category.values() for a in arts]
     stats["source_count"] = len(feed_list)
 
-    raw_updates = filter_and_mark(raw_updates)
     if not raw_updates:
         logger.info("ℹ️ No WeChat updates.")
         return [], stats
 
-    logger.info(f"✅ {len(raw_updates)} WeChat updates")
+    logger.info(f"✅ {len(raw_updates)} WeChat updates (pre-dedup)")
 
     return raw_updates, stats
-
-
-# ============================================================
-# 微信报告生成
-# ============================================================
-
-def generate_wechat_report(updates, ai_summaries=None, metadata=None):
-    """生成微信公众号日报 Markdown 报告
-
-    Args:
-        updates: list of Article objects
-        ai_summaries: dict, {article_url: ai_summary} 或 None
-        metadata: dict, optional metadata for report header
-
-    Returns:
-        str: Markdown 报告
-    """
-    metadata = metadata or {}
-    ai_summaries = ai_summaries or {}
-
-    now = datetime.now(timezone.utc)
-    report_time = now.strftime('%Y-%m-%d %H:%M')
-
-    lines = [
-        f'# 微信公众号更新汇总 — {report_time}',
-        '',
-        f'> 📱 共检查 {metadata.get("checked_count", 0)} 个公众号'
-        f' · {metadata.get("hours", 24)}h 窗口'
-        f' · 发现 {metadata.get("update_count", len(updates))} 条更新',
-        '',
-        '---',
-        ''
-    ]
-
-    # 按分类分组
-    groups = OrderedDict()
-    for cat in WECHAT_CATEGORY_ORDER:
-        groups[cat] = []
-    for update in updates:
-        cat = update.category
-        if cat not in groups:
-            groups[cat] = []
-        groups[cat].append(update)
-
-    article_index = 0
-    for cat, cat_updates in groups.items():
-        if not cat_updates:
-            continue
-
-        cat_display = get_category_display(cat)
-        lines.append(f'## {cat_display} ({len(cat_updates)} 条)')
-        lines.append('')
-
-        # 表格格式
-        lines.append('| # | 文章 | 公众号 | 摘要 |')
-        lines.append('|---:|------|--------|------|')
-
-        for update in cat_updates:
-            article_index += 1
-            account_name = update.source
-            article_title = update.title
-            article_url = update.url
-            summary_text = update.description
-
-            ai_summary = ai_summaries.get(article_url, '')
-
-            title_cell = f"[**{article_title}**]({article_url})".replace("|", "\\|")
-            account_cell = f"*{account_name}*".replace("|", "\\|")
-
-            if ai_summary:
-                summary_cell = ai_summary.replace("|", "\\|").replace("\n", " ")
-            elif summary_text:
-                fallback = summary_text[:150] + ('...' if len(summary_text) > 150 else '')
-                summary_cell = fallback.replace("|", "\\|").replace("\n", " ")
-            else:
-                summary_cell = ""
-
-            lines.append(f"| {article_index} | {title_cell} | {account_cell} | {summary_cell} |")
-
-        lines.append('')
-
-    lines.append(f'*报告生成时间: {report_time} UTC*')
-    return '\n'.join(lines)

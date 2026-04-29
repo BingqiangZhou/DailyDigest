@@ -11,7 +11,6 @@ import os
 import time
 from datetime import datetime, timezone
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from urllib.parse import urlparse
 
 from .logging_config import get_logger
 from .config import has_api_key
@@ -48,30 +47,10 @@ def _canary_check(url, timeout=10):
     """Quick health check for a shared service URL. Returns True if reachable."""
     from .http import fetch_url_with_retry
     try:
-        body, status, _ = fetch_url_with_retry(url, timeout=timeout, max_retries=0)
+        body, status, _ = fetch_url_with_retry(url, timeout=timeout, max_retries=1)
         return body is not None or status == 304
     except Exception:
         return False
-
-
-def _group_feeds_by_shared_domain(feed_list, threshold=20):
-    """Split feeds into shared-domain and unique-domain groups.
-
-    Returns (shared, unique) where shared contains feeds whose domain
-    appears >= threshold times across the entire feed_list.
-    """
-    domain_counts = {}
-    for f in feed_list:
-        try:
-            domain = urlparse(f["url"]).netloc
-        except Exception:
-            domain = "unknown"
-        domain_counts[domain] = domain_counts.get(domain, 0) + 1
-
-    shared_domains = {d for d, c in domain_counts.items() if c >= threshold}
-    shared = [f for f in feed_list if urlparse(f["url"]).netloc in shared_domains]
-    unique = [f for f in feed_list if urlparse(f["url"]).netloc not in shared_domains]
-    return shared, unique, shared_domains
 
 
 def _run_theming(articles, prompt_template=None):
@@ -163,10 +142,9 @@ def try_build_unified_report(source, now):
             data = load_workspace_data(src)
             if data:
                 for item in data.get("updates", []):
-                    try:
-                        all_articles.append(Article(**item))
-                    except TypeError:
-                        continue
+                    article = Article.from_dict(item)
+                    if article:
+                        all_articles.append(article)
                 metadata = data.get("metadata", {})
                 summaries_by_source[src] = merge_batch_summaries(
                     src,
@@ -252,10 +230,9 @@ def try_build_podcast_report(now, output_format="markdown"):
 
     all_articles = []
     for item in data.get("updates", []):
-        try:
-            all_articles.append(Article(**item))
-        except TypeError:
-            continue
+        article = Article.from_dict(item)
+        if article:
+            all_articles.append(article)
 
     if not all_articles:
         return None
@@ -265,11 +242,31 @@ def try_build_podcast_report(now, output_format="markdown"):
 
     if api_key:
         logger.info(f"\n🎙️ Building podcast report from {len(all_articles)} episodes (LLM pipeline)...")
-        from .llm_classify import score_and_filter_articles
 
-        all_articles, score_stats = score_and_filter_articles(all_articles)
-        if not all_articles:
-            return None
+        # Skip re-scoring if articles already have LLM scores (1-10 scale).
+        # Editorial scores (0-1 scale) require re-scoring via LLM.
+        has_llm_scores = all(
+            isinstance(a.extra.get("news_value_score"), (int, float))
+            and a.extra.get("news_value_score", 0) >= 1
+            for a in all_articles
+        )
+        if has_llm_scores:
+            logger.info(f"📊 Skipping scoring — {len(all_articles)} articles already LLM-scored")
+            score_stats = {
+                "total": len(all_articles),
+                "surviving": len(all_articles),
+                "filtered": 0,
+            }
+            filter_threshold = int(os.environ.get("LLM_SCORE_FILTER_THRESHOLD", "2"))
+            all_articles = [a for a in all_articles if a.extra.get("news_value_score", 0) > filter_threshold]
+            if not all_articles:
+                return None
+            score_stats["surviving"] = len(all_articles)
+        else:
+            from .llm_classify import score_and_filter_articles
+            all_articles, score_stats = score_and_filter_articles(all_articles)
+            if not all_articles:
+                return None
 
         from .config import EMBEDDING_CLUSTERING_ENABLED
         from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
@@ -307,7 +304,7 @@ def _generate_source_report(source_type, data, summaries):
     """Dispatch to the correct report generator and return the markdown string."""
     from .article import Article
 
-    updates = [Article(**u) for u in data.get("updates", [])]
+    updates = [Article.from_dict(u) for u in data.get("updates", [])]
     metadata = data.get("metadata", {})
 
     if source_type == "tech":
@@ -540,13 +537,32 @@ def run_tech_unified(hours=48, limit=None):
     def _is_wechat_article(a):
         return a.category.startswith("wechat_") or "mp.weixin.qq.com" in a.url
 
-    # Step 3: LLM scoring & filtering
+    # Step 3: Scoring & filtering
     pre_scoring_articles = list(new_articles)
 
-    logger.info("🤖 Step 3/5: LLM scoring & filtering...")
-    from .llm_classify import score_and_filter_articles
-    new_articles, score_stats = score_and_filter_articles(new_articles)
-    logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
+    if api_key:
+        logger.info("🤖 Step 3/5: LLM scoring & filtering...")
+        from .llm_classify import score_and_filter_articles
+        new_articles, score_stats = score_and_filter_articles(new_articles)
+        logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
+    else:
+        logger.info("📊 Step 3/5: Heuristic scoring (no API_KEY)...")
+        cluster_map = {}
+        try:
+            from .topic_cluster import cluster_articles, get_cluster_map
+            topic_clusters = cluster_articles(new_articles)
+            cluster_map = get_cluster_map(topic_clusters)
+        except Exception as e:
+            logger.warning(f"⚠️ Clustering failed (non-fatal): {e}")
+        try:
+            from .editorial import run_editorial_pipeline
+            from .config import EDITORIAL_ENABLED
+            if EDITORIAL_ENABLED:
+                new_articles, _ = run_editorial_pipeline(new_articles, cluster_map)
+        except Exception as e:
+            logger.warning(f"⚠️ Editorial pipeline failed (non-fatal): {e}")
+        score_stats = {"total": len(pre_scoring_articles), "surviving": len(new_articles),
+                       "filtered": len(pre_scoring_articles) - len(new_articles)}
 
     # Step 4: Save workspace data (with tier/score data preserved)
     logger.info("💾 Step 4/5: Saving workspace data...")
@@ -577,9 +593,7 @@ def run_tech_unified(hours=48, limit=None):
         save_workspace_updates("wechat", wechat_new, wechat_metadata)
 
     if not api_key:
-        logger.info("💡 no API_KEY, raw data saved to workspace/")
-        logger.info("   Run sub-agent summaries, then:")
-        logger.info("   python main.py --source tech --finalize")
+        _log_no_api_key("tech", "workspace/")
         return None
 
     t4 = time.time()
@@ -612,11 +626,11 @@ def run_tech_unified(hours=48, limit=None):
     return report, combined_stats
 
 
-def run_podcast(hours=24, limit=None):
+def run_podcast(hours=25, limit=None):
     """Podcast pipeline.  Returns (report_str, stats_dict) or None."""
     from .config import CONFIG_DIR
     from .rss_fetcher import fetch_feeds_feedparser
-    from .podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report
+    from .podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report, scrape_xiaoyuzhou_podcasts
     from .dedup import filter_and_mark
 
     t_start = time.time()
@@ -624,42 +638,60 @@ def run_podcast(hours=24, limit=None):
     api_key = has_api_key()
     run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
-    logger.info("\n🎙️ Step 1/5: Checking podcast updates...")
+    # Cleanup stale feed health and dedup entries
+    from .dedup import cleanup_old_entries
+    from .feed_health import cleanup as health_cleanup
+    health_cleanup()
+    cleanup_old_entries()
+
+    logger.info("\n🎙️ Step 1/4: Checking podcast updates...")
     with open(CONFIG_DIR / "podcast_feeds.json", "r", encoding="utf-8") as f:
         pdata = json.load(f)
 
     podcasts = pdata.get("podcasts", [])[:pdata.get("settings", {}).get("count", 1000)]
 
-    # Filter to tech-related categories if configured
-    psettings = pdata.get("settings", {})
-    tech_cats = set(psettings.get("tech_categories", []))
-    if psettings.get("filter_tech_only") and tech_cats:
-        before = len(podcasts)
-        podcasts = [p for p in podcasts if p.get("category", "") in tech_cats]
-        logger.info(f"   ({before} total -> {len(podcasts)} tech-related podcasts)")
     if limit:
         podcasts = podcasts[:limit]
         logger.info(f"   (limit mode: first {limit} podcasts)")
+
+    # Separate RSS podcasts from xiaoyuzhou-only podcasts (no RSS URL)
+    rss_podcasts = [p for p in podcasts if p.get("url")]
+    xyz_only_podcasts = [p for p in podcasts if not p.get("url") and p.get("xiaoyuzhou_url")]
+
     feed_list = [
         {"name": p["name"], "url": p["url"], "category": "podcast", "language": "zh",
          "_podcast_meta": {"rank": p.get("rank", 0), "xiaoyuzhou_url": p.get("xiaoyuzhou_url", "")}}
-        for p in podcasts if p.get("url")
+        for p in rss_podcasts
     ]
 
     # Canary check: verify feed.xyzfm.space is reachable (serves majority of podcast feeds)
     xyzfm_feeds = [f for f in feed_list if "feed.xyzfm.space" in f["url"]]
-    if xyzfm_feeds and not limit and not _canary_check(xyzfm_feeds[0]["url"], timeout=10):
-        logger.warning(f"⚠️ feed.xyzfm.space unreachable, removing {len(xyzfm_feeds)} feeds")
-        feed_list = [f for f in feed_list if "feed.xyzfm.space" not in f["url"]]
+    if xyzfm_feeds and not limit and not _canary_check("https://feed.xyzfm.space/", timeout=10):
+        logger.warning(f"⚠️ feed.xyzfm.space canary check failed; skipping {len(xyzfm_feeds)} xyzfm feeds")
+        xyzfm_urls = {f["url"] for f in xyzfm_feeds}
+        feed_list = [f for f in feed_list if f["url"] not in xyzfm_urls]
 
-    if not feed_list:
+    if not feed_list and not xyz_only_podcasts:
         logger.warning("⚠️ No podcast feeds available after health check.")
         return None
 
     t1 = time.time()
-    articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
-    raw_updates = [a for arts in articles_by_category.values() for a in arts]
+    raw_updates = []
+
+    # Fetch RSS feeds
+    if feed_list:
+        articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
+        raw_updates.extend(a for arts in articles_by_category.values() for a in arts)
+    else:
+        stats = {"total_feeds": 0, "success": 0, "failed": 0, "total_articles": 0}
     logger.info(f"⏱️ Podcast RSS fetch completed in {time.time() - t1:.1f}s")
+
+    # Scrape xiaoyuzhou-only podcasts (no RSS feed)
+    if xyz_only_podcasts:
+        t_xyz = time.time()
+        xyz_articles = scrape_xiaoyuzhou_podcasts(xyz_only_podcasts, hours=hours)
+        raw_updates.extend(xyz_articles)
+        logger.info(f"⏱️ Xiaoyuzhou scrape completed in {time.time() - t_xyz:.1f}s")
 
     candidate_count = len(raw_updates)
     raw_updates = filter_and_mark(raw_updates)
@@ -674,32 +706,18 @@ def run_podcast(hours=24, limit=None):
 
     # Scoring: LLM when API_KEY is set, heuristic otherwise
     if api_key:
-        logger.info("🤖 Step 2/5: LLM scoring & filtering...")
+        logger.info("🤖 Step 2/4: LLM scoring & filtering...")
         from .llm_classify import score_and_filter_articles
         raw_updates, score_stats = score_and_filter_articles(raw_updates)
         logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
     else:
-        logger.info("📊 Step 2/5: Heuristic scoring...")
-        try:
-            from .topic_cluster import cluster_articles, get_cluster_map
-            topic_clusters = cluster_articles(raw_updates)
-            cluster_map = get_cluster_map(topic_clusters)
-        except Exception as e:
-            logger.warning(f"⚠️ Podcast clustering failed (non-fatal): {e}")
-
-        try:
-            from .editorial import run_editorial_pipeline
-            from .config import EDITORIAL_ENABLED
-            if EDITORIAL_ENABLED:
-                raw_updates, _ = run_editorial_pipeline(raw_updates, cluster_map)
-        except Exception as e:
-            logger.warning(f"⚠️ Podcast editorial pipeline failed (non-fatal): {e}")
+        logger.info("📊 Step 2/4: Skipped scoring (no API_KEY)")
 
     logger.info(f"✅ {len(raw_updates)} podcast updates")
 
     t2 = time.time()
-    logger.info("🔗 Step 3/5: Resolving xiaoyuzhou URLs...")
-    updates = resolve_xiaoyuzhou_urls(raw_updates)
+    logger.info("🔗 Step 3/4: Resolving xiaoyuzhou URLs...")
+    updates = resolve_xiaoyuzhou_urls(raw_updates, podcasts_data=pdata)
     logger.info(f"⏱️ URL resolution completed in {time.time() - t2:.1f}s")
 
     podcast_metadata = _build_run_metadata(
@@ -715,7 +733,7 @@ def run_podcast(hours=24, limit=None):
 
     if api_key:
         # Step 4a: Embedding clustering + theme interpretation
-        logger.info("📄 Step 4/5: Clustering + podcast briefing...")
+        logger.info("📄 Step 4/4: Clustering + podcast briefing...")
         from .podcast_utils import build_podcast_briefing_report
         from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
         llm_themes, singletons, leftovers = _run_theming(
@@ -729,7 +747,7 @@ def run_podcast(hours=24, limit=None):
         )
     else:
         # Keep existing simple table format for Skill mode
-        logger.info("📄 Step 4/5: Preliminary report (no AI summaries)...")
+        logger.info("📄 Step 4/4: Preliminary report (no AI summaries)...")
         report = generate_podcast_report(updates, metadata=podcast_metadata)
         _log_no_api_key("podcast", updates_path)
 

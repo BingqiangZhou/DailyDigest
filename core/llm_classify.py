@@ -497,11 +497,11 @@ def interpret_themes_with_llm(clusters, max_workers=3, prompt_template=None):
             idx = futures[future]
             results[idx] = future.result()
 
-    for result in results:
+    for i, result in enumerate(results):
         if result:
             themes.append(result)
         else:
-            themes.append(_fallback_theme(real_clusters[results.index(result)]))
+            themes.append(_fallback_theme(real_clusters[i]))
 
     themes.sort(key=lambda t: (-t["importance"], -t["score"]))
     logger.info(f"[Interpret] done: {len(themes)} themes, {len(singletons)} singletons")

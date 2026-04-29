@@ -28,7 +28,7 @@ logger = get_logger("podcast")
 
 
 def _parse_xiaoyuzhou_episodes(html_content):
-    """从小宇宙页面解析出最近单集列表"""
+    """从小宇宙页面解析出最近单集列表，返回完整信息 dict"""
     match = re.search(
         r'<script id="__NEXT_DATA__"[^>]*>(.*?)</script>',
         html_content, re.DOTALL
@@ -44,8 +44,20 @@ def _parse_xiaoyuzhou_episodes(html_content):
     except (KeyError, TypeError):
         return []
 
-    return [(ep.get('title', '').strip(), ep.get('eid', '').strip())
-            for ep in episodes if ep.get('title') and ep.get('eid')]
+    results = []
+    for ep in episodes:
+        title = ep.get('title', '').strip()
+        eid = ep.get('eid', '').strip()
+        if not title or not eid:
+            continue
+        results.append({
+            'title': title,
+            'eid': eid,
+            'description': ep.get('shownotes', '') or ep.get('description', '') or '',
+            'published': ep.get('publishedAt', '') or ep.get('pubDate', '') or '',
+            'duration': ep.get('duration', 0),
+        })
+    return results
 
 
 def _normalize_title(title):
@@ -57,14 +69,98 @@ def _normalize_title(title):
 def _match_episode(target_title, episodes):
     """从单集列表中匹配标题，返回 eid 或 None"""
     target = _normalize_title(target_title)
-    for title, eid in episodes:
-        if _normalize_title(title) == target:
-            return eid
-    for title, eid in episodes:
-        nt = _normalize_title(title)
+    for ep in episodes:
+        if _normalize_title(ep['title']) == target:
+            return ep['eid']
+    for ep in episodes:
+        nt = _normalize_title(ep['title'])
         if target in nt or nt in target:
-            return eid
+            return ep['eid']
     return None
+
+
+def scrape_xiaoyuzhou_podcasts(xyz_only_podcasts, hours=25, max_per_podcast=10):
+    """Scrape episodes from xiaoyuzhou-only podcasts that lack RSS feeds.
+
+    Args:
+        xyz_only_podcasts: list of dicts with 'name', 'xiaoyuzhou_url', 'rank', etc.
+        hours: look-back window for episode filtering
+        max_per_podcast: max episodes per podcast
+
+    Returns:
+        list of Article objects from scraped episodes
+    """
+    from .article import Article
+    from .date_utils import is_within_time, parse_rss_date
+
+    if not xyz_only_podcasts:
+        return []
+
+    def _scrape_one(podcast):
+        xyz_url = podcast.get("xiaoyuzhou_url", "")
+        name = podcast.get("name", "Unknown")
+        rank = podcast.get("rank", 0)
+        if not xyz_url:
+            return []
+        try:
+            body, status, _ = fetch_url_with_retry(
+                xyz_url,
+                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                         'Accept': 'text/html, */*'},
+                timeout=15,
+            )
+            if body is None:
+                logger.debug(f"[Podcast] scrape {name}: fetch failed")
+                return []
+            episodes = _parse_xiaoyuzhou_episodes(body)
+            if not episodes:
+                return []
+            articles = []
+            count = 0
+            for ep in episodes:
+                if count >= max_per_podcast:
+                    break
+                pub = ep.get("published", "")
+                if pub:
+                    pub_dt = parse_rss_date(pub)
+                    if pub_dt and not is_within_time(pub_dt, hours):
+                        continue
+                elif pub == "":
+                    # Skip episodes without a published date
+                    continue
+                url = f"https://www.xiaoyuzhoufm.com/episode/{ep['eid']}"
+                desc = ep.get("description", "")[:500]
+                article = Article(
+                    title=ep["title"],
+                    url=url,
+                    source=name,
+                    category="podcast",
+                    description=desc,
+                    published=pub,
+                    language="zh",
+                    extra={
+                        "rank": rank,
+                        "xiaoyuzhou_url": xyz_url,
+                    },
+                )
+                articles.append(article)
+                count += 1
+            logger.info(f"  [Podcast] scraped {name}: {len(articles)} episodes")
+            return articles
+        except Exception as e:
+            logger.warning(f"[Podcast] scrape {name} failed: {e}")
+            return []
+
+    all_articles = []
+    with ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_scrape_one, p): p["name"]
+                   for p in xyz_only_podcasts}
+        for future in as_completed(futures):
+            all_articles.extend(future.result())
+            time.sleep(random.uniform(0.05, 0.15))
+
+    logger.info(f"[Podcast] scraped {len(all_articles)} episodes from {len(xyz_only_podcasts)} xiaoyuzhou-only podcasts")
+    return all_articles
 
 
 def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
@@ -139,7 +235,6 @@ def resolve_xiaoyuzhou_urls(updates, podcasts_data=None):
             logger.warning(f"[Podcast] ⚠️ 解析 {podcast_name} 失败: {e}")
             return 0, len(indices)
 
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     items = list(podcast_indices.items())
     with ThreadPoolExecutor(max_workers=5) as executor:
         futures = {executor.submit(_resolve_one, name, idxs): name for name, idxs in items}
