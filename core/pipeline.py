@@ -701,7 +701,10 @@ def run_podcast(hours=25, limit=None):
     if api_key:
         logger.info("🤖 Step 2/4: LLM scoring & filtering...")
         from .llm_classify import score_and_filter_articles
-        raw_updates, score_stats = score_and_filter_articles(raw_updates)
+        from config.prompts.podcast_score import PODCAST_SCORE_PROMPT_ZH
+        raw_updates, score_stats = score_and_filter_articles(
+            raw_updates, prompt_template=PODCAST_SCORE_PROMPT_ZH,
+        )
         logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
     else:
         logger.info("📊 Step 2/4: Skipped scoring (no API_KEY)")

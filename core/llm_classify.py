@@ -121,15 +121,16 @@ def _extract_index(key):
     return None
 
 
-def _score_batch(client, batch, batch_idx, total_batches):
+def _score_batch(client, batch, batch_idx, total_batches, prompt_template=None):
     """Score a single batch of articles. Returns list of (article, score) pairs."""
     logger.info(f"[Score] batch {batch_idx + 1}/{total_batches} ({len(batch)} articles)...")
     from config.prompts.llm_classify import SCORE_FILTER_PROMPT_ZH
 
+    template = prompt_template or SCORE_FILTER_PROMPT_ZH
     articles_text = "\n\n".join(
         _format_article_for_scoring(i, a) for i, a in enumerate(batch, start=1)
     )
-    prompt = SCORE_FILTER_PROMPT_ZH.format(articles=articles_text)
+    prompt = template.format(articles=articles_text)
 
     response = chat_with_profile(client, prompt, "score_filter")
     if not response:
@@ -156,12 +157,13 @@ def _score_batch(client, batch, batch_idx, total_batches):
     return results
 
 
-def score_and_filter_articles(articles, batch_size=25):
+def score_and_filter_articles(articles, batch_size=25, prompt_template=None):
     """Stage 1: Score articles 1-10 via LLM and filter low-score ones.
 
     Args:
         articles: list of Article objects (post-dedup)
         batch_size: articles per LLM call
+        prompt_template: optional custom prompt template with {articles} placeholder
 
     Returns:
         (surviving_articles, stats) where stats has scoring distribution.
@@ -187,7 +189,7 @@ def score_and_filter_articles(articles, batch_size=25):
     all_scored = []
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
-            executor.submit(_score_batch, client, batch, idx, total_batches): idx
+            executor.submit(_score_batch, client, batch, idx, total_batches, prompt_template): idx
             for idx, batch in enumerate(batches)
         }
         for future in as_completed(futures):
