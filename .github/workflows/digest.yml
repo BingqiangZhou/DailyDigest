@@ -27,7 +27,7 @@ concurrency:
 jobs:
   generate-digest:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
 
     steps:
       - name: Checkout code
@@ -71,7 +71,7 @@ jobs:
           MODEL: ${{ secrets.MODEL }}
           SUPADATA_API_KEY: ${{ secrets.SUPADATA_API_KEY }}
           LLM_MAX_CONCURRENCY: "3"
-        run: uv run python main.py --source ${{ github.event.inputs.source || 'tech' }}
+        run: uv run python main.py --source ${{ github.event.inputs.source || 'all' }}
 
       - name: Upload processed articles tracker
         uses: actions/upload-artifact@v4

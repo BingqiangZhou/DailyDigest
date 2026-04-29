@@ -930,3 +930,50 @@ class TestPodcastBriefingReport:
             [article], stats=None, llm_themes=None,
             llm_leftovers=None, embedding_singletons=None,
         )
+
+
+class TestGeneratePodcastReportHeader:
+    """Tests for generate_podcast_report header stats in core/podcast_utils.py."""
+
+    def _make_article(self, title="Test Ep", url="https://example.com/ep1"):
+        from core.article import Article
+        return Article(
+            title=title, url=url, source="测试播客",
+            category="podcast", published="2026-04-29T12:00:00",
+            description="测试描述", extra={"rank": 10},
+        )
+
+    def test_header_with_metadata(self):
+        from core.podcast_utils import generate_podcast_report
+
+        articles = [self._make_article()]
+        metadata = {
+            "source_count": 150,
+            "candidate_count": 42,
+        }
+        report = generate_podcast_report(articles, metadata=metadata)
+
+        assert "共检查 150 个播客" in report
+        assert "共 42 条更新" in report
+        assert "筛选后 1 条" in report
+
+    def test_header_without_metadata(self):
+        from core.podcast_utils import generate_podcast_report
+
+        articles = [self._make_article()]
+        report = generate_podcast_report(articles)
+
+        assert "共检查 0 个播客" in report
+        assert "共 1 条更新" in report
+        assert "筛选后 1 条" in report
+
+    def test_header_uses_candidate_count_not_checked_count(self):
+        from core.podcast_utils import generate_podcast_report
+
+        metadata = {"checked_count": 999, "source_count": 50}
+        report = generate_podcast_report(
+            [self._make_article()], metadata=metadata,
+        )
+
+        assert "共检查 50 个播客" in report
+        assert "999" not in report

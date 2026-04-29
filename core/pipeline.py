@@ -796,7 +796,7 @@ def run_podcast(hours=24, limit=None):
     else:
         # Keep existing simple table format for Skill mode
         logger.info("📄 Step 4/5: Preliminary report (no AI summaries)...")
-        report = generate_podcast_report(updates, metadata=stats)
+        report = generate_podcast_report(updates, metadata=podcast_metadata)
         _log_no_api_key("podcast", updates_path)
 
     logger.info(f"⏱️ Total podcast pipeline time: {time.time() - t_start:.1f}s")

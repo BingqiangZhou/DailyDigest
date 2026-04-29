@@ -122,6 +122,8 @@ Examples:
             report, stats = result
             sections.append(report)
             all_stats[src] = stats
+        else:
+            print(f"\n  ⚠️ {src} pipeline returned no results")
 
     if not sections:
         print("\n\u26a0\ufe0f no updates, nothing to report.")

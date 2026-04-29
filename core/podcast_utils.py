@@ -184,9 +184,9 @@ def generate_podcast_report(updates, ai_summaries=None, metadata=None):
     lines = [
         f'# 播客更新汇总 — {date_str} {time_str}',
         '',
-        f'> 🎙️ 共检查 {metadata.get("checked_count", 0)} 个播客'
-        f' · {metadata.get("hours", 24)}h 窗口'
-        f' · 发现 {metadata.get("update_count", len(updates))} 个更新',
+        f'> 🎙️ 共检查 {metadata.get("source_count", 0)} 个播客'
+        f' · 共 {metadata.get("candidate_count", len(updates))} 条更新'
+        f' · 筛选后 {len(updates)} 条',
         '',
         '---',
         ''
