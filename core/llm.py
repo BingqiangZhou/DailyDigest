@@ -134,6 +134,11 @@ def reset_llm_runtime_state():
     _runtime_state.reset()
 
 
+def reset_llm_degraded_mode():
+    """Reset only failure counters and degraded mode, keeping the client alive."""
+    _runtime_state.reset()
+
+
 def get_llm_timeout_seconds():
     return int(os.environ.get("LLM_TIMEOUT_SECONDS", "180"))
 

@@ -116,6 +116,10 @@ Examples:
         # WeChat already included in run_tech_unified; skip to avoid double-fetch
         if src == "wechat" and args.source == "all":
             continue
+        # Reset LLM degraded mode between pipelines to avoid spillover
+        if src != "tech" and os.environ.get("API_KEY"):
+            from core.llm import reset_llm_degraded_mode
+            reset_llm_degraded_mode()
         hours = args.hours or _DEFAULT_HOURS.get(src, 25)
         result = runner(hours, args.limit)
         if result:
@@ -138,20 +142,10 @@ Examples:
     date_str = now.strftime('%Y-%m-%d')
     ext = f"wechat-{date_str}.md" if is_wechat else f"{date_str}.md"
 
-    if args.source == "podcast":
-        # Podcast source: save to podcast subdirectory
-        report_content = sections[0]
-        filepath = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
-    elif len(sections) == 1 and args.source == "tech":
-        # run_tech_unified() returns a pre-built unified report
-        report_content = sections[0]
-        filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
-    elif args.source == "all" and len(sections) > 1:
-        # Multi-source: save each report to its own directory
+    if args.source == "all":
+        # Multi-source: save each report to its own directory using actual results
         filepaths = []
-        for src, report_content in zip(["tech", "podcast"], sections):
+        for src, report_content in zip(all_stats.keys(), sections):
             if src == "podcast":
                 fp = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest", skip_tldr=is_wechat)
@@ -160,6 +154,16 @@ Examples:
                                report_type="digest", skip_tldr=is_wechat)
             filepaths.append(fp)
         filepath = filepaths
+    elif args.source == "podcast":
+        # Podcast source: save to podcast subdirectory
+        report_content = sections[0]
+        filepath = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
+    elif args.source == "tech":
+        # run_tech_unified() returns a pre-built unified report
+        report_content = sections[0]
+        filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
+                               report_type="digest", skip_tldr=is_wechat)
     else:
         # Single non-tech source (e.g. wechat): try unified build, then merged
         unified = _try_build_unified_report(sections, now, args.source,
