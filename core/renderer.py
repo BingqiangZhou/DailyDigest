@@ -382,8 +382,7 @@ def _render_briefing_markdown(briefing_data, now):
                 links_str = "、".join(link_parts)
                 lines.append(f"> 📎 相关：{links_str}")
             lines.append("")
-            if idx < len(themes):
-                lines.extend(["---", ""])
+        lines.extend(["---", ""])
 
     notable_singletons = briefing_data.get("notable_singletons", [])
     if notable_singletons:
@@ -526,7 +525,7 @@ def _render_podcast_briefing_markdown(briefing_data, now):
             if summary:
                 lines.append(f"> {summary}")
                 lines.append("")
-            lines.extend(["---", ""])
+        lines.extend(["---", ""])
 
     if notable_singletons:
         lines.extend(["## 值得关注的单集", ""])

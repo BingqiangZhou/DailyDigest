@@ -208,5 +208,5 @@ def sanitize_report_markdown(content: str) -> str:
 
     cleaned = "\n".join(lines)
     cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
-    cleaned = cleaned.replace("\n\n---\n\n---", "\n\n---")
+    cleaned = re.sub(r'(\n---\n\s*){2,}', '\n---\n', cleaned)
     return cleaned.strip() + ("\n" if cleaned.strip() else "")
