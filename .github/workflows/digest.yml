@@ -13,7 +13,6 @@ on:
         options:
           - tech
           - podcast
-          - wechat
           - all
 
 permissions:
@@ -57,13 +56,6 @@ jobs:
           path: workspace/
         continue-on-error: true
 
-      - name: Download WeChat feed list cache
-        uses: actions/download-artifact@v4
-        with:
-          name: wechat-cache
-          path: workspace/
-        continue-on-error: true
-
       - name: Run Daily Digest
         env:
           API_KEY: ${{ secrets.API_KEY }}
@@ -87,14 +79,6 @@ jobs:
           name: feed-health
           path: workspace/feed_health.json
           retention-days: 90
-        if: always()
-
-      - name: Upload WeChat feed list cache
-        uses: actions/upload-artifact@v4
-        with:
-          name: wechat-cache
-          path: workspace/.wechat_feed_list_cache.json
-          retention-days: 30
         if: always()
 
       - name: Upload reports

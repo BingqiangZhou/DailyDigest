@@ -19,7 +19,7 @@ from .workspace import (
     save_workspace_updates, load_workspace_data, merge_batch_summaries,
 )
 from .report_builder import (
-    build_merged_report, build_unified_report, build_unified_wechat_report,
+    build_merged_report, build_unified_report,
     build_category_results_from_summaries, classify_from_summaries,
 )
 
@@ -121,7 +121,7 @@ def _build_run_metadata(run_id, source_count, candidate_count, after_dedup, afte
 # Unified report builder (workspace → report)
 # ---------------------------------------------------------------------------
 
-def try_build_unified_report(source, now, output_format="markdown"):
+def try_build_unified_report(source, now):
     """Attempt to build a unified report from workspace article data.
 
     Uses LLM scoring + theme grouping when API_KEY is set, or sub-agent
@@ -188,13 +188,6 @@ def try_build_unified_report(source, now, output_format="markdown"):
         merged_stats = _merge_run_stats(source_stats)
         merged_stats.update(score_stats)
 
-        if output_format == "wechat":
-            return build_unified_wechat_report(
-                all_articles, now=now,
-                llm_themes=llm_themes, llm_leftovers=leftovers,
-                stats=merged_stats,
-            )
-
         return build_unified_report(
             all_articles, now=now,
             llm_themes=llm_themes, llm_leftovers=leftovers,
@@ -230,14 +223,6 @@ def try_build_unified_report(source, now, output_format="markdown"):
             import traceback
             logger.warning(f"⚠️ Editorial pipeline in finalize failed: {e}")
             logger.debug(traceback.format_exc())
-
-    if output_format == "wechat":
-        return build_unified_wechat_report(
-            ai_articles, non_ai_articles, now,
-            summary_map=merged_summaries if not api_key else None,
-            cluster_map=cluster_map,
-            stats=_merge_run_stats(source_stats),
-        )
 
     return build_unified_report(
         ai_articles, non_ai_articles, now,
@@ -369,12 +354,6 @@ def _generate_source_report(source_type, data, summaries):
         logger.info(f"✅ podcast report generated ({len(summaries)} summaries)")
         return report
 
-    if source_type == "wechat":
-        from .wechat_utils import generate_wechat_report
-        report = generate_wechat_report(updates, summaries, metadata=metadata)
-        logger.info(f"✅ wechat report generated ({len(summaries)} summaries)")
-        return report
-
     raise ValueError(f"Unknown source_type: {source_type}")
 
 
@@ -392,23 +371,22 @@ def _finalize_source(source_type):
     return _generate_source_report(source_type, data, summaries)
 
 
-def finalize_reports(source, output_format="markdown"):
+def finalize_reports(source):
     """--finalize mode: build final reports from workspace data.
 
     For source='all': produces two separate files (tech + podcast).
     For source='podcast': uses podcast-specific report builder.
-    For source='tech'/'wechat': uses unified report builder (no podcast).
+    For source='tech': uses unified report builder (no podcast).
     """
     from .config import TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
     from .report_builder import save_report
 
     now = datetime.now(timezone.utc)
-    is_wechat = output_format == "wechat"
-    ext = "wechat-" + now.strftime('%Y-%m-%d') + ".md" if is_wechat else now.strftime('%Y-%m-%d') + ".md"
+    ext = now.strftime('%Y-%m-%d') + ".md"
 
     if source == "all":
         # Tech + WeChat → TECH_OUTPUT_DIR
-        tech_report = try_build_unified_report(source, now, output_format=output_format)
+        tech_report = try_build_unified_report(source, now)
         if not tech_report:
             sections = []
             for src in ("tech", "wechat"):
@@ -420,17 +398,17 @@ def finalize_reports(source, output_format="markdown"):
 
         if tech_report:
             save_report(tech_report, ext, TECH_OUTPUT_DIR,
-                        report_type="digest", skip_tldr=is_wechat)
+                        report_type="digest")
             logger.info(f"✅ Tech report saved to {TECH_OUTPUT_DIR / ext}")
 
         # Podcast → PODCAST_OUTPUT_DIR
-        podcast_report = try_build_podcast_report(now, output_format=output_format)
+        podcast_report = try_build_podcast_report(now)
         if not podcast_report:
             podcast_report = _finalize_source("podcast")
 
         if podcast_report:
             save_report(podcast_report, ext, PODCAST_OUTPUT_DIR,
-                        report_type="digest", skip_tldr=is_wechat)
+                        report_type="digest")
             logger.info(f"✅ Podcast report saved to {PODCAST_OUTPUT_DIR / ext}")
 
         if not tech_report and not podcast_report:
@@ -443,21 +421,21 @@ def finalize_reports(source, output_format="markdown"):
         return
 
     if source == "podcast":
-        report = try_build_podcast_report(now, output_format=output_format)
+        report = try_build_podcast_report(now)
         if not report:
             report = _finalize_source("podcast")
         if not report:
             logger.warning("⚠️ no podcast reports to generate.")
             return
         filepath = save_report(report, ext, PODCAST_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
+                               report_type="digest")
         logger.info("\n" + "=" * 60)
         logger.info(f"✅ Finalize done! report: {filepath}")
         logger.info("=" * 60 + "\n")
         return
 
-    # Tech / wechat
-    merged = try_build_unified_report(source, now, output_format=output_format)
+    # Tech
+    merged = try_build_unified_report(source, now)
     if not merged:
         sections = []
         for src in ("tech", "wechat"):
@@ -471,7 +449,7 @@ def finalize_reports(source, output_format="markdown"):
         merged = build_merged_report(sections, now)
 
     filepath = save_report(merged, ext, TECH_OUTPUT_DIR,
-                           report_type="digest", skip_tldr=is_wechat)
+                           report_type="digest")
     logger.info("\n" + "=" * 60)
     logger.info(f"✅ Finalize done! report: {filepath}")
     logger.info("=" * 60 + "\n")
@@ -801,93 +779,3 @@ def run_podcast(hours=24, limit=None):
 
     logger.info(f"⏱️ Total podcast pipeline time: {time.time() - t_start:.1f}s")
     return report, {"total_episodes": len(updates)}
-
-
-def run_wechat(hours=24, limit=None):
-    """WeChat pipeline.  Returns (report_str, stats_dict) or None."""
-    from .wechat_utils import fetch_wechat_feed_list, generate_wechat_report, enrich_wechat_articles
-    from .rss_fetcher import fetch_feeds_feedparser
-    from .dedup import filter_and_mark
-
-    ensure_pipeline_dirs()
-    api_key = os.environ.get("API_KEY")
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-
-    logger.info("\n📱 Step 1/5: Fetching WeChat feed list...")
-    feed_data = fetch_wechat_feed_list()
-    feeds = [f for f in feed_data.get("feeds", []) if f.get("active")]
-    if limit:
-        feeds = feeds[:limit]
-        logger.info(f"   (limit mode: first {limit} accounts)")
-    feed_list = [
-        {"name": f["name"], "url": f["url"], "category": f.get("category", "其他"), "language": "zh",
-         "_wechat_meta": {"index": f.get("index", 0)}}
-        for f in feeds
-    ]
-
-    # Canary check: verify wechat2rss service is reachable
-    if feed_list and not limit:
-        if not _canary_check(feed_list[0]["url"], timeout=10):
-            logger.warning(f"⚠️ wechat2rss.xlab.app unreachable, aborting WeChat pipeline")
-            return None
-
-    logger.info("📡 Step 2/5: Checking WeChat updates...")
-    articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
-    raw_updates = [a for arts in articles_by_category.values() for a in arts]
-    stats["source_count"] = len(feed_list)
-
-    candidate_count = len(raw_updates)
-    raw_updates = filter_and_mark(raw_updates)
-    if not raw_updates:
-        logger.warning("⚠️ no WeChat updates.")
-        return None
-
-    updates = raw_updates
-    logger.info(f"✅ {len(updates)} WeChat updates")
-
-    # Scoring: LLM when API_KEY is set, heuristic otherwise
-    if api_key:
-        logger.info("🤖 Step 3/5: LLM scoring & filtering...")
-        from .llm_classify import score_and_filter_articles
-        updates, score_stats = score_and_filter_articles(updates)
-        logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
-    else:
-        logger.info("📊 Step 3/5: Heuristic scoring...")
-        try:
-            from .topic_cluster import cluster_articles, get_cluster_map
-            topic_clusters = cluster_articles(updates)
-            cluster_map = get_cluster_map(topic_clusters)
-        except Exception as e:
-            logger.warning(f"⚠️ WeChat clustering failed (non-fatal): {e}")
-
-        try:
-            from .editorial import run_editorial_pipeline
-            from .config import EDITORIAL_ENABLED
-            if EDITORIAL_ENABLED:
-                updates, _ = run_editorial_pipeline(updates, cluster_map)
-        except Exception as e:
-            logger.warning(f"⚠️ WeChat editorial pipeline failed (non-fatal): {e}")
-
-    after_editorial = len(updates)
-    wechat_metadata = _build_run_metadata(
-        run_id,
-        source_count=len(feed_list),
-        candidate_count=candidate_count,
-        after_dedup=len(raw_updates),
-        after_editorial=after_editorial,
-        included_count=after_editorial,
-        extra=stats,
-    )
-    updates_path = save_workspace_updates("wechat", updates, wechat_metadata)
-
-    if api_key:
-        logger.info("📄 Step 5/5: AI summaries + report...")
-        from .llm_services import summarize_wechat_batch
-        ai_summaries = summarize_wechat_batch(updates)
-        report = generate_wechat_report(updates, ai_summaries, metadata=stats)
-    else:
-        logger.info("📄 Step 5/5: Preliminary report (no AI summaries)...")
-        report = generate_wechat_report(updates, metadata=stats)
-        _log_no_api_key("wechat", updates_path)
-
-    return report, {"total_articles": len(updates)}

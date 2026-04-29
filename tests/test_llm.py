@@ -96,7 +96,7 @@ class TestTaskProfiles:
     def test_expected_profiles_exist(self):
         expected = {
             "classify", "topic_cluster", "tldr", "critique", "summarize",
-            "deep_analysis", "wechat_structure",
+            "deep_analysis",
             "narrative", "brief_summary", "trends",
             "score_filter", "topic_group",
         }

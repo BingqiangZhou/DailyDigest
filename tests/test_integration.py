@@ -212,7 +212,7 @@ class TestFinalizePath:
         from core.config import WORKSPACE_DIR
 
         # Ensure no workspace file
-        for src in ("tech", "podcast", "wechat"):
+        for src in ("tech", "podcast"):
             path = WORKSPACE_DIR / f"{src}_updates.json"
             if path.exists():
                 path.unlink()
@@ -250,7 +250,7 @@ class TestFinalizePath:
             assert "LLM release" in report
         finally:
             from core.config import WORKSPACE_DIR
-            for src in ("tech", "podcast", "wechat"):
+            for src in ("tech", "podcast"):
                 path = WORKSPACE_DIR / f"{src}_updates.json"
                 if path.exists():
                     path.unlink()

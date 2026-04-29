@@ -6,10 +6,8 @@ Usage:
   python main.py                    # tech news (default)
   python main.py --source tech      # tech news
   python main.py --source podcast   # podcasts
-  python main.py --source wechat    # WeChat accounts
-  python main.py --source all       # all sources
+  python main.py --source all       # all sources (tech + podcast)
   python main.py --hours 48         # custom time range
-  python main.py --language en      # report language
   python main.py --finalize         # build report from sub-agent summaries
 """
 
@@ -37,7 +35,6 @@ from core.pipeline import (
     finalize_reports,
     run_tech_unified,
     run_podcast,
-    run_wechat,
     build_merged_report,
 )
 
@@ -49,19 +46,18 @@ from core.pipeline import (
 _SOURCE_RUNNERS = {
     "tech": lambda hours, limit: run_tech_unified(hours=hours, limit=limit),
     "podcast": lambda hours, limit: run_podcast(hours=hours, limit=limit),
-    "wechat": lambda hours, limit: run_wechat(hours=hours, limit=limit),
 }
 
-_DEFAULT_HOURS = {"tech": 25, "podcast": 25, "wechat": 25}
+_DEFAULT_HOURS = {"tech": 25, "podcast": 25}
 
 
-def _try_build_unified_report(sections, now, source, output_format="markdown"):
+def _try_build_unified_report(sections, now, source):
     """Attempt to build a unified two-part report from workspace data.
 
     Returns None if API_KEY is not set (falls back to merged report).
     """
     from core.pipeline import try_build_unified_report
-    return try_build_unified_report(source, now, output_format=output_format)
+    return try_build_unified_report(source, now)
 
 
 def main():
@@ -72,12 +68,11 @@ def main():
 Examples:
   python main.py                    # tech news (default)
   python main.py --source podcast   # podcasts
-  python main.py --source wechat    # WeChat accounts
-  python main.py --source all       # all sources
+  python main.py --source all       # all sources (tech + podcast)
   python main.py --source tech --hours 72
         """,
     )
-    parser.add_argument("--source", choices=["tech", "podcast", "wechat", "all"],
+    parser.add_argument("--source", choices=["tech", "podcast", "all"],
                         default="tech", help="source type (default: tech)")
     parser.add_argument("--hours", type=int, default=None,
                         help="look-back window in hours (default: 25)")
@@ -85,9 +80,6 @@ Examples:
                         help="build report from sub-agent summaries in workspace/")
     parser.add_argument("--limit", type=int, default=None,
                         help="limit number of sources (for testing)")
-    parser.add_argument("--format", choices=["markdown", "wechat"],
-                        default="markdown", dest="output_format",
-                        help="output format: markdown (default) or wechat (公众号)")
     args = parser.parse_args()
 
     start_time = datetime.now(timezone.utc)
@@ -96,15 +88,15 @@ Examples:
     if args.finalize:
         print("\n" + "=" * 60)
         print(f"\U0001F4CB Daily Digest -- Finalize mode")
-        print(f"\u23f0 {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
+        print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
         print("=" * 60)
-        finalize_reports(args.source, output_format=args.output_format)
+        finalize_reports(args.source)
         return
 
     # Normal mode: fetch, summarise, and generate
     print("\n" + "=" * 60)
     print(f"\U0001F4E1 Daily Digest")
-    print(f"\u23f0 {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
+    print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
     print("=" * 60)
 
     sections = []
@@ -112,9 +104,6 @@ Examples:
 
     for src, runner in _SOURCE_RUNNERS.items():
         if args.source not in (src, "all"):
-            continue
-        # WeChat already included in run_tech_unified; skip to avoid double-fetch
-        if src == "wechat" and args.source == "all":
             continue
         # Reset LLM degraded mode between pipelines to avoid spillover
         if src != "tech" and os.environ.get("API_KEY"):
@@ -130,17 +119,15 @@ Examples:
             print(f"\n  ⚠️ {src} pipeline returned no results")
 
     if not sections:
-        print("\n\u26a0\ufe0f no updates, nothing to report.")
+        print("\n⚠️ no updates, nothing to report.")
         return
 
-    from core.config import OUTPUT_DIR, TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
+    from core.config import TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
     from core.report_builder import save_report
 
     now = datetime.now(timezone.utc)
-
-    is_wechat = args.output_format == "wechat"
     date_str = now.strftime('%Y-%m-%d')
-    ext = f"wechat-{date_str}.md" if is_wechat else f"{date_str}.md"
+    ext = f"{date_str}.md"
 
     if args.source == "all":
         # Multi-source: save each report to its own directory using actual results
@@ -148,44 +135,32 @@ Examples:
         for src, report_content in zip(all_stats.keys(), sections):
             if src == "podcast":
                 fp = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
+                               report_type="digest")
             else:
                 fp = save_report(report_content, ext, TECH_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
+                               report_type="digest")
             filepaths.append(fp)
         filepath = filepaths
     elif args.source == "podcast":
-        # Podcast source: save to podcast subdirectory
         report_content = sections[0]
         filepath = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
-    elif args.source == "tech":
-        # run_tech_unified() returns a pre-built unified report
+                               report_type="digest")
+    else:
         report_content = sections[0]
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
-    else:
-        # Single non-tech source (e.g. wechat): try unified build, then merged
-        unified = _try_build_unified_report(sections, now, args.source,
-                                            output_format=args.output_format)
-        if unified:
-            report_content = unified
-        else:
-            report_content = build_merged_report(sections, now)
-        filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
-                               report_type="digest", skip_tldr=is_wechat)
+                               report_type="digest")
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     print("\n" + "=" * 60)
     if isinstance(filepath, list):
-        print("\u2705 Daily Digest done! reports:")
+        print("✅ Daily Digest done! reports:")
         for fp in filepath:
             print(f"  \U0001F4C4 {fp}")
     else:
-        print(f"\u2705 Daily Digest done! report: {filepath}")
+        print(f"✅ Daily Digest done! report: {filepath}")
     for src, st in all_stats.items():
         print(f"  {src}: {st}")
-    print(f"\u23f1\ufe0f total: {duration:.1f}s")
+    print(f"⏱️ total: {duration:.1f}s")
     print("=" * 60 + "\n")
 
 
@@ -193,26 +168,26 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        print("\n\n\u26a0\ufe0f interrupted by user.")
+        print("\n\n⚠️ interrupted by user.")
         sys.exit(1)
     except FileNotFoundError as e:
-        print(f"\n\n\u274c file not found: {e}")
+        print(f"\n\n❌ file not found: {e}")
         print("   check that config files exist in config/")
         sys.exit(1)
     except json.JSONDecodeError as e:
-        print(f"\n\n\u274c config format error: {e}")
+        print(f"\n\n❌ config format error: {e}")
         print("   check JSON syntax in config files")
         sys.exit(1)
     except ConnectionError as e:
-        print(f"\n\n\u274c connection failed: {e}")
+        print(f"\n\n❌ connection failed: {e}")
         print("   check network or try again later")
         sys.exit(1)
     except TimeoutError as e:
-        print(f"\n\n\u274c request timeout: {e}")
+        print(f"\n\n❌ request timeout: {e}")
         print("   try --limit to reduce the number of sources")
         sys.exit(1)
     except Exception as e:
-        print(f"\n\n\u274c error: {e}")
+        print(f"\n\n❌ error: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

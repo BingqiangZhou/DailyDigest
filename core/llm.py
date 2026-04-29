@@ -32,7 +32,6 @@ TASK_PROFILES = {
     "critique": {"temperature": 0.3, "top_p": 0.9, "max_tokens": 1000},
     "summarize": {"temperature": 0.5, "top_p": 0.9, "max_tokens": 6000},
     "deep_analysis": {"temperature": 0.7, "top_p": 0.9, "max_tokens": 6000},
-    "wechat_structure": {"temperature": 0.5, "top_p": 0.9, "max_tokens": 4000},
     "narrative": {"temperature": 0.6, "top_p": 0.9, "max_tokens": 800},
     "brief_summary": {"temperature": 0.3, "top_p": 0.9, "max_tokens": 200},
     "trends": {"temperature": 0.5, "top_p": 0.9, "max_tokens": 1500},

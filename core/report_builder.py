@@ -180,41 +180,6 @@ def build_unified_report(ai_articles, non_ai_articles=None, now=None,
     return _render_briefing_markdown(briefing_data, now)
 
 
-def build_unified_wechat_report(ai_articles, non_ai_articles=None, now=None,
-                                 summary_map=None, cluster_map=None,
-                                 category_results=None, stats=None, llm_briefing=None,
-                                 llm_themes=None, llm_leftovers=None):
-    """Build a WeChat Official Account Markdown article."""
-    from .wechat_article import generate_wechat_article
-
-    if non_ai_articles is None:
-        non_ai_articles = []
-    briefing_data = build_briefing_data(
-        ai_articles,
-        non_ai_articles,
-        cluster_map=cluster_map,
-        summary_map=summary_map,
-        stats=stats,
-        llm_themes=llm_themes,
-        llm_leftovers=llm_leftovers,
-    )
-
-    if os.environ.get("API_KEY") and ai_articles and llm_briefing is None:
-        try:
-            llm_briefing = _render_briefing(briefing_data)
-        except Exception as e:
-            logger.warning(f"[WeChat] ⚠️ Briefing narrative generation failed, using fallback: {e}")
-
-    return generate_wechat_article(
-        ai_articles=ai_articles,
-        non_ai_articles=non_ai_articles,
-        now=now,
-        category_results=category_results,
-        summary_map=summary_map,
-        cluster_map=cluster_map,
-        briefing_data=_merge_llm_briefing(briefing_data, llm_briefing),
-    )
-
 
 # ---------------------------------------------------------------------------
 # Category / tier conversion
@@ -560,16 +525,14 @@ def generate_tech_report(updates, summary_map=None, trend_insight_skill=None,
 # File I/O
 # ---------------------------------------------------------------------------
 
-def save_report(content, filename, output_dir=None, report_type="tech",
-                skip_tldr=False):
+def save_report(content, filename, output_dir=None, report_type="tech"):
     """保存报告到文件
 
     Args:
         content: str, Markdown 内容
         filename: str, 文件名（如 tech-daily_14-30.md）
         output_dir: Path, 输出目录
-        report_type: str, 报告类型（tech/podcast/wechat）
-        skip_tldr: bool, 已废弃，保留兼容
+        report_type: str, 报告类型（tech/podcast）
 
     Returns:
         Path: 保存的文件路径
