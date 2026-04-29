@@ -664,13 +664,6 @@ def run_podcast(hours=25, limit=None):
         for p in rss_podcasts
     ]
 
-    # Canary check: verify feed.xyzfm.space is reachable (serves majority of podcast feeds)
-    xyzfm_feeds = [f for f in feed_list if "feed.xyzfm.space" in f["url"]]
-    if xyzfm_feeds and not limit and not _canary_check("https://feed.xyzfm.space/", timeout=10):
-        logger.warning(f"⚠️ feed.xyzfm.space canary check failed; skipping {len(xyzfm_feeds)} xyzfm feeds")
-        xyzfm_urls = {f["url"] for f in xyzfm_feeds}
-        feed_list = [f for f in feed_list if f["url"] not in xyzfm_urls]
-
     if not feed_list and not xyz_only_podcasts:
         logger.warning("⚠️ No podcast feeds available after health check.")
         return None
