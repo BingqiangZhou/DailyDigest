@@ -12,6 +12,7 @@ _THEME_ORDER = [
     "硬件与基础设施",
     "产品与应用",
     "评测与实战",
+    "播客精选",
     "行业与商业",
 ]
 
@@ -44,7 +45,9 @@ def _assign_briefing_theme(article):
         return "硬件与基础设施"
     if category in {"tech_product", "wechat_user"}:
         return "产品与应用"
-    if category in {"hacker_news", "podcast"}:
+    if category == "podcast":
+        return "播客精选"
+    if category == "hacker_news":
         return "评测与实战"
     if category in {"tech_general", "general_news", "wechat_other", "wechat_security"}:
         if any(kw in title for kw in ("benchmark", "test", "review", "评测", "实测", "横评")):

@@ -147,7 +147,7 @@ def get_llm_max_retries():
 
 
 def get_llm_max_concurrency():
-    return max(1, int(os.environ.get("LLM_MAX_CONCURRENCY", "1")))
+    return max(1, int(os.environ.get("LLM_MAX_CONCURRENCY", "3")))
 
 
 def get_llm_retry_base_seconds():

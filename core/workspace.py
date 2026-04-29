@@ -97,7 +97,10 @@ def merge_batch_summaries(source_type, run_id=None, generated_at=None):
             batch = json.load(f)
         if source_type == "podcast":
             for url, summary in batch.items():
-                summary_map[url] = summary
+                if isinstance(summary, dict):
+                    summary_map[url] = summary.get("summary") or summary.get("ai_summary", "")
+                else:
+                    summary_map[url] = summary
         else:
             items = batch.get("summaries", [])
             for item in items:

@@ -27,6 +27,15 @@ from .logging_config import get_logger
 logger = get_logger("embedding_cluster")
 
 _CACHE_PATH = WORKSPACE_DIR / "embedding_cache.json"
+_CACHE_MAX_ENTRIES = int(os.environ.get("EMBEDDING_CACHE_MAX", "10000"))
+
+
+def _cleanup_cache(cache):
+    """Evict oldest entries when cache exceeds max size."""
+    if len(cache) <= _CACHE_MAX_ENTRIES:
+        return cache
+    items = list(cache.items())
+    return dict(items[-_CACHE_MAX_ENTRIES:])
 
 
 def _text_fingerprint(title, description=""):
@@ -39,7 +48,7 @@ def _load_cache():
         return {}
     try:
         with open(_CACHE_PATH, "r") as f:
-            return json.load(f)
+            return _cleanup_cache(json.load(f))
     except (json.JSONDecodeError, OSError):
         return {}
 
@@ -47,6 +56,7 @@ def _load_cache():
 def _save_cache(cache):
     if not EMBEDDING_CACHE_ENABLED:
         return
+    cache = _cleanup_cache(cache)
     try:
         WORKSPACE_DIR.mkdir(parents=True, exist_ok=True)
         with open(_CACHE_PATH, "w") as f:

@@ -183,13 +183,27 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
             record_failure(url, str(e))
             return name, category, language, priority, [], str(e)
 
-    # 并发抓取
-    workers = min(20, max(5, len(feed_list) // 10))
-    completed = 0
-    total = len(feed_list)
-    with _batch_health_fp():
+    # Domain-level rate limiting: shared-domain feeds get fewer workers
+    def _group_by_shared_domain(feeds, threshold=20):
+        domain_counts = {}
+        for f in feeds:
+            try:
+                domain = urlparse(f["url"]).netloc
+            except Exception:
+                domain = "unknown"
+            domain_counts[domain] = domain_counts.get(domain, 0) + 1
+        shared_domains = {d for d, c in domain_counts.items() if c >= threshold}
+        shared = [f for f in feeds if urlparse(f["url"]).netloc in shared_domains]
+        unique = [f for f in feeds if urlparse(f["url"]).netloc not in shared_domains]
+        return shared, unique, shared_domains
+
+    def _run_batch(feeds, workers):
+        """Fetch a batch of feeds with given concurrency."""
+        nonlocal completed
+        if not feeds:
+            return
         with ThreadPoolExecutor(max_workers=workers) as executor:
-            futures = {executor.submit(_parse_single_feed, feed): feed for feed in feed_list}
+            futures = {executor.submit(_parse_single_feed, feed): feed for feed in feeds}
             for future in as_completed(futures):
                 name, category, language, priority, articles, error = future.result()
                 completed += 1
@@ -207,5 +221,17 @@ def fetch_feeds_feedparser(feed_list, hours=48, max_per_feed=10):
                         logger.info(f"  [{completed}/{total}] ✅ {name}: {len(articles)} 篇")
                     else:
                         logger.info(f"  [{completed}/{total}] ⏭️  {name}: 无更新")
+
+    shared, unique, shared_domains = _group_by_shared_domain(feed_list)
+    completed = 0
+    total = len(feed_list)
+    with _batch_health_fp():
+        if shared:
+            logger.info(f"  Fetching {len(shared)} shared-domain feeds ({shared_domains}) with 3 workers...")
+            _run_batch(shared, min(3, len(shared)))
+        if unique:
+            workers = min(20, max(5, len(unique) // 10))
+            logger.info(f"  Fetching {len(unique)} unique-domain feeds with {workers} workers...")
+            _run_batch(unique, workers)
 
     return dict(all_articles), stats
