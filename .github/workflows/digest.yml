@@ -2,7 +2,7 @@ name: Daily Digest
 
 on:
   schedule:
-    - cron: '0 0 * * *'  # 每天 UTC 0:00（北京时间 8:00）
+    - cron: '30 23 * * *'  # UTC 23:30，考虑 ~30min 队列延迟后实际北京时间 ~8:00
   workflow_dispatch:
     inputs:
       source:
