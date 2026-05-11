@@ -1,6 +1,6 @@
 # Daily Digest
 
-中文内容更新监控与每日摘要生成工具。从科技新闻、播客、微信公众号等渠道抓取内容，通过 AI 生成每日摘要报告。
+中文内容更新监控与每日摘要生成工具。从科技新闻、微信公众号等渠道抓取内容，通过 AI 生成每日摘要报告。
 
 ## 两种运行模式
 
@@ -32,8 +32,6 @@
 
 ```bash
 python main.py                        # 科技新闻（默认）
-python main.py --source podcast       # 播客
-python main.py --source all           # 全部源
 python main.py --hours 72             # 自定义时间范围
 python main.py --limit 20             # 限制源数量（测试用）
 python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘要生成最终报告
@@ -42,7 +40,7 @@ python main.py --source tech --finalize  # Skill 模式：合并 sub-agent 摘�
 ## 处理管线
 
 ```
-RSS/WeChat/Podcast feeds
+RSS/WeChat feeds
   → Fetch（并发抓取，Feed 健康熔断）
   → Dedup（URL 标准化 + Jaccard 标题相似度）
   → Noise filter（负面门控 → 关键词匹配 → 硬相关性检查）
@@ -60,7 +58,6 @@ RSS/WeChat/Podcast feeds
 | 源类型 | 规模 | 配置文件 | 说明 |
 |--------|------|---------|------|
 | 科技新闻 | 268+ RSS + Hacker News | `config/tech_feeds.json` | 含 15 个分类，支持优先级 |
-| 播客 | 1000 中文播客 | `config/podcast_feeds.json` | RSS + 小宇宙链接解析 |
 | 微信公众号 | ~395 个 | `config/wechat_feeds.json` | 通过 Wechat2RSS 获取 |
 
 ## 项目结构
@@ -88,14 +85,12 @@ RSS/WeChat/Podcast feeds
 │   ├── http.py              # HTTP/SSL 工具（重试、ETag 缓存）
 │   ├── html_utils.py        # HTML 解析（零依赖 + BeautifulSoup）
 │   ├── wechat_utils.py      # 微信：Feed 获取、全文提取、报告构建
-│   ├── podcast_utils.py     # 播客：小宇宙解析、播客报告
 │   ├── workspace.py         # 工作空间管理
 │   ├── date_utils.py        # 日期工具
 │   └── logging_config.py    # 日志配置
 ├── config/                  # 配置
-│   ├── prompts/             # LLM Prompt 模板（7 个）
+│   ├── prompts/             # LLM Prompt 模板
 │   ├── tech_feeds.json      # 科技 RSS 源
-│   ├── podcast_feeds.json   # 播客源
 │   └── wechat_feeds.json    # 微信公众号源
 ├── knowledge/               # 内容策略、编辑风格、Prompt 技巧
 ├── scripts/                 # 工具脚本
@@ -117,7 +112,6 @@ RSS/WeChat/Podcast feeds
 - **深度分析** — 草稿 → 自我批评 → 精炼，三阶段 LLM 循环
 - **TL;DR 生成** — 自动提取主题标题和简明摘要
 - **统一两部分报告** — Part I: AI 深度分析，Part II: 科技简讯
-- **小宇宙集成** — 自动解析播客页面 episode URL
 - **AI API 容错** — 重试 + 退避 + 超时 + 降级模式
 
 ## GitHub Actions Secrets

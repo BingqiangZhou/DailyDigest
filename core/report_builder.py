@@ -532,7 +532,7 @@ def save_report(content, filename, output_dir=None, report_type="tech"):
         content: str, Markdown 内容
         filename: str, 文件名（如 tech-daily_14-30.md）
         output_dir: Path, 输出目录
-        report_type: str, 报告类型（tech/podcast）
+        report_type: str, 报告类型（tech/digest）
 
     Returns:
         Path: 保存的文件路径

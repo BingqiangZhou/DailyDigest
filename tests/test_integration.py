@@ -196,30 +196,26 @@ class TestFinalizePath:
         from core.config import WORKSPACE_DIR
 
         # Ensure no workspace file
-        for src in ("tech", "podcast"):
-            path = WORKSPACE_DIR / f"{src}_updates.json"
-            if path.exists():
-                path.unlink()
+        path = WORKSPACE_DIR / "tech_updates.json"
+        if path.exists():
+            path.unlink()
 
         now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-        result = try_build_unified_report("podcast", now)
+        result = try_build_unified_report("tech", now)
         assert result is None
 
     def test_finalizes_with_mixed_sources(self):
-        """try_build_unified_report merges tech + podcast workspace data."""
+        """try_build_unified_report merges tech + wechat workspace data."""
         from core.pipeline import try_build_unified_report
         from core.workspace import save_workspace_updates
 
         tech_article = _make_article("LLM release", tier="must_read", score=0.85)
-        podcast_article = _make_article("AI podcast ep", category="podcast", tier="noteworthy", score=0.6)
 
         tech_meta = {"run_id": "test", "generated_at": "2026-04-27T12:00:00Z",
                      "source_count": 1, "candidate_count": 1, "after_dedup": 1,
                      "after_editorial": 1, "included_count": 1}
-        podcast_meta = dict(tech_meta)
 
         save_workspace_updates("tech", [tech_article], tech_meta)
-        save_workspace_updates("podcast", [podcast_article], podcast_meta)
 
         try:
             with _mock_llm_env():
@@ -234,7 +230,7 @@ class TestFinalizePath:
             assert "LLM release" in report
         finally:
             from core.config import WORKSPACE_DIR
-            for src in ("tech", "podcast"):
+            for src in ("tech", "wechat"):
                 path = WORKSPACE_DIR / f"{src}_updates.json"
                 if path.exists():
                     path.unlink()
@@ -291,152 +287,3 @@ class TestRenderBriefingV2:
                 report = build_unified_report([ai], [], now, cluster_map={})
 
         assert "LLM领域出现重大突破" in report
-
-
-class TestPodcastNotLoadedByUnifiedReport:
-    """Tests that try_build_unified_report no longer loads podcast workspace data."""
-
-    def test_unified_report_skips_podcast_source(self):
-        from core.pipeline import try_build_unified_report
-
-        with patch("core.pipeline.load_workspace_data") as mock_load:
-            mock_load.return_value = None
-            now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-            result = try_build_unified_report("all", now)
-
-        called_sources = [call[0][0] for call in mock_load.call_args_list]
-        assert "tech" in called_sources
-        assert "wechat" in called_sources
-        assert "podcast" not in called_sources
-
-    def test_unified_report_tech_only_no_podcast(self):
-        from core.pipeline import try_build_unified_report
-
-        with patch("core.pipeline.load_workspace_data") as mock_load:
-            mock_load.return_value = None
-            now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-            try_build_unified_report("tech", now)
-
-        called_sources = [call[0][0] for call in mock_load.call_args_list]
-        assert "podcast" not in called_sources
-
-
-class TestTryBuildPodcastReport:
-    """Tests for try_build_podcast_report."""
-
-    def test_returns_none_when_no_workspace_data(self):
-        from core.pipeline import try_build_podcast_report
-
-        with patch("core.pipeline.load_workspace_data", return_value=None):
-            now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-            result = try_build_podcast_report(now)
-        assert result is None
-
-    def test_returns_none_when_no_articles(self):
-        from core.pipeline import try_build_podcast_report
-
-        with patch("core.pipeline.load_workspace_data", return_value={"updates": []}):
-            now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-            result = try_build_podcast_report(now)
-        assert result is None
-
-    def test_api_mode_builds_podcast_briefing(self):
-        from core.pipeline import try_build_podcast_report
-
-        fake_workspace = {
-            "updates": [{
-                "title": "AI Podcast Ep 1",
-                "url": "https://www.xiaoyuzhoufm.com/episode/abc",
-                "source": "硬地骇客",
-                "category": "podcast",
-                "published": "2026-04-27T12:00:00",
-                "description": "讨论 AI",
-                "extra": {"news_value_score": 0.8},
-            }],
-            "metadata": {"run_id": "test", "generated_at": "2026-04-27T12:00:00Z",
-                         "source_count": 5, "candidate_count": 10},
-        }
-        fake_article = Article(
-            title="AI Podcast Ep 1",
-            url="https://www.xiaoyuzhoufm.com/episode/abc",
-            source="硬地骇客", category="podcast",
-            published="2026-04-27T12:00:00",
-            description="讨论 AI", extra={"news_value_score": 0.8},
-        )
-
-        with patch.dict(os.environ, {"API_KEY": "test-key"}), \
-             patch("core.pipeline.load_workspace_data", return_value=fake_workspace), \
-             patch("core.llm_classify.score_and_filter_articles",
-                   return_value=([fake_article], {"surviving": 1, "total": 1})), \
-             patch("core.embedding_cluster.embed_articles", return_value=[[0.1]]), \
-             patch("core.embedding_cluster.cluster_by_embedding",
-                   return_value=[{"articles": [fake_article], "is_singleton": False}]), \
-             patch("core.llm_classify.interpret_themes_with_llm",
-                   return_value=([{"title": "AI", "articles": [fake_article]}], [])), \
-             patch("core.embedding_cluster.get_cluster_leftovers", return_value=[]), \
-             patch("core.podcast_utils.build_podcast_briefing_report", return_value="# Podcast Report"):
-
-            now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-            result = try_build_podcast_report(now)
-
-        assert result == "# Podcast Report"
-
-    def test_skill_mode_uses_sub_agent_summaries(self):
-        from core.pipeline import try_build_podcast_report
-
-        fake_workspace = {
-            "updates": [{
-                "title": "Ep", "url": "https://example.com/ep1",
-                "source": "TestCast", "category": "podcast",
-                "published": "2026-04-27T12:00:00",
-                "description": "desc", "extra": {},
-            }],
-            "metadata": {"run_id": "test", "generated_at": "2026-04-27T12:00:00Z"},
-        }
-
-        env = dict(os.environ)
-        env.pop("API_KEY", None)
-
-        with patch.dict(os.environ, env, clear=True), \
-             patch("core.pipeline.load_workspace_data", return_value=fake_workspace), \
-             patch("core.pipeline.merge_batch_summaries", return_value={"url1": "sum1"}), \
-             patch("core.pipeline._generate_source_report", return_value="# Skill report"):
-
-            now = datetime(2026, 4, 27, 12, 0, tzinfo=timezone.utc)
-            result = try_build_podcast_report(now)
-
-        assert result == "# Skill report"
-
-
-class TestFinalizeReportsSplit:
-    """Tests that finalize_reports produces separate files for tech and podcast."""
-
-    def test_finalize_all_saves_two_files(self):
-        from core.pipeline import finalize_reports
-
-        with patch("core.pipeline.try_build_unified_report", return_value="# Tech"), \
-             patch("core.pipeline.try_build_podcast_report", return_value="# Podcast"), \
-             patch("core.report_builder.save_report") as mock_save:
-
-            finalize_reports("all")
-
-        assert mock_save.call_count == 2
-
-    def test_finalize_podcast_uses_podcast_builder(self):
-        from core.pipeline import finalize_reports
-
-        with patch("core.pipeline.try_build_podcast_report", return_value="# Podcast") as mock_pod, \
-             patch("core.report_builder.save_report"):
-            finalize_reports("podcast")
-
-        mock_pod.assert_called_once()
-
-    def test_finalize_tech_does_not_call_podcast_builder(self):
-        from core.pipeline import finalize_reports
-
-        with patch("core.pipeline.try_build_unified_report", return_value="# Tech"), \
-             patch("core.pipeline.try_build_podcast_report") as mock_pod, \
-             patch("core.report_builder.save_report"):
-            finalize_reports("tech")
-
-        mock_pod.assert_not_called()

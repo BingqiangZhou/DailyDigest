@@ -12,7 +12,6 @@ _THEME_ORDER = [
     "硬件与基础设施",
     "产品与应用",
     "评测与实战",
-    "播客精选",
     "行业与商业",
 ]
 
@@ -45,8 +44,6 @@ def _assign_briefing_theme(article):
         return "硬件与基础设施"
     if category in {"tech_product", "wechat_user"}:
         return "产品与应用"
-    if category == "podcast":
-        return "播客精选"
     if category == "hacker_news":
         return "评测与实战"
     if category in {"tech_general", "general_news", "wechat_other", "wechat_security"}:
@@ -255,8 +252,8 @@ def _fallback_highlights(ai_articles, non_ai_articles, cluster_map=None):
 def _select_brief_items(non_ai_articles, max_count=20):
     """Select compact tech brief items, preferring higher editorial weight.
 
-    Filters out articles from non-tech categories (e.g. general_news,
-    podcast) to keep the brief section focused on technology.
+    Filters out articles from non-tech categories (e.g. general_news)
+    to keep the brief section focused on technology.
     """
     if not non_ai_articles:
         return []

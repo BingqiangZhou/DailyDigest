@@ -1,5 +1,5 @@
 """
-Unified article data model for all content sources (tech/podcast/wechat).
+Unified article data model for all content sources (tech/wechat).
 """
 
 from dataclasses import dataclass, field
@@ -20,7 +20,6 @@ class ArticleExtra(TypedDict, total=False):
     _feed_meta: dict
     author: str
     rank: int
-    xiaoyuzhou_url: str
     transcript: str
     content_source: str
     # Editorial pipeline fields (core/editorial.py)
@@ -34,13 +33,13 @@ class ArticleExtra(TypedDict, total=False):
 class Article:
     """Unified article/entry data model.
 
-    All three sources (tech RSS, podcast, wechat) use this single type.
+    All sources (tech RSS, wechat) use this single type.
     Source-specific fields go in `extra` dict (see ArticleExtra for key docs).
     """
     title: str
     url: str
-    source: str           # Feed name (website/podcast/account)
-    category: str         # Unified category ID (e.g. ai_ml, podcast, wechat_security)
+    source: str           # Feed name (website/account)
+    category: str         # Unified category ID (e.g. ai_ml, wechat_security)
     published: str        # Formatted datetime string
     description: str = ""
     full_text: str = ""

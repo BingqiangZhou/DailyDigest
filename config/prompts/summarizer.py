@@ -1,4 +1,4 @@
-"""Summarizer prompt templates — category, executive, podcast, wechat, tldr."""
+"""Summarizer prompt templates — category, executive, wechat, tldr."""
 
 CATEGORY_SUMMARY_PROMPT_ZH = """你是一位专业的科技新闻编辑，读者为高级工程师和技术管理者。请对以下「{category_name}」分类的最新文章进行汇总分析。
 
@@ -131,28 +131,6 @@ Notes:
 - Tone: analytical, not promotional
 - Each trend under 50 words
 - Output in English"""
-
-PODCAST_BATCH_PROMPT = """你是一位播客内容编辑。请对以下播客单集进行内容分析。
-
-## 分析步骤
-
-Step 1: 识别每集的核心话题
-Step 2: 如果涉及具体技术或产品，明确提及（如"讨论了Claude 3.5的新功能"）
-Step 3: 为每集写一句30-50字的中文摘要，聚焦关键信息
-Step 4: 过滤掉广告口播、赞助商推广等内容
-
-如果内容不足，输出"内容暂无"。
-
-## 单集列表
-
-{joined_lines}
-
-## 输出格式
-
-请严格按以下 JSON 格式输出，不要输出其他内容：
-{{"链接1": "摘要1", "链接2": "摘要2", ...}}
-
-其中 key 为每个单集的"链接"字段的值（即 episode_url），value 为对应的中文摘要。"""
 
 WECHAT_BATCH_PROMPT = """你是一位微信公众号内容编辑。请对以下文章进行内容分析。
 
