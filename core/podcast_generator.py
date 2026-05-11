@@ -3,7 +3,6 @@
 import asyncio
 import io
 import json
-import logging
 import re
 from pathlib import Path
 
@@ -43,7 +42,7 @@ def extract_report_content(markdown: str, report_type: str) -> str:
         sections.append("【今日要点】")
         sections.append(key_points)
 
-    # Extract theme summaries (🧭 今日动态 sections with ###)
+    # Extract theme summaries from both tech and podcast report formats.
     themes = _extract_themes(markdown)
     if themes:
         sections.append("【主题概要】")
@@ -81,32 +80,65 @@ def _extract_section(md: str, heading_pattern: str) -> str:
 
 
 def _extract_themes(md: str) -> str:
-    """Extract ### theme headings and their summary paragraphs."""
-    # Find the 今日动态 section
-    dynamic_match = re.search(r"^##\s+🧭\s*今日动态", md, re.MULTILINE)
+    """Extract ### theme headings and concise summaries."""
+    dynamic_match = re.search(
+        r"^##\s+(?:🧭\s*)?(?:今日动态|今日热点主题)\s*$",
+        md,
+        re.MULTILINE,
+    )
     if not dynamic_match:
         return ""
     rest = md[dynamic_match.end():]
-    # Stop at next ## heading that is not ###
-    end_match = re.search(r"\n##\s+(?!#)", rest)
+    end_match = re.search(r"\n##\s+", rest)
     if end_match:
         rest = rest[:end_match.start()]
 
     themes = []
-    for m in re.finditer(
-        r"###\s+[一二三四五六七八九十]+[、．.]\s*(.+?)(?:\s+🔥?\s*)?\(\d+\s*篇.*?\)\n\n(.+?)(?=\n\n>|\n\n###|\Z)",
-        rest, re.DOTALL
-    ):
-        title = m.group(1).strip()
-        summary = m.group(2).strip()
-        # Clean markdown links from summary
-        summary = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", summary)
-        # Truncate long summaries
-        if len(summary) > 200:
-            summary = summary[:200] + "..."
-        themes.append(f"- {title}：{summary}")
+    matches = list(re.finditer(r"^###\s+(.+?)\s*$", rest, re.MULTILINE))
+    for idx, match in enumerate(matches):
+        title = _clean_theme_title(match.group(1))
+        start = match.end()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(rest)
+        summary = _clean_theme_summary(rest[start:end])
+        if title and summary:
+            themes.append(f"- {title}：{summary}")
 
     return "\n".join(themes)
+
+
+def _clean_theme_title(title: str) -> str:
+    """Normalize tech and podcast theme heading labels."""
+    title = title.strip()
+    title = re.sub(r"^主题\s*\d+\s*[:：]\s*", "", title)
+    title = re.sub(r"^[一二三四五六七八九十百\d]+[、．.]\s*", "", title)
+    title = re.sub(r"\s*🔥?\s*\([^)]*\)\s*$", "", title)
+    return title.strip()
+
+
+def _clean_theme_summary(content: str) -> str:
+    """Reduce a theme block to the prose most useful for a spoken script."""
+    content = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", content)
+    content = re.sub(r"(?m)^---\s*$", "", content)
+
+    quotes = [
+        line.lstrip("> ").strip()
+        for line in content.splitlines()
+        if line.strip().startswith(">")
+    ]
+    if quotes:
+        summary = " ".join(q for q in quotes if q)
+    else:
+        paragraphs = [
+            p.strip()
+            for p in re.split(r"\n\s*\n", content)
+            if p.strip() and not p.lstrip().startswith("-")
+        ]
+        summary = paragraphs[0] if paragraphs else ""
+
+    summary = re.sub(r"\s+", " ", summary).strip()
+    if len(summary) > 200:
+        summary = summary[:200] + "..."
+    return summary
 
 
 def generate_dialogue_script(client, content: str, report_type: str) -> list[dict]:
@@ -127,7 +159,7 @@ def generate_dialogue_script(client, content: str, report_type: str) -> list[dic
 
     try:
         from .llm import chat_with_profile
-        response = chat_with_profile(client, prompt, profile_name="narrative")
+        response = chat_with_profile(client, prompt, profile_name="podcast_script")
     except Exception as e:
         logger.warning("LLM script generation failed: %s", e)
         return []

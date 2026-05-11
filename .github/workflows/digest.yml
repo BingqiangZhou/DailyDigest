@@ -102,7 +102,7 @@ jobs:
             else
               COMMIT_MSG="📄 Add digest report $(date +%Y-%m-%d)"
             fi
-            git add -f daily-digests/
+            find daily-digests -type f -name '*.md' -print0 | xargs -0 -r git add -f --
             git diff --cached --quiet || git commit -m "$COMMIT_MSG"
             git push
           else

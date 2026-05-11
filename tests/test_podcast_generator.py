@@ -1,6 +1,8 @@
 """Tests for podcast audio generation."""
 
 import json
+import sys
+from types import SimpleNamespace
 from pathlib import Path
 
 import pytest
@@ -60,6 +62,21 @@ class TestExtractReportContent:
         assert "任鑫：AI 转型没戏" in result
         assert "数据标注员的困境" in result
 
+    def test_podcast_report_extracts_theme_summaries(self):
+        md = (
+            "# 🎙️ AI 播客日报 — 2026-04-29\n\n"
+            "> scan info\n\n---\n\n"
+            "## 今日热点主题\n\n"
+            "### 主题 1: AI 转型反思\n\n"
+            "- 🎧 [任鑫：AI 转型没戏](https://example.com/ep1) — AI炼金术\n"
+            "  > 一期关于组织转型误区的访谈。\n\n"
+            "> 这一组节目集中讨论企业如何面对 AI 带来的结构性变化。\n\n"
+            "---\n"
+        )
+        result = extract_report_content(md, "podcast")
+        assert "AI 转型反思" in result
+        assert "结构性变化" in result
+
     def test_empty_report(self):
         result = extract_report_content("", "tech")
         assert result == ""
@@ -89,6 +106,8 @@ class TestGenerateDialogueScript:
         assert len(result) == 2
         assert result[0]["speaker"] == "A"
         assert result[0]["text"] == "大家好"
+        self.mock_chat.assert_called_once()
+        assert self.mock_chat.call_args.kwargs["profile_name"] == "podcast_script"
 
     def test_handles_code_fence_wrapping(self):
         from core.podcast_generator import generate_dialogue_script
@@ -125,6 +144,46 @@ class TestGenerateDialogueScript:
 
 class TestSynthesizeAudio:
     """Tests for TTS synthesis and audio assembly."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_tts_modules(self, monkeypatch):
+        class FakeCommunicate:
+            def __init__(self, text, voice):
+                self.text = text
+                self.voice = voice
+
+            async def stream(self):
+                yield {"type": "audio", "data": b"fake-mp3-line"}
+
+        class FakeAudioSegment:
+            def __init__(self, payload=b""):
+                self.payload = payload
+
+            @classmethod
+            def silent(cls, duration=0):
+                return cls(f"silence-{duration}".encode())
+
+            @classmethod
+            def from_mp3(cls, buf):
+                return cls(buf.getvalue())
+
+            def __add__(self, other):
+                return FakeAudioSegment(self.payload + other.payload)
+
+            def export(self, buf, format="mp3", bitrate=None):
+                buf.write(b"ID3" + self.payload)
+                return buf
+
+        monkeypatch.setitem(
+            sys.modules,
+            "edge_tts",
+            SimpleNamespace(Communicate=FakeCommunicate),
+        )
+        monkeypatch.setitem(
+            sys.modules,
+            "pydub",
+            SimpleNamespace(AudioSegment=FakeAudioSegment),
+        )
 
     def test_synthesize_dialogue_returns_bytes(self):
         from core.podcast_generator import synthesize_audio

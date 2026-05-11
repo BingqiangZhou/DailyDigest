@@ -24,6 +24,7 @@ output/
 
 # Daily digest reports: ignore local generated files, keep directory structure
 daily-digests/**/*.md
+daily-digests/podcast_audio/
 !daily-digests/.gitkeep
 !daily-digests/tech/.gitkeep
 !daily-digests/podcast/.gitkeep
