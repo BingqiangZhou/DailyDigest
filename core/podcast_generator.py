@@ -224,3 +224,65 @@ def synthesize_audio(script: list[dict]) -> bytes | None:
     buf = io.BytesIO()
     combined.export(buf, format="mp3", bitrate=MP3_BITRATE)
     return buf.getvalue()
+
+
+def generate_podcast_audio(
+    report_path: str,
+    report_type: str,
+    date: str,
+    output_dir: str | None = None,
+) -> str | None:
+    """Generate a podcast MP3 from a Markdown report.
+
+    Args:
+        report_path: Path to the Markdown report file.
+        report_type: "tech" or "podcast".
+        date: Date string in YYYY-MM-DD format.
+        output_dir: Override output directory. Defaults to daily-digests/podcast_audio/.
+
+    Returns:
+        Path to the generated MP3 file, or None on failure.
+    """
+    try:
+        report_file = Path(report_path)
+        if not report_file.exists():
+            logger.warning("Report file not found: %s", report_path)
+            return None
+
+        markdown = report_file.read_text(encoding="utf-8")
+        content = extract_report_content(markdown, report_type)
+        if not content:
+            logger.warning("No content extracted from %s", report_path)
+            return None
+
+        from .llm import get_llm_client
+        client = get_llm_client()
+
+        script = generate_dialogue_script(client, content, report_type)
+        if not script:
+            logger.warning("Failed to generate dialogue script for %s", report_path)
+            return None
+
+        audio_bytes = synthesize_audio(script)
+        if not audio_bytes:
+            logger.warning("Failed to synthesize audio for %s", report_path)
+            return None
+
+        # Determine output path
+        if output_dir:
+            out_dir = Path(output_dir)
+        else:
+            from .config import OUTPUT_DIR
+            out_dir = OUTPUT_DIR / "podcast_audio"
+        out_dir.mkdir(parents=True, exist_ok=True)
+
+        filename = f"{date}_{report_type}.mp3"
+        out_path = out_dir / filename
+        out_path.write_bytes(audio_bytes)
+
+        logger.info("Podcast audio saved: %s (%d bytes)", out_path, len(audio_bytes))
+        return str(out_path)
+
+    except Exception as e:
+        logger.warning("Podcast generation failed for %s: %s", report_path, e)
+        return None

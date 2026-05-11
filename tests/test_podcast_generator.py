@@ -1,6 +1,7 @@
 """Tests for podcast audio generation."""
 
 import json
+from pathlib import Path
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -151,3 +152,64 @@ class TestSynthesizeAudio:
         result = synthesize_audio(script)
         assert result is not None
         assert len(result) > 0
+
+
+class TestGeneratePodcastAudio:
+    """Tests for the top-level generate_podcast_audio orchestrator."""
+
+    def test_generates_mp3_from_report_file(self, tmp_path):
+        from core.podcast_generator import generate_podcast_audio
+
+        report = tmp_path / "2026-04-29.md"
+        report.write_text(
+            "# 📰 DailyDigest — 2026-04-29\n\n"
+            "> scan info\n\n---\n\n"
+            "## 📌 今日要点\n\n"
+            "- GPT-5.5 is great\n"
+            "- OpenAI on AWS\n\n---\n"
+        )
+
+        output_dir = tmp_path / "audio"
+        output_dir.mkdir()
+
+        with patch("core.podcast_generator.generate_dialogue_script") as mock_script, \
+             patch("core.podcast_generator.synthesize_audio") as mock_audio, \
+             patch("core.llm.get_llm_client") as mock_client:
+            mock_client.return_value = MagicMock()
+            mock_script.return_value = [
+                {"speaker": "A", "text": "大家好"},
+                {"speaker": "B", "text": "欢迎收听"},
+            ]
+            mock_audio.return_value = b"fake_mp3_data"
+
+            result = generate_podcast_audio(
+                str(report), "tech", "2026-04-29", output_dir=str(output_dir)
+            )
+
+        assert result is not None
+        assert Path(result).exists()
+        assert Path(result).name == "2026-04-29_tech.mp3"
+
+    def test_returns_none_on_missing_report(self):
+        from core.podcast_generator import generate_podcast_audio
+
+        result = generate_podcast_audio(
+            "/nonexistent/report.md", "tech", "2026-04-29"
+        )
+        assert result is None
+
+    def test_returns_none_on_empty_script(self, tmp_path):
+        from core.podcast_generator import generate_podcast_audio
+
+        report = tmp_path / "2026-04-29.md"
+        report.write_text("# 📰 DailyDigest\n\n## 📌 今日要点\n\n- item\n")
+
+        with patch("core.podcast_generator.generate_dialogue_script") as mock_script, \
+             patch("core.llm.get_llm_client") as mock_client:
+            mock_client.return_value = MagicMock()
+            mock_script.return_value = []
+            result = generate_podcast_audio(
+                str(report), "tech", "2026-04-29", output_dir=str(tmp_path)
+            )
+
+        assert result is None
