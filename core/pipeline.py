@@ -375,6 +375,21 @@ def finalize_reports(source):
     now = datetime.now(timezone.utc)
     ext = now.strftime('%Y-%m-%d') + ".md"
 
+    def _maybe_gen_audio(fp, report_type, date_str):
+        """Generate podcast audio after saving a report (API mode only)."""
+        api_key = has_api_key()
+        if not api_key:
+            return
+        try:
+            from .podcast_generator import generate_podcast_audio
+            mp3 = generate_podcast_audio(fp, report_type, date_str)
+            if mp3:
+                logger.info("Podcast audio: %s", mp3)
+        except Exception as e:
+            logger.warning("Podcast generation failed: %s", e)
+
+    date_str = now.strftime('%Y-%m-%d')
+
     if source == "all":
         # Tech + WeChat → TECH_OUTPUT_DIR
         tech_report = try_build_unified_report(source, now)
@@ -388,9 +403,10 @@ def finalize_reports(source):
                 tech_report = build_merged_report(sections, now)
 
         if tech_report:
-            save_report(tech_report, ext, TECH_OUTPUT_DIR,
+            fp = save_report(tech_report, ext, TECH_OUTPUT_DIR,
                         report_type="digest")
             logger.info(f"✅ Tech report saved to {TECH_OUTPUT_DIR / ext}")
+            _maybe_gen_audio(fp, "tech", date_str)
 
         # Podcast → PODCAST_OUTPUT_DIR
         podcast_report = try_build_podcast_report(now)
@@ -398,9 +414,10 @@ def finalize_reports(source):
             podcast_report = _finalize_source("podcast")
 
         if podcast_report:
-            save_report(podcast_report, ext, PODCAST_OUTPUT_DIR,
+            fp = save_report(podcast_report, ext, PODCAST_OUTPUT_DIR,
                         report_type="digest")
             logger.info(f"✅ Podcast report saved to {PODCAST_OUTPUT_DIR / ext}")
+            _maybe_gen_audio(fp, "podcast", date_str)
 
         if not tech_report and not podcast_report:
             logger.warning("⚠️ no reports to generate.")
@@ -420,6 +437,7 @@ def finalize_reports(source):
             return
         filepath = save_report(report, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest")
+        _maybe_gen_audio(filepath, "podcast", date_str)
         logger.info("\n" + "=" * 60)
         logger.info(f"✅ Finalize done! report: {filepath}")
         logger.info("=" * 60 + "\n")
@@ -441,6 +459,7 @@ def finalize_reports(source):
 
     filepath = save_report(merged, ext, TECH_OUTPUT_DIR,
                            report_type="digest")
+    _maybe_gen_audio(filepath, "tech", date_str)
     logger.info("\n" + "=" * 60)
     logger.info(f"✅ Finalize done! report: {filepath}")
     logger.info("=" * 60 + "\n")

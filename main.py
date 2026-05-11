@@ -129,6 +129,18 @@ Examples:
     date_str = now.strftime('%Y-%m-%d')
     ext = f"{date_str}.md"
 
+    def _generate_podcast_audio(fp, report_type):
+        """Generate podcast audio for a saved report (API mode only)."""
+        if not os.environ.get("API_KEY"):
+            return
+        try:
+            from core.podcast_generator import generate_podcast_audio
+            mp3 = generate_podcast_audio(fp, report_type, date_str)
+            if mp3:
+                print(f"  Podcast audio: {mp3}")
+        except Exception as e:
+            print(f"  Podcast generation failed: {e}")
+
     if args.source == "all":
         # Multi-source: save each report to its own directory using actual results
         filepaths = []
@@ -136,19 +148,23 @@ Examples:
             if src == "podcast":
                 fp = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest")
+                _generate_podcast_audio(fp, "podcast")
             else:
                 fp = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest")
+                _generate_podcast_audio(fp, "tech")
             filepaths.append(fp)
         filepath = filepaths
     elif args.source == "podcast":
         report_content = sections[0]
         filepath = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest")
+        _generate_podcast_audio(filepath, "podcast")
     else:
         report_content = sections[0]
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest")
+        _generate_podcast_audio(filepath, "tech")
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     print("\n" + "=" * 60)
