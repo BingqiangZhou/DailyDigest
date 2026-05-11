@@ -1,6 +1,9 @@
 """Tests for podcast audio generation."""
 
+import json
+
 import pytest
+from unittest.mock import MagicMock, patch
 from core.podcast_generator import extract_report_content
 
 
@@ -66,3 +69,54 @@ class TestExtractReportContent:
         assert result.startswith("科技日报")
         result2 = extract_report_content(md, "podcast")
         assert result2.startswith("播客日报")
+
+
+class TestGenerateDialogueScript:
+    """Tests for LLM-based dialogue script generation."""
+
+    @pytest.fixture(autouse=True)
+    def _patch_llm(self):
+        with patch("core.llm.chat_with_profile") as mock:
+            self.mock_chat = mock
+            yield
+
+    def test_parses_valid_json_response(self):
+        from core.podcast_generator import generate_dialogue_script
+
+        self.mock_chat.return_value = '[{"speaker": "A", "text": "大家好"}, {"speaker": "B", "text": "欢迎收听"}]'
+        result = generate_dialogue_script(MagicMock(), "科技日报摘要", "tech")
+        assert len(result) == 2
+        assert result[0]["speaker"] == "A"
+        assert result[0]["text"] == "大家好"
+
+    def test_handles_code_fence_wrapping(self):
+        from core.podcast_generator import generate_dialogue_script
+
+        self.mock_chat.return_value = '```json\n[{"speaker": "A", "text": "hello"}]\n```'
+        result = generate_dialogue_script(MagicMock(), "test content", "tech")
+        assert len(result) == 1
+        assert result[0]["speaker"] == "A"
+
+    def test_returns_empty_on_llm_failure(self):
+        from core.podcast_generator import generate_dialogue_script
+
+        self.mock_chat.side_effect = Exception("API error")
+        result = generate_dialogue_script(MagicMock(), "test", "tech")
+        assert result == []
+
+    def test_validates_speaker_values(self):
+        from core.podcast_generator import generate_dialogue_script
+
+        self.mock_chat.return_value = '[{"speaker": "A", "text": "ok"}, {"speaker": "C", "text": "bad"}, {"speaker": "B", "text": "good"}]'
+        result = generate_dialogue_script(MagicMock(), "test", "tech")
+        speakers = [d["speaker"] for d in result]
+        assert "C" not in speakers
+        assert len(result) == 2
+
+    def test_truncates_long_script(self):
+        from core.podcast_generator import generate_dialogue_script
+
+        lines = [{"speaker": "A", "text": f"line {i}"} for i in range(100)]
+        self.mock_chat.return_value = json.dumps(lines)
+        result = generate_dialogue_script(MagicMock(), "test", "tech")
+        assert len(result) <= 60

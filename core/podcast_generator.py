@@ -107,3 +107,56 @@ def _extract_themes(md: str) -> str:
         themes.append(f"- {title}：{summary}")
 
     return "\n".join(themes)
+
+
+def generate_dialogue_script(client, content: str, report_type: str) -> list[dict]:
+    """Call LLM to generate a two-person dialogue script from report content.
+
+    Returns a list of {"speaker": "A"|"B", "text": "..."} dicts.
+    Returns empty list on failure.
+    """
+    from .llm_utils import parse_llm_json
+
+    type_label = "科技日报" if report_type == "tech" else "播客日报"
+
+    from config.prompts.podcast_script import PODCAST_SCRIPT_PROMPT_ZH
+    prompt = PODCAST_SCRIPT_PROMPT_ZH.format(
+        report_type=type_label,
+        report_content=content,
+    )
+
+    try:
+        from .llm import chat_with_profile
+        response = chat_with_profile(client, prompt, profile_name="narrative")
+    except Exception as e:
+        logger.warning("LLM script generation failed: %s", e)
+        return []
+
+    if not response:
+        logger.warning("LLM returned empty response for podcast script")
+        return []
+
+    try:
+        parsed = parse_llm_json(response)
+    except (ValueError, json.JSONDecodeError) as e:
+        logger.warning("Failed to parse dialogue script JSON: %s", e)
+        return []
+
+    if not isinstance(parsed, list):
+        logger.warning("Expected JSON array, got %s", type(parsed).__name__)
+        return []
+
+    # Validate and filter entries
+    valid = []
+    for entry in parsed:
+        if not isinstance(entry, dict):
+            continue
+        speaker = entry.get("speaker", "")
+        text = entry.get("text", "")
+        if speaker in ("A", "B") and text.strip():
+            valid.append({"speaker": speaker, "text": text.strip()})
+
+    if len(valid) > MAX_SCRIPT_LINES:
+        valid = valid[:MAX_SCRIPT_LINES]
+
+    return valid
