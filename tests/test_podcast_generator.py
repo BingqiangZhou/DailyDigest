@@ -120,3 +120,34 @@ class TestGenerateDialogueScript:
         self.mock_chat.return_value = json.dumps(lines)
         result = generate_dialogue_script(MagicMock(), "test", "tech")
         assert len(result) <= 60
+
+
+class TestSynthesizeAudio:
+    """Tests for TTS synthesis and audio assembly."""
+
+    def test_synthesize_dialogue_returns_bytes(self):
+        from core.podcast_generator import synthesize_audio
+
+        script = [
+            {"speaker": "A", "text": "大家好，欢迎收听今天的节目。"},
+            {"speaker": "B", "text": "今天我们聊聊最新的AI动态。"},
+        ]
+        result = synthesize_audio(script)
+        assert result is not None
+        assert len(result) > 0
+        # MP3 files start with ID3 or 0xff sync byte
+        assert result[:3] == b"ID3" or (result[0] & 0xFF) == 0xFF
+
+    def test_synthesize_empty_script_returns_none(self):
+        from core.podcast_generator import synthesize_audio
+
+        result = synthesize_audio([])
+        assert result is None
+
+    def test_synthesize_single_speaker(self):
+        from core.podcast_generator import synthesize_audio
+
+        script = [{"speaker": "A", "text": "这是一段测试音频。"}]
+        result = synthesize_audio(script)
+        assert result is not None
+        assert len(result) > 0

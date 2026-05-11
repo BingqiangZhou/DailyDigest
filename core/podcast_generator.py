@@ -160,3 +160,67 @@ def generate_dialogue_script(client, content: str, report_type: str) -> list[dic
         valid = valid[:MAX_SCRIPT_LINES]
 
     return valid
+
+
+def synthesize_audio(script: list[dict]) -> bytes | None:
+    """Synthesize dialogue script into a single MP3 using edge-tts and pydub.
+
+    Returns MP3 bytes, or None on failure.
+    """
+    if not script:
+        return None
+
+    try:
+        import edge_tts
+        from pydub import AudioSegment
+    except ImportError as e:
+        logger.warning("Missing dependency for audio synthesis: %s", e)
+        return None
+
+    segments: list = []
+    pause = AudioSegment.silent(duration=PAUSE_MS)
+
+    async def _synthesize_line(speaker: str, text: str):
+        voice = VOICES.get(speaker)
+        if not voice:
+            return None
+        communicate = edge_tts.Communicate(text, voice)
+        buf = io.BytesIO()
+        try:
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    buf.write(chunk["data"])
+            buf.seek(0)
+            return AudioSegment.from_mp3(buf)
+        except Exception as e:
+            logger.warning("TTS synthesis failed for '%s...': %s", text[:30], e)
+            return None
+
+    async def _synthesize_all():
+        for i, entry in enumerate(script):
+            seg = await _synthesize_line(entry["speaker"], entry["text"])
+            if seg is None:
+                # Retry once
+                logger.warning("Retrying TTS line %d", i)
+                seg = await _synthesize_line(entry["speaker"], entry["text"])
+            if seg is not None:
+                if segments:
+                    segments.append(pause)
+                segments.append(seg)
+
+    try:
+        asyncio.run(_synthesize_all())
+    except Exception as e:
+        logger.warning("Audio synthesis failed: %s", e)
+        return None
+
+    if not segments:
+        return None
+
+    combined = segments[0]
+    for seg in segments[1:]:
+        combined += seg
+
+    buf = io.BytesIO()
+    combined.export(buf, format="mp3", bitrate=MP3_BITRATE)
+    return buf.getvalue()
