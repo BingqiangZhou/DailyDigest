@@ -97,7 +97,7 @@ class TestTaskProfiles:
         expected = {
             "classify", "topic_cluster", "tldr", "critique", "summarize",
             "deep_analysis",
-            "narrative", "podcast_script", "brief_summary", "trends",
+            "narrative", "brief_summary", "trends",
             "score_filter", "topic_group",
         }
         assert set(TASK_PROFILES.keys()) == expected

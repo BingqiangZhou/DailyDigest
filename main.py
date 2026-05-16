@@ -80,9 +80,6 @@ Examples:
                         help="build report from sub-agent summaries in workspace/")
     parser.add_argument("--limit", type=int, default=None,
                         help="limit number of sources (for testing)")
-    parser.add_argument("--podcast-only", choices=["tech", "podcast", "all"],
-                        default=None,
-                        help="generate podcast audio from existing reports (skip pipeline)")
     args = parser.parse_args()
 
     start_time = datetime.now(timezone.utc)
@@ -94,36 +91,6 @@ Examples:
         print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.source}")
         print("=" * 60)
         finalize_reports(args.source)
-        return
-
-    # --podcast-only: generate audio from existing reports
-    if args.podcast_only:
-        print("\n" + "=" * 60)
-        print(f"\U0001f3a4 Podcast Audio Generation")
-        print(f"⏰ {start_time.strftime('%Y-%m-%d %H:%M UTC')} | source: {args.podcast_only}")
-        print("=" * 60)
-
-        from core.podcast_generator import generate_podcast_audio
-        from core.config import TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
-        date_str = start_time.strftime('%Y-%m-%d')
-
-        sources = ["tech", "podcast"] if args.podcast_only == "all" else [args.podcast_only]
-        for src in sources:
-            if src == "tech":
-                report_file = TECH_OUTPUT_DIR / f"{date_str}.md"
-            else:
-                report_file = PODCAST_OUTPUT_DIR / f"{date_str}.md"
-
-            if not report_file.exists():
-                print(f"  ⚠️ {src} report not found: {report_file}")
-                continue
-
-            result = generate_podcast_audio(str(report_file), src, date_str)
-            if result:
-                print(f"  ✅ {src}: {result}")
-            else:
-                print(f"  ❌ {src}: generation failed")
-
         return
 
     # Normal mode: fetch, summarise, and generate
@@ -162,18 +129,6 @@ Examples:
     date_str = now.strftime('%Y-%m-%d')
     ext = f"{date_str}.md"
 
-    def _generate_podcast_audio(fp, report_type):
-        """Generate podcast audio for a saved report (API mode only)."""
-        if not os.environ.get("API_KEY"):
-            return
-        try:
-            from core.podcast_generator import generate_podcast_audio
-            mp3 = generate_podcast_audio(fp, report_type, date_str)
-            if mp3:
-                print(f"  Podcast audio: {mp3}")
-        except Exception as e:
-            print(f"  Podcast generation failed: {e}")
-
     if args.source == "all":
         # Multi-source: save each report to its own directory using actual results
         filepaths = []
@@ -181,23 +136,19 @@ Examples:
             if src == "podcast":
                 fp = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest")
-                _generate_podcast_audio(fp, "podcast")
             else:
                 fp = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest")
-                _generate_podcast_audio(fp, "tech")
             filepaths.append(fp)
         filepath = filepaths
     elif args.source == "podcast":
         report_content = sections[0]
         filepath = save_report(report_content, ext, PODCAST_OUTPUT_DIR,
                                report_type="digest")
-        _generate_podcast_audio(filepath, "podcast")
     else:
         report_content = sections[0]
         filepath = save_report(report_content, ext, TECH_OUTPUT_DIR,
                                report_type="digest")
-        _generate_podcast_audio(filepath, "tech")
 
     duration = (datetime.now(timezone.utc) - start_time).total_seconds()
     print("\n" + "=" * 60)

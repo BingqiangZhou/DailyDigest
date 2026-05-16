@@ -20,4 +20,3 @@ from .narrative import (
     TREND_ANALYSIS_PROMPT_ZH, TREND_ANALYSIS_PROMPT_EN,
 )
 from .llm_classify import SCORE_FILTER_PROMPT_ZH, TOPIC_GROUP_PROMPT_ZH
-from .podcast_script import PODCAST_SCRIPT_PROMPT_ZH
