@@ -17,8 +17,8 @@ logger = get_logger("workspace")
 
 def ensure_pipeline_dirs():
     """Create output and workspace dirs if needed."""
-    from .config import ensure_dirs, OUTPUT_DIR, TECH_OUTPUT_DIR, WORKSPACE_DIR
-    ensure_dirs(OUTPUT_DIR, TECH_OUTPUT_DIR, WORKSPACE_DIR)
+    from .config import ensure_dirs, OUTPUT_DIR, TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR, WORKSPACE_DIR
+    ensure_dirs(OUTPUT_DIR, TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR, WORKSPACE_DIR)
 
 
 def save_workspace_updates(source_type, updates, metadata=None):
@@ -95,9 +95,16 @@ def merge_batch_summaries(source_type, run_id=None, generated_at=None):
     for p in _summary_batch_paths(source_type, run_id=run_id, generated_at=generated_at):
         with open(p, "r", encoding="utf-8") as f:
             batch = json.load(f)
-        items = batch.get("summaries", [])
-        for item in items:
-            url = item.get("url") or item.get("article_url", "")
-            if url:
-                summary_map[url] = item if source_type == "tech" else item.get("ai_summary", "")
+        if source_type == "podcast":
+            for url, summary in batch.items():
+                if isinstance(summary, dict):
+                    summary_map[url] = summary.get("summary") or summary.get("ai_summary", "")
+                else:
+                    summary_map[url] = summary
+        else:
+            items = batch.get("summaries", [])
+            for item in items:
+                url = item.get("url") or item.get("article_url", "")
+                if url:
+                    summary_map[url] = item if source_type == "tech" else item.get("ai_summary", "")
     return summary_map

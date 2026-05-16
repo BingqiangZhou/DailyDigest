@@ -175,6 +175,8 @@ Skip any section with no relevant articles.
 (If any articles contain practical tutorials, setup guides, usage tips, or performance optimization practices, summarize the key takeaways in 2-3 sentences)
 Skip this section if no relevant content.
 
+### 🎙️ AI Podcast Highlights
+(If any podcast content is flagged as AI-related, list episode title + podcast name + 1-sentence summary)
 
 ### 📱 AI WeChat Highlights
 (If any WeChat content is flagged as AI-related, list article title + account name + 1-sentence summary)

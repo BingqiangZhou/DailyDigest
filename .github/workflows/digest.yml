@@ -12,6 +12,8 @@ on:
         type: choice
         options:
           - tech
+          - podcast
+          - all
 
 permissions:
   contents: write

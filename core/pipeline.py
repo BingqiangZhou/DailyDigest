@@ -220,6 +220,82 @@ def try_build_unified_report(source, now):
     )
 
 
+def try_build_podcast_report(now, output_format="markdown"):
+    """Build a podcast report from workspace data using LLM pipeline or Skill mode."""
+    from .article import Article
+
+    data = load_workspace_data("podcast")
+    if not data:
+        return None
+
+    all_articles = []
+    for item in data.get("updates", []):
+        article = Article.from_dict(item)
+        if article:
+            all_articles.append(article)
+
+    if not all_articles:
+        return None
+
+    metadata = data.get("metadata", {})
+    api_key = has_api_key()
+
+    if api_key:
+        logger.info(f"\n🎙️ Building podcast report from {len(all_articles)} episodes (LLM pipeline)...")
+
+        # Skip re-scoring if articles already have LLM scores (1-10 scale).
+        # Editorial scores (0-1 scale) require re-scoring via LLM.
+        has_llm_scores = all(
+            isinstance(a.extra.get("news_value_score"), (int, float))
+            and a.extra.get("news_value_score", 0) >= 1
+            for a in all_articles
+        )
+        if has_llm_scores:
+            logger.info(f"📊 Skipping scoring — {len(all_articles)} articles already LLM-scored")
+            score_stats = {
+                "total": len(all_articles),
+                "surviving": len(all_articles),
+                "filtered": 0,
+            }
+            filter_threshold = int(os.environ.get("LLM_SCORE_FILTER_THRESHOLD", "2"))
+            all_articles = [a for a in all_articles if a.extra.get("news_value_score", 0) > filter_threshold]
+            if not all_articles:
+                return None
+            score_stats["surviving"] = len(all_articles)
+        else:
+            from .llm_classify import score_and_filter_articles
+            all_articles, score_stats = score_and_filter_articles(all_articles)
+            if not all_articles:
+                return None
+
+        from .config import EMBEDDING_CLUSTERING_ENABLED
+        from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
+        llm_themes, singletons, leftovers = _run_theming(
+            all_articles, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH,
+        )
+
+        from .podcast_utils import build_podcast_briefing_report
+
+        merged_stats = _merge_run_stats([metadata])
+        merged_stats.update(score_stats)
+
+        return build_podcast_briefing_report(
+            all_articles, now=now,
+            llm_themes=llm_themes, llm_leftovers=leftovers,
+            embedding_singletons=singletons, stats=merged_stats,
+        )
+
+    # Skill mode
+    summaries = merge_batch_summaries(
+        "podcast",
+        run_id=metadata.get("run_id"),
+        generated_at=metadata.get("generated_at"),
+    )
+    if summaries:
+        return _generate_source_report("podcast", data, summaries)
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Finalize helpers
 # ---------------------------------------------------------------------------
@@ -263,6 +339,12 @@ def _generate_source_report(source_type, data, summaries):
         logger.info(f"✅ tech report generated ({len(updates)} articles)")
         return report
 
+    if source_type == "podcast":
+        from .podcast_utils import generate_podcast_report
+        report = generate_podcast_report(updates, summaries, metadata=metadata)
+        logger.info(f"✅ podcast report generated ({len(summaries)} summaries)")
+        return report
+
     raise ValueError(f"Unknown source_type: {source_type}")
 
 
@@ -281,13 +363,87 @@ def _finalize_source(source_type):
 
 
 def finalize_reports(source):
-    """--finalize mode: build final reports from workspace data."""
-    from .config import TECH_OUTPUT_DIR
+    """--finalize mode: build final reports from workspace data.
+
+    For source='all': produces two separate files (tech + podcast).
+    For source='podcast': uses podcast-specific report builder.
+    For source='tech': uses unified report builder (no podcast).
+    """
+    from .config import TECH_OUTPUT_DIR, PODCAST_OUTPUT_DIR
     from .report_builder import save_report
 
     now = datetime.now(timezone.utc)
     ext = now.strftime('%Y-%m-%d') + ".md"
 
+    def _maybe_gen_audio(fp, report_type, date_str):
+        """Generate podcast audio after saving a report (API mode only)."""
+        api_key = has_api_key()
+        if not api_key:
+            return
+        try:
+            from .podcast_generator import generate_podcast_audio
+            mp3 = generate_podcast_audio(fp, report_type, date_str)
+            if mp3:
+                logger.info("Podcast audio: %s", mp3)
+        except Exception as e:
+            logger.warning("Podcast generation failed: %s", e)
+
+    date_str = now.strftime('%Y-%m-%d')
+
+    if source == "all":
+        # Tech + WeChat → TECH_OUTPUT_DIR
+        tech_report = try_build_unified_report(source, now)
+        if not tech_report:
+            sections = []
+            for src in ("tech", "wechat"):
+                report = _finalize_source(src)
+                if report:
+                    sections.append(report)
+            if sections:
+                tech_report = build_merged_report(sections, now)
+
+        if tech_report:
+            fp = save_report(tech_report, ext, TECH_OUTPUT_DIR,
+                        report_type="digest")
+            logger.info(f"✅ Tech report saved to {TECH_OUTPUT_DIR / ext}")
+            _maybe_gen_audio(fp, "tech", date_str)
+
+        # Podcast → PODCAST_OUTPUT_DIR
+        podcast_report = try_build_podcast_report(now)
+        if not podcast_report:
+            podcast_report = _finalize_source("podcast")
+
+        if podcast_report:
+            fp = save_report(podcast_report, ext, PODCAST_OUTPUT_DIR,
+                        report_type="digest")
+            logger.info(f"✅ Podcast report saved to {PODCAST_OUTPUT_DIR / ext}")
+            _maybe_gen_audio(fp, "podcast", date_str)
+
+        if not tech_report and not podcast_report:
+            logger.warning("⚠️ no reports to generate.")
+            return
+
+        logger.info("\n" + "=" * 60)
+        logger.info("✅ Finalize done!")
+        logger.info("=" * 60 + "\n")
+        return
+
+    if source == "podcast":
+        report = try_build_podcast_report(now)
+        if not report:
+            report = _finalize_source("podcast")
+        if not report:
+            logger.warning("⚠️ no podcast reports to generate.")
+            return
+        filepath = save_report(report, ext, PODCAST_OUTPUT_DIR,
+                               report_type="digest")
+        _maybe_gen_audio(filepath, "podcast", date_str)
+        logger.info("\n" + "=" * 60)
+        logger.info(f"✅ Finalize done! report: {filepath}")
+        logger.info("=" * 60 + "\n")
+        return
+
+    # Tech
     merged = try_build_unified_report(source, now)
     if not merged:
         sections = []
@@ -303,6 +459,7 @@ def finalize_reports(source):
 
     filepath = save_report(merged, ext, TECH_OUTPUT_DIR,
                            report_type="digest")
+    _maybe_gen_audio(filepath, "tech", date_str)
     logger.info("\n" + "=" * 60)
     logger.info(f"✅ Finalize done! report: {filepath}")
     logger.info("=" * 60 + "\n")
@@ -486,3 +643,128 @@ def run_tech_unified(hours=48, limit=None):
 
     logger.info(f"⏱️ Total pipeline time: {time.time() - t_start:.1f}s")
     return report, combined_stats
+
+
+def run_podcast(hours=25, limit=None):
+    """Podcast pipeline.  Returns (report_str, stats_dict) or None."""
+    from .config import CONFIG_DIR
+    from .rss_fetcher import fetch_feeds_feedparser
+    from .podcast_utils import resolve_xiaoyuzhou_urls, generate_podcast_report, scrape_xiaoyuzhou_podcasts
+    from .dedup import filter_and_mark
+
+    t_start = time.time()
+    ensure_pipeline_dirs()
+    api_key = has_api_key()
+    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+    # Cleanup stale feed health and dedup entries
+    from .dedup import cleanup_old_entries
+    from .feed_health import cleanup as health_cleanup
+    health_cleanup()
+    cleanup_old_entries()
+
+    logger.info("\n🎙️ Step 1/4: Checking podcast updates...")
+    with open(CONFIG_DIR / "podcast_feeds.json", "r", encoding="utf-8") as f:
+        pdata = json.load(f)
+
+    podcasts = pdata.get("podcasts", [])[:pdata.get("settings", {}).get("count", 1000)]
+
+    if limit:
+        podcasts = podcasts[:limit]
+        logger.info(f"   (limit mode: first {limit} podcasts)")
+
+    # Separate RSS podcasts from xiaoyuzhou-only podcasts (no RSS URL)
+    rss_podcasts = [p for p in podcasts if p.get("url")]
+    xyz_only_podcasts = [p for p in podcasts if not p.get("url") and p.get("xiaoyuzhou_url")]
+
+    feed_list = [
+        {"name": p["name"], "url": p["url"], "category": "podcast", "language": "zh",
+         "_podcast_meta": {"rank": p.get("rank", 0), "xiaoyuzhou_url": p.get("xiaoyuzhou_url", "")}}
+        for p in rss_podcasts
+    ]
+
+    if not feed_list and not xyz_only_podcasts:
+        logger.warning("⚠️ No podcast feeds available after health check.")
+        return None
+
+    t1 = time.time()
+    raw_updates = []
+
+    # Fetch RSS feeds
+    if feed_list:
+        articles_by_category, stats = fetch_feeds_feedparser(feed_list, hours=hours, max_per_feed=10)
+        raw_updates.extend(a for arts in articles_by_category.values() for a in arts)
+    else:
+        stats = {"total_feeds": 0, "success": 0, "failed": 0, "total_articles": 0}
+    logger.info(f"⏱️ Podcast RSS fetch completed in {time.time() - t1:.1f}s")
+
+    # Scrape xiaoyuzhou-only podcasts (no RSS feed)
+    if xyz_only_podcasts:
+        t_xyz = time.time()
+        xyz_articles = scrape_xiaoyuzhou_podcasts(xyz_only_podcasts, hours=hours)
+        raw_updates.extend(xyz_articles)
+        logger.info(f"⏱️ Xiaoyuzhou scrape completed in {time.time() - t_xyz:.1f}s")
+
+    candidate_count = len(raw_updates)
+    raw_updates = filter_and_mark(raw_updates)
+    if not raw_updates:
+        logger.warning("⚠️ no podcast updates.")
+        return None
+
+    for u in raw_updates:
+        meta = u.extra.get("_feed_meta", {}).get("_podcast_meta", {})
+        u.extra["rank"] = meta.get("rank", 0)
+        u.extra["xiaoyuzhou_url"] = meta.get("xiaoyuzhou_url", "")
+
+    # Scoring: LLM when API_KEY is set, heuristic otherwise
+    if api_key:
+        logger.info("🤖 Step 2/4: LLM scoring & filtering...")
+        from .llm_classify import score_and_filter_articles
+        from config.prompts.podcast_score import PODCAST_SCORE_PROMPT_ZH
+        raw_updates, score_stats = score_and_filter_articles(
+            raw_updates, prompt_template=PODCAST_SCORE_PROMPT_ZH,
+        )
+        logger.info(f"📊 LLM scoring: {score_stats['surviving']}/{score_stats['total']} surviving")
+    else:
+        logger.info("📊 Step 2/4: Skipped scoring (no API_KEY)")
+
+    logger.info(f"✅ {len(raw_updates)} podcast updates")
+
+    t2 = time.time()
+    logger.info("🔗 Step 3/4: Resolving xiaoyuzhou URLs...")
+    updates = resolve_xiaoyuzhou_urls(raw_updates, podcasts_data=pdata)
+    logger.info(f"⏱️ URL resolution completed in {time.time() - t2:.1f}s")
+
+    podcast_metadata = _build_run_metadata(
+        run_id,
+        source_count=len(feed_list),
+        candidate_count=candidate_count,
+        after_dedup=len(raw_updates),
+        after_editorial=len(updates),
+        included_count=len(updates),
+        extra=stats,
+    )
+    updates_path = save_workspace_updates("podcast", updates, podcast_metadata)
+
+    if api_key:
+        # Step 4a: Embedding clustering + theme interpretation
+        logger.info("📄 Step 4/4: Clustering + podcast briefing...")
+        from .podcast_utils import build_podcast_briefing_report
+        from config.prompts.podcast_theme import PODCAST_THEME_INTERPRET_PROMPT_ZH
+        llm_themes, singletons, leftovers = _run_theming(
+            updates, prompt_template=PODCAST_THEME_INTERPRET_PROMPT_ZH,
+        )
+        report = build_podcast_briefing_report(
+            updates, now=datetime.now(timezone.utc),
+            llm_themes=llm_themes, llm_leftovers=leftovers,
+            embedding_singletons=singletons,
+            stats=podcast_metadata,
+        )
+    else:
+        # Keep existing simple table format for Skill mode
+        logger.info("📄 Step 4/4: Preliminary report (no AI summaries)...")
+        report = generate_podcast_report(updates, metadata=podcast_metadata)
+        _log_no_api_key("podcast", updates_path)
+
+    logger.info(f"⏱️ Total podcast pipeline time: {time.time() - t_start:.1f}s")
+    return report, {"total_episodes": len(updates)}

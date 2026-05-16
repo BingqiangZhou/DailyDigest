@@ -1,8 +1,8 @@
 ---
 name: daily-digest
 description: |
-  Unified daily digest generator. Monitor tech news and WeChat articles.
-  Trigger: "日报", "科技日报", "微信日报", "全部日报", "digest", "daily report"
+  Unified daily digest generator. Monitor tech news, podcasts, and WeChat articles.
+  Trigger: "日报", "科技日报", "播客更新", "微信日报", "全部日报", "digest", "daily report"
   Do NOT trigger for: creating/editing content, managing accounts.
 ---
 # Daily Digest — 统一日报生成
@@ -14,6 +14,8 @@ description: |
 | 源 | 规模 | 命令 |
 |----|------|------|
 | 科技新闻 | 268+ RSS + HN | `python main.py --source tech` |
+| 播客 | 1000 中文播客 | `python main.py --source podcast` |
+| 全部 | 所有源 | `python main.py --source all` |
 
 ## 快速开始
 
@@ -21,6 +23,8 @@ description: |
 
 ```bash
 python main.py --source tech
+python main.py --source podcast
+python main.py --source all
 ```
 
 设置 `API_KEY` 环境变量后，会自动调用 OpenAI API 生成 AI 摘要。
@@ -40,6 +44,16 @@ python main.py --source tech
 # （Claude 自行执行：读取 workspace/tech_updates.json，分批启动 sub-agent）
 
 # Step 3: 合并摘要后，Claude 重新生成含摘要的报告
+```
+
+#### 播客（sub-agent 模式）
+
+```bash
+# Step 1: 抓取 + 解析小宇宙链接（保存到 workspace/podcast_updates.json）
+python main.py --source podcast
+
+# Step 2: Claude 用 sub-agent 生成摘要
+# （读取 workspace/podcast_updates.json，分批启动 sub-agent）
 ```
 
 ## Sub-agent 摘要 Prompt 模板
@@ -62,6 +76,22 @@ Step 5: Self-check: Do the must_read articles genuinely represent the most impor
 Output JSON to {project_root}/workspace/tech_summary_batch_{N}.json:
 {"summaries": [{"url": "...", "ai_summary": "...", "category": "...", "tier": "noteworthy", "importance_reason": ""}]}
 Use json.dump() with ensure_ascii=False, encoding="utf-8".
+```
+
+### 播客
+
+```
+Read {project_root}/workspace/podcast_batch_{N}.json
+
+For each episode, follow these steps:
+Step 1: Identify the episode's core topic
+Step 2: If the episode discusses a specific technology or product, name it explicitly
+Step 3: Write a 30-50 character Chinese summary focusing on the key takeaway
+Step 4: Filter out ads, sponsor reads, and promotional content — do not summarize these
+
+If content is insufficient, output "内容暂无".
+Output JSON to {project_root}/workspace/podcast_summary_batch_{N}.json:
+{"url1": "summary1", "url2": "summary2", ...}
 ```
 
 ### 微信公众号
@@ -99,7 +129,8 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 │   ├── briefing.py          # 简报数据模型
 │   ├── renderer.py          # Markdown 渲染
 │   ├── report_builder.py    # 报告构建（统一报告、分类结果）
-│   ├── pipeline.py          # Pipeline 编排（run_tech_unified/finalize）
+│   ├── pipeline.py          # Pipeline 编排（run_tech_unified/run_podcast/finalize）
+│   ├── podcast_utils.py     # 播客专有逻辑
 │   ├── wechat_utils.py      # 微信专有逻辑
 │   ├── feed_health.py       # Feed 健康跟踪与熔断
 │   ├── http.py              # HTTP 客户端（重试、ETag 缓存）
@@ -114,10 +145,12 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 │   │   ├── summarizer.py    #   摘要 prompt
 │   │   ├── critique.py      #   审阅 prompt
 │   │   ├── narrative.py     #   叙事 prompt
-│   │   └── llm_classify.py  #   分类评分 prompt
+│   │   ├── llm_classify.py  #   分类评分 prompt
+│   │   └── podcast_theme.py #   播客主题 prompt
 │   ├── tech_feeds.json      # 268+ 科技 RSS
+│   ├── podcast_feeds.json   # 1000 播客
 │   └── wechat_feeds.json    # 微信公众号
-├── tests/                   # 测试套件（pytest, 12 文件）
+├── tests/                   # 测试套件（pytest, 13 文件）
 ├── knowledge/               # 知识库
 ├── workspace/               # 运行时中间文件
 └── daily-digests/           # 报告输出
@@ -128,4 +161,6 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 | 源 | 全量 | 缓存 | AI 摘要 | 总计 |
 |----|------|------|---------|------|
 | 科技 | ~2-3 min | ~30-60s | ~60s | ~3-5 min |
+| 播客 | ~2 min | ~30s | ~1 min | ~3 min |
 | 微信 | ~60-90s | ~15-20s | ~60s | ~2-3 min |
+| 全部 | | | | ~8-11 min |

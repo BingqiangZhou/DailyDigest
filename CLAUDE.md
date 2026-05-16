@@ -1,6 +1,6 @@
 # DailyDigest — AI Tech Daily Report Generator
 
-Aggregates RSS/WeChat feeds into a curated daily AI tech digest, inspired by linux.do community reports.
+Aggregates RSS/WeChat/Podcast feeds into a curated daily AI tech digest, inspired by linux.do community reports.
 
 ## Architecture
 
@@ -17,6 +17,24 @@ RSS/WeChat feeds
   → Non-AI path: template renderer (capped at 30 articles)
   → Unified two-part report (Part I: AI, Part II: Tech)
   → TL;DR generation
+```
+
+### Podcast Report Pipeline (run_podcast)
+```
+1000 podcasts (podcast_feeds.json)
+  → Cleanup (dedup entries >30d + feed health entries >30d)
+  → Split: RSS podcasts vs xiaoyuzhou-only podcasts (no RSS URL)
+  → Canary check feed.xyzfm.space (warn on failure, individual feeds tracked by health system)
+  → RSS fetch (domain-level rate limiting: shared domains 3 workers, unique domains 20 workers)
+  → Xiaoyuzhou HTML scrape (for podcasts without RSS)
+  → Dedup (URL hash)
+  → Scoring:
+      API mode:  LLM batch scoring (25/batch, 3 concurrent, score≤2 filtered)
+      Skill mode: heuristic clustering → editorial 5-factor scoring
+  → Resolve xiaoyuzhou URLs (match RSS articles to xiaoyuzhou episode pages via __NEXT_DATA__)
+  → Report generation:
+      API mode:  embedding clustering → LLM theme interpretation → podcast briefing
+      Skill mode: simple Markdown table
 ```
 
 ## Dual-Mode Operation
@@ -62,6 +80,8 @@ Sources not in AUTHORITY_DOMAINS fall back to feed priority (P1→0.8, P2→0.6,
 ## Feed Reliability Risks
 
 - `wechat2rss.xlab.app`: single service for all 393 WeChat feeds
+- `feed.xyzfm.space`: single service for 514 of 1000 podcast feeds
+- 138 podcasts have no RSS URL (scrape-only via xiaoyuzhou)
 
 ## Running Tests
 

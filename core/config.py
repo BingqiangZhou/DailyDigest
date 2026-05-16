@@ -16,6 +16,7 @@ CONFIG_DIR = PROJECT_ROOT / "config"
 # 输出目录
 OUTPUT_DIR = PROJECT_ROOT / "daily-digests"
 TECH_OUTPUT_DIR = OUTPUT_DIR / "tech"
+PODCAST_OUTPUT_DIR = OUTPUT_DIR / "podcast"
 
 # 工作空间目录（运行时中间文件）
 WORKSPACE_DIR = PROJECT_ROOT / "workspace"
@@ -94,6 +95,12 @@ CATEGORIES = {
         "display": "🔥 Hacker News 热门",
         "order": 10,
     },
+    # --- 播客分类 ---
+    "podcast": {
+        "name": "播客",
+        "display": "🎙️ 播客更新",
+        "order": 11,
+    },
     # --- 微信公众号分类 ---
     "wechat_security": {
         "name": "安全",
@@ -121,6 +128,7 @@ CATEGORIES = {
 CATEGORY_ORDER = [
     "ai_ml", "tech_general", "ai_tools", "tech_product", "general_news",
     "chips_hardware", "cloud", "open_source", "cybersecurity", "hacker_news",
+    "podcast",
     "wechat_security", "wechat_dev", "wechat_other", "wechat_user",
 ]
 
@@ -177,13 +185,14 @@ def load_feed_config(feed_type="tech"):
     """加载指定类型的 RSS 源配置
 
     Args:
-        feed_type: "tech" | "wechat"
+        feed_type: "tech" | "podcast" | "wechat"
 
     Returns:
         dict: 配置数据
     """
     config_map = {
         "tech": "tech_feeds.json",
+        "podcast": "podcast_feeds.json",
         "wechat": "wechat_feeds.json",
     }
     filename = config_map.get(feed_type, "tech_feeds.json")
