@@ -59,7 +59,7 @@ RSS/WeChat/Podcast feeds
 
 | 源类型 | 规模 | 配置文件 | 说明 |
 |--------|------|---------|------|
-| 科技新闻 | 268+ RSS + Hacker News | `config/tech_feeds.json` | 含 15 个分类，支持优先级 |
+| 科技新闻 | 257 RSS + Hacker News | `config/tech_feeds.json` | 含 9 个分类，支持优先级 |
 | 播客 | 1000 中文播客 | `config/podcast_feeds.json` | RSS + 小宇宙链接解析 |
 | 微信公众号 | ~395 个 | `config/wechat_feeds.json` | 通过 Wechat2RSS 获取 |
 
@@ -93,7 +93,7 @@ RSS/WeChat/Podcast feeds
 │   ├── date_utils.py        # 日期工具
 │   └── logging_config.py    # 日志配置
 ├── config/                  # 配置
-│   ├── prompts/             # LLM Prompt 模板（7 个）
+│   ├── prompts/             # LLM Prompt 模板（9 个）
 │   ├── tech_feeds.json      # 科技 RSS 源
 │   ├── podcast_feeds.json   # 播客源
 │   └── wechat_feeds.json    # 微信公众号源
@@ -137,7 +137,7 @@ RSS/WeChat/Podcast feeds
 |--------|--------|------|
 | `LLM_TIMEOUT_SECONDS` | `180` | 单次 LLM 请求超时 |
 | `LLM_MAX_RETRIES` | `4` | 可重试错误的最大重试次数 |
-| `LLM_MAX_CONCURRENCY` | `2` | 全局 LLM 并发上限 |
+| `LLM_MAX_CONCURRENCY` | `3` | 全局 LLM 并发上限 |
 | `LLM_RETRY_BASE_SECONDS` | `2` | 指数退避起始秒数 |
 | `LLM_RETRY_MAX_SECONDS` | `30` | 单次退避最大等待 |
 | `LLM_DEGRADE_AFTER_FAILURES` | `3` | 临时错误累计达到阈值后切入降级模式 |

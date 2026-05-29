@@ -43,11 +43,12 @@ Each article and cluster receives an importance score (0.0 - 1.0).
 
 | Factor | Weight | Description |
 |---|---|---|
-| Source Authority | 0.25 | Known authoritative source (official blogs, tier-1 tech media) vs aggregator |
-| Cross-Source Corroboration | 0.25 | Multiple independent sources reporting the same event = higher importance |
-| Cluster Size | 0.20 | Larger clusters = more attention on the topic = more important |
-| Keyword Signal Strength | 0.15 | Matches high-signal keywords (new model release, breakthrough, acquisition) |
-| Novelty | 0.15 | First report of a new development vs. follow-up analysis |
+| Source Authority | 0.27 | Known authoritative source (official blogs, tier-1 tech media) vs aggregator |
+| Cross-Source Corroboration | 0.23 | Multiple independent sources reporting the same event = higher importance |
+| Cluster Heat | 0.18 | Larger clusters = more attention on the topic = more important |
+| Keyword Signal Strength | 0.13 | Matches high-signal keywords (new model release, breakthrough, acquisition) |
+| Title Relevance | 0.10 | Title contains AI/tech related terms; off-topic titles penalized |
+| Novelty | 0.09 | First report of a new development vs. follow-up analysis |
 
 ### Source Authority Tiers
 

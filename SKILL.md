@@ -13,7 +13,7 @@ description: |
 
 | 源 | 规模 | 命令 |
 |----|------|------|
-| 科技新闻 | 268+ RSS + HN | `python main.py --source tech` |
+| 科技新闻 | 257 RSS + HN | `python main.py --source tech` |
 | 播客 | 1000 中文播客 | `python main.py --source podcast` |
 | 全部 | 所有源 | `python main.py --source all` |
 
@@ -137,7 +137,6 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 │   ├── html_utils.py        # HTML 解析
 │   ├── workspace.py         # 工作空间管理
 │   ├── date_utils.py        # 日期工具
-│   └── dedup.py             # 文章去重
 ├── config/                  # 源配置 + Prompt 模板
 │   ├── prompts/             # Prompt 模板（独立模块）
 │   │   ├── ai_filter.py     #   AI 过滤 prompt
@@ -147,10 +146,10 @@ Use json.dump() with ensure_ascii=False, encoding="utf-8".
 │   │   ├── narrative.py     #   叙事 prompt
 │   │   ├── llm_classify.py  #   分类评分 prompt
 │   │   └── podcast_theme.py #   播客主题 prompt
-│   ├── tech_feeds.json      # 268+ 科技 RSS
+│   ├── tech_feeds.json      # 257 科技 RSS
 │   ├── podcast_feeds.json   # 1000 播客
 │   └── wechat_feeds.json    # 微信公众号
-├── tests/                   # 测试套件（pytest, 13 文件）
+├── tests/                   # 测试套件（pytest, 14 文件）
 ├── knowledge/               # 知识库
 ├── workspace/               # 运行时中间文件
 └── daily-digests/           # 报告输出

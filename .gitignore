@@ -27,7 +27,6 @@ daily-digests/**/*.md
 !daily-digests/.gitkeep
 !daily-digests/tech/.gitkeep
 !daily-digests/podcast/.gitkeep
-!daily-digests/podcast_audio/.gitkeep
 
 # OS
 .DS_Store
